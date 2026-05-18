@@ -373,6 +373,12 @@ def parse_pdf_with_document_ai(pdf_bytes, filename):
             markdown_parts.append(doc.text)
 
         markdown = "\n".join(markdown_parts)
+
+        # Diagnostic: hash the markdown so we can verify determinism across runs
+        import hashlib
+        md_hash = hashlib.md5(markdown.encode()).hexdigest()[:12]
+        print(f"[DocAI] Markdown hash for {filename}: {md_hash} ({len(markdown)} chars)")
+
         cache_path.write_text(markdown)
         return markdown
 
@@ -794,6 +800,47 @@ If a spike is detected:
 - DO include the spike in the T12 total (because T12 is the trailing reality, not the run-rate forecast).
 
 - This is symmetric with how expense spikes are handled — flag, don't auto-strip the historical, but exclude from annualized forecasts.
+
+### CROSS-CHECK OUTPUT (mandatory)
+
+- In addition to the standard JSON output, include a "sourceMapping" object that shows, for each major line item, which source column/cell the dollar value came from. Format:
+
+"sourceMapping": [
+  "gpr": "Rent Roll page 8 'Total Possible Rent' $125,695 × 12 = $1,508,940",
+  "reTaxes": "T-12 col 'T-12 Ended 5/23' row '6810·TAXES-PROPERTY' = $44,798",
+  "insurance": "T-12 col 'T-12 Ended 5/23' row '6450 INSURANCE' = $50,462",
+  ...
+]
+
+This lets the reviewer trace every number back to its source.
+
+### GPR — MULTI-COLUMN SPREADSHEET DISAMBIGUATION (READ CAREFULLY)
+
+Seller financials often contain MULTIPLE potential GPR figures. You must pick
+the right one. Common traps:
+
+1. **Multiple T-12 columns in one spreadsheet:**
+   The seller may show several annual periods side-by-side (e.g. "T-12 Ended 9/22",
+   "T-12 Ended 5/23", "Oct 22 - May 23"). Use the MOST RECENT T-12 ending date.
+   The "Oct 22 - May 23"-style header is a PARTIAL period (8 months) — IGNORE it.
+   The "T-12 Ended X/YY" column is the annual figure — USE THAT.
+
+2. **Rent roll totals are MONTHLY, not annual:**
+   A rent roll's "Total Possible Rent" or "Totals for [property]" row shows the
+   MONTHLY rent roll total. To get annual GPR from the rent roll, multiply by 12.
+
+3. **Sanity check (MANDATORY — apply for every deal):**
+   - Expected Annual GPR ≈ Total Units × Average Lot Rent × 12
+   - For Las Brisas: 295 units × ~$450/mo × 12 = ~$1.59M annual
+   - If your parsed GPR is < 50% of this expected figure, you have grabbed the
+     wrong column. Re-check the source and pick the column that matches the
+     expected magnitude.
+   - Output a note explaining which column/source you used and why.
+
+4. **Sub-line items with the property name:**
+   A line labeled "RENTAL INCOME [PROPERTY NAME]" or "4015 · RENTAL INCOME LAS
+   BRISAS" is STILL rental income. Bucket it under Gross Potential Rent, not
+   Other Income. The property name in the label does not change the category.
 
 ### DATA QUALITY CROSS-CHECKS (run these first, before any underwriting math)
 
