@@ -115,8 +115,9 @@
           <input id="city" placeholder="City" class="input-field col-span-2 rounded-lg px-4 py-2 text-sm">
           <input id="state" placeholder="ST" maxlength="2" class="input-field rounded-lg px-4 py-2 text-sm uppercase">
         </div>
-        <div class="grid grid-cols-2 gap-2">
+        <div class="grid grid-cols-3 gap-2">
           <input id="units" type="number" placeholder="Total Units" class="input-field rounded-lg px-4 py-2 text-sm">
+          <input id="poh_count" type="number" placeholder="POH Count" class="input-field rounded-lg px-4 py-2 text-sm" title="Number of Park-Owned Homes. Enter 0 if all tenant-owned (TOH).">
           <input id="asking_price" type="number" placeholder="Asking Price ($)" class="input-field rounded-lg px-4 py-2 text-sm">
         </div>
       </div>
@@ -401,6 +402,7 @@
     fd.append('city',     document.getElementById('city').value);
     fd.append('state',    document.getElementById('state').value);
     fd.append('units',    document.getElementById('units').value);
+    fd.append('poh_count', document.getElementById('poh_count').value || '0');
     fd.append('asking_price', document.getElementById('asking_price').value);
     fd.append('flood_zone',   document.getElementById('flood_zone').value);
     state.files.forEach(f => fd.append('files', f));
