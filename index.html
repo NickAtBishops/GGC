@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GGC Deal Engine v5 | AI-Powered MHP Underwriting</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+    body { font-family: 'Inter', sans-serif; }
+    .gradient-bg {
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+      background-attachment: fixed;
+    }
+    .card {
+      background: rgba(30, 41, 59, 0.6);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(71, 85, 105, 0.3);
+    }
+    .input-field {
+      background: rgba(15, 23, 42, 0.8);
+      border: 1px solid rgba(71, 85, 105, 0.4);
+      transition: all 0.15s ease;
+    }
+    .input-field:focus {
+      border-color: #3b82f6;
+      outline: none;
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+      transition: all 0.15s ease;
+    }
+    .btn-primary:hover:not(:disabled) {
+      background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+      transform: translateY(-1px);
+    }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-amber {
+      background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+      color: #0f172a;
+    }
+    .btn-amber:hover { background: linear-gradient(135deg, #d97706 0%, #b45309 100%); }
+    .drop-zone { transition: all 0.15s ease; }
+    .drop-zone.dragging {
+      border-color: #3b82f6;
+      background: rgba(59, 130, 246, 0.1);
+    }
+    .pulse-dot {
+      animation: pulse-dot 1.5s ease-in-out infinite;
+    }
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: rgba(30, 41, 59, 0.5); }
+    ::-webkit-scrollbar-thumb { background: rgba(100, 116, 139, 0.5); border-radius: 3px; }
+  </style>
+</head>
+<body class="gradient-bg min-h-screen text-slate-100">
+
+<div class="max-w-6xl mx-auto p-6">
+
+  <!-- Header -->
+  <div class="flex items-center justify-between mb-8">
+    <div class="flex items-center gap-4">
+      <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center shadow-lg">
+        <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/>
+        </svg>
+      </div>
+      <div>
+        <h1 class="text-2xl font-bold">GGC Deal Engine</h1>
+        <p class="text-slate-400 text-sm">Claude Opus 4.7 · Parallel analysis · Template-filled output</p>
+      </div>
+    </div>
+    <div id="api-status" class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-red-500/10 border border-red-500/30">
+      <div class="w-2 h-2 rounded-full bg-red-400"></div>
+      <span class="text-xs text-red-400">No API Key</span>
+    </div>
+  </div>
+
+  <!-- API Key -->
+  <div class="card rounded-xl p-5 mb-6">
+    <label class="flex items-center gap-2 text-sm font-semibold mb-3">
+      <svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/>
+      </svg>
+      Anthropic API Key
+    </label>
+    <div class="flex gap-2">
+      <input id="api-key" type="password" placeholder="sk-ant-api03-..."
+             class="input-field flex-1 rounded-lg px-4 py-2.5 text-sm">
+      <button onclick="saveApiKey()" class="btn-primary px-5 py-2.5 rounded-lg text-sm font-semibold">Save</button>
+    </div>
+    <p class="text-xs text-slate-500 mt-2">Key is saved in browser localStorage and sent to your local backend only.</p>
+  </div>
+
+  <!-- Property Info + File Upload -->
+  <div class="grid md:grid-cols-2 gap-6 mb-6">
+
+    <!-- Property Info -->
+    <div class="card rounded-xl p-5">
+      <h2 class="text-sm font-semibold mb-4 flex items-center gap-2">
+        <svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
+        </svg>
+        Property Information
+      </h2>
+      <div class="space-y-3">
+        <input id="property_name" placeholder="Property Name" class="input-field w-full rounded-lg px-4 py-2 text-sm">
+        <input id="address" placeholder="Street Address" class="input-field w-full rounded-lg px-4 py-2 text-sm">
+        <div class="grid grid-cols-3 gap-2">
+          <input id="city" placeholder="City" class="input-field col-span-2 rounded-lg px-4 py-2 text-sm">
+          <input id="state" placeholder="ST" maxlength="2" class="input-field rounded-lg px-4 py-2 text-sm uppercase">
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <input id="units" type="number" placeholder="Total Units" class="input-field rounded-lg px-4 py-2 text-sm">
+          <input id="asking_price" type="number" placeholder="Asking Price ($)" class="input-field rounded-lg px-4 py-2 text-sm">
+        </div>
+      </div>
+    </div>
+
+    <!-- File Upload -->
+    <div class="card rounded-xl p-5">
+      <h2 class="text-sm font-semibold mb-4 flex items-center gap-2">
+        <svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+        </svg>
+        Deal Documents
+      </h2>
+      <div id="drop-zone" class="drop-zone border-2 border-dashed border-slate-600 rounded-lg p-6 text-center cursor-pointer hover:border-blue-500">
+        <input id="file-input" type="file" multiple accept=".pdf,.xlsx,.xls,.csv,.png,.jpg,.jpeg" class="hidden">
+        <svg class="w-10 h-10 mx-auto mb-2 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+        </svg>
+        <p class="text-sm text-slate-400">Drop T12, rent roll, or P&L files here</p>
+        <p class="text-xs text-slate-500 mt-1">PDF, Excel, CSV, or images</p>
+      </div>
+      <div id="file-list" class="mt-3 space-y-1"></div>
+    </div>
+
+  </div>
+
+  <!-- Action Button -->
+  <div class="mb-6">
+    <button id="analyze-btn" onclick="startAnalysis()" disabled
+            class="btn-primary w-full py-3.5 rounded-xl text-base font-semibold flex items-center justify-center gap-2">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+      </svg>
+      Analyze Deal
+    </button>
+  </div>
+
+  <!-- Status / Progress Panel -->
+  <div id="status-panel" class="card rounded-xl p-5 mb-6 hidden">
+    <div class="flex items-center gap-3 mb-4">
+      <div class="pulse-dot w-3 h-3 rounded-full bg-blue-400"></div>
+      <h3 class="font-semibold">Processing</h3>
+      <span id="elapsed" class="text-xs text-slate-500 ml-auto"></span>
+    </div>
+    <div class="space-y-2">
+      <div id="step-upload" class="flex items-center gap-3 text-sm text-slate-400">
+        <div class="step-icon w-5 h-5 rounded-full border-2 border-slate-600"></div>
+        Uploading files
+      </div>
+      <div id="step-parallel" class="flex items-center gap-3 text-sm text-slate-400">
+        <div class="step-icon w-5 h-5 rounded-full border-2 border-slate-600"></div>
+        Parallel AI analysis (financials + market research)
+      </div>
+      <div id="step-fill" class="flex items-center gap-3 text-sm text-slate-400">
+        <div class="step-icon w-5 h-5 rounded-full border-2 border-slate-600"></div>
+        Filling GGC template
+      </div>
+      <div id="step-complete" class="flex items-center gap-3 text-sm text-slate-400">
+        <div class="step-icon w-5 h-5 rounded-full border-2 border-slate-600"></div>
+        Ready to download
+      </div>
+    </div>
+    <div id="status-detail" class="mt-4 text-xs text-slate-500 font-mono"></div>
+  </div>
+
+  <!-- Results Panel -->
+  <div id="results-panel" class="card rounded-xl p-5 mb-6 hidden">
+    <div class="flex items-center gap-3 mb-4">
+      <div class="w-8 h-8 rounded-full bg-green-500/20 flex items-center justify-center">
+        <svg class="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/>
+        </svg>
+      </div>
+      <h3 class="text-lg font-semibold">Analysis Complete</h3>
+    </div>
+
+    <div id="results-summary" class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5"></div>
+
+    <div class="grid md:grid-cols-2 gap-4 mb-5">
+      <div class="bg-slate-900/50 rounded-lg p-4">
+        <h4 class="text-xs font-semibold text-slate-400 uppercase mb-2">Diligence Flags</h4>
+        <div id="flags-list" class="space-y-2 text-sm"></div>
+      </div>
+      <div class="bg-slate-900/50 rounded-lg p-4">
+        <h4 class="text-xs font-semibold text-slate-400 uppercase mb-2">Comps Found</h4>
+        <div id="comps-summary" class="text-sm space-y-2"></div>
+      </div>
+    </div>
+
+    <button id="download-btn" class="btn-amber w-full py-3 rounded-lg font-semibold flex items-center justify-center gap-2">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+      </svg>
+      Download GGC UW Sizer (.xlsx)
+    </button>
+  </div>
+
+  <!-- Error Panel -->
+  <div id="error-panel" class="card rounded-xl p-5 border-red-500/30 hidden">
+    <div class="flex items-start gap-3">
+      <svg class="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+      </svg>
+      <div class="flex-1">
+        <h3 class="font-semibold text-red-400 mb-1">Analysis Failed</h3>
+        <p id="error-msg" class="text-sm text-slate-300"></p>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  // ═══════════════ STATE ═══════════════
+  const state = {
+    apiKey: localStorage.getItem('anthropic_api_key') || '',
+    files: [],
+    jobId: null,
+    pollInterval: null,
+    startTime: null,
+  };
+
+  const PROPERTY_FIELDS = ['property_name', 'address', 'city', 'state', 'units', 'asking_price'];
+
+  // ═══════════════ INIT ═══════════════
+  // Load any backend-configured default API key (from DEFAULT_ANTHROPIC_KEY in backend.py)
+  fetch('/api/config').then(r => r.json()).then(cfg => {
+    // Only use the default if the user hasn't already saved their own key
+    if (!state.apiKey && cfg.default_api_key) {
+      state.apiKey = cfg.default_api_key;
+      document.getElementById('api-key').value = cfg.default_api_key;
+      localStorage.setItem('anthropic_api_key', cfg.default_api_key);
+      updateApiStatus(true);
+      validateForm();
+    }
+  }).catch(() => {});
+
+  // Restore property fields from localStorage so they persist across reloads
+  PROPERTY_FIELDS.forEach(id => {
+    const saved = localStorage.getItem('property_' + id);
+    if (saved !== null) {
+      document.getElementById(id).value = saved;
+    }
+  });
+
+  // Save property fields to localStorage on every change
+  PROPERTY_FIELDS.forEach(id => {
+    document.getElementById(id).addEventListener('input', () => {
+      localStorage.setItem('property_' + id, document.getElementById(id).value);
+      validateForm();
+    });
+  });
+
+  if (state.apiKey) {
+    document.getElementById('api-key').value = state.apiKey;
+    updateApiStatus(true);
+  }
+  setupDropZone();
+  validateForm();
+
+  function updateApiStatus(connected) {
+    const el = document.getElementById('api-status');
+    if (connected) {
+      el.className = 'flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-500/10 border border-green-500/30';
+      el.innerHTML = '<div class="w-2 h-2 rounded-full bg-green-400"></div><span class="text-xs text-green-400">API Connected</span>';
+    } else {
+      el.className = 'flex items-center gap-2 px-3 py-1.5 rounded-full bg-red-500/10 border border-red-500/30';
+      el.innerHTML = '<div class="w-2 h-2 rounded-full bg-red-400"></div><span class="text-xs text-red-400">No API Key</span>';
+    }
+  }
+
+  function saveApiKey() {
+    const key = document.getElementById('api-key').value.trim();
+    if (!key) return;
+    state.apiKey = key;
+    localStorage.setItem('anthropic_api_key', key);
+    updateApiStatus(true);
+    validateForm();
+  }
+
+  // ═══════════════ FILE HANDLING ═══════════════
+  function setupDropZone() {
+    const dz = document.getElementById('drop-zone');
+    const input = document.getElementById('file-input');
+
+    dz.addEventListener('click', () => input.click());
+    input.addEventListener('change', e => addFiles(e.target.files));
+
+    dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('dragging'); });
+    dz.addEventListener('dragleave', () => dz.classList.remove('dragging'));
+    dz.addEventListener('drop', e => {
+      e.preventDefault();
+      dz.classList.remove('dragging');
+      addFiles(e.dataTransfer.files);
+    });
+  }
+
+  function addFiles(fileList) {
+    for (const f of fileList) {
+      state.files.push(f);
+    }
+    renderFileList();
+    validateForm();
+  }
+
+  function removeFile(idx) {
+    state.files.splice(idx, 1);
+    renderFileList();
+    validateForm();
+  }
+
+  function renderFileList() {
+    const el = document.getElementById('file-list');
+    el.innerHTML = state.files.map((f, i) => `
+      <div class="flex items-center justify-between bg-slate-900/40 rounded px-3 py-2 text-sm">
+        <span class="truncate flex-1">${f.name}</span>
+        <span class="text-xs text-slate-500 mx-3">${(f.size/1024).toFixed(0)} KB</span>
+        <button onclick="removeFile(${i})" class="text-slate-500 hover:text-red-400">✕</button>
+      </div>
+    `).join('');
+  }
+
+  // ═══════════════ FORM VALIDATION ═══════════════
+  function validateForm() {
+    const btn = document.getElementById('analyze-btn');
+    btn.disabled = !(state.apiKey && state.files.length > 0);
+  }
+
+  // (Property field listeners are installed in INIT above to also persist values)
+
+  // ═══════════════ ANALYSIS ═══════════════
+  async function startAnalysis() {
+    const btn = document.getElementById('analyze-btn');
+    btn.disabled = true;
+    document.getElementById('status-panel').classList.remove('hidden');
+    document.getElementById('results-panel').classList.add('hidden');
+    document.getElementById('error-panel').classList.add('hidden');
+    state.startTime = Date.now();
+    startElapsedTimer();
+
+    setStep('upload', 'active');
+
+    const fd = new FormData();
+    fd.append('api_key', state.apiKey);
+    fd.append('property_name', document.getElementById('property_name').value);
+    fd.append('address',  document.getElementById('address').value);
+    fd.append('city',     document.getElementById('city').value);
+    fd.append('state',    document.getElementById('state').value);
+    fd.append('units',    document.getElementById('units').value);
+    fd.append('asking_price', document.getElementById('asking_price').value);
+    state.files.forEach(f => fd.append('files', f));
+
+    try {
+      const res = await fetch('/api/analyze', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Upload failed');
+      state.jobId = data.job_id;
+      setStep('upload', 'done');
+      setStep('parallel', 'active');
+      pollStatus();
+    } catch (e) {
+      showError(e.message);
+    }
+  }
+
+  function pollStatus() {
+    if (state.pollInterval) clearInterval(state.pollInterval);
+    state.pollInterval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/status/${state.jobId}`);
+        const job = await res.json();
+        document.getElementById('status-detail').textContent = job.progress || '';
+
+        if (job.status === 'complete') {
+          clearInterval(state.pollInterval);
+          stopElapsedTimer();
+          setStep('parallel', 'done');
+          setStep('fill', 'done');
+          setStep('complete', 'done');
+          showResults(job.result);
+        } else if (job.status === 'error') {
+          clearInterval(state.pollInterval);
+          stopElapsedTimer();
+          showError(job.error);
+        } else if (job.progress && job.progress.toLowerCase().includes('filling')) {
+          setStep('parallel', 'done');
+          setStep('fill', 'active');
+        }
+      } catch (e) {
+        clearInterval(state.pollInterval);
+        showError(e.message);
+      }
+    }, 1500);
+  }
+
+  function setStep(step, stateStr) {
+    const el = document.getElementById(`step-${step}`);
+    const icon = el.querySelector('.step-icon');
+    if (stateStr === 'active') {
+      el.classList.remove('text-slate-400');
+      el.classList.add('text-blue-400');
+      icon.className = 'step-icon w-5 h-5 rounded-full border-2 border-blue-400 pulse-dot';
+    } else if (stateStr === 'done') {
+      el.classList.remove('text-slate-400', 'text-blue-400');
+      el.classList.add('text-green-400');
+      icon.className = 'step-icon w-5 h-5 rounded-full bg-green-400 flex items-center justify-center';
+      icon.innerHTML = '<svg class="w-3 h-3 text-slate-900" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="4" d="M5 13l4 4L19 7"/></svg>';
+    }
+  }
+
+  function startElapsedTimer() {
+    document.getElementById('elapsed').textContent = '0:00';
+    state.elapsedInterval = setInterval(() => {
+      const secs = Math.floor((Date.now() - state.startTime) / 1000);
+      const m = Math.floor(secs / 60);
+      const s = String(secs % 60).padStart(2, '0');
+      document.getElementById('elapsed').textContent = `${m}:${s}`;
+    }, 1000);
+  }
+
+  function stopElapsedTimer() {
+    if (state.elapsedInterval) clearInterval(state.elapsedInterval);
+  }
+
+  // ═══════════════ RESULTS ═══════════════
+  function showResults(result) {
+    const f = result.financials || {};
+    const m = result.market || {};
+    const pi = f.propertyInfo || {};
+    const rr = f.rentRoll || {};
+    const rentComps = m.rentComps || [];
+    const saleComps = m.saleComps || [];
+
+    // KPI cards
+    const totalInc = (f.income || []).reduce((s, i) => s + (i.ggcUnderwritten || 0), 0);
+    const totalExp = (f.expenses || []).reduce((s, e) => s + (e.ggcUnderwritten || 0), 0);
+    const ggcNoi = totalInc - totalExp;
+    const ask = pi.askingPrice || 0;
+    const capRate = ask ? (ggcNoi / ask) : 0;
+    const pricePerUnit = pi.totalUnits ? (ask / pi.totalUnits) : 0;
+
+    document.getElementById('results-summary').innerHTML = `
+      ${kpiCard('GGC NOI', '$' + Math.round(ggcNoi).toLocaleString())}
+      ${kpiCard('Cap Rate', (capRate * 100).toFixed(2) + '%')}
+      ${kpiCard('$ / Unit', '$' + Math.round(pricePerUnit).toLocaleString())}
+      ${kpiCard('Occupancy', ((rr.occupancyRate || 0) * 100).toFixed(1) + '%')}
+    `;
+
+    // Flags
+    document.getElementById('flags-list').innerHTML = (f.flags || []).slice(0, 5).map(fl => {
+      const color = fl.severity === 'high' ? 'red' : fl.severity === 'medium' ? 'amber' : 'green';
+      return `<div class="flex gap-2">
+        <span class="text-${color}-400 text-xs font-bold uppercase mt-0.5">${fl.severity}</span>
+        <span class="text-slate-300 flex-1">${fl.item}: ${fl.issue}</span>
+      </div>`;
+    }).join('') || '<span class="text-slate-500 text-xs">None flagged.</span>';
+
+    // Comps summary
+    document.getElementById('comps-summary').innerHTML = `
+      <div class="flex justify-between"><span class="text-slate-400">Rent comps:</span><span class="font-semibold">${rentComps.length}</span></div>
+      <div class="flex justify-between"><span class="text-slate-400">Sale comps:</span><span class="font-semibold">${saleComps.length}</span></div>
+      <div class="flex justify-between"><span class="text-slate-400">Avg comp lot rent:</span><span class="font-semibold">$${rentComps.length ? Math.round(rentComps.reduce((s,c) => s + (c.lotRent || 0), 0) / rentComps.length) : 0}</span></div>
+      <div class="flex justify-between"><span class="text-slate-400">Demand signal:</span><span class="font-semibold">${m.demandSignal || '-'}</span></div>
+    `;
+
+    // Download button
+    document.getElementById('download-btn').onclick = () => {
+      window.location.href = result.download_url;
+    };
+
+    document.getElementById('results-panel').classList.remove('hidden');
+    document.getElementById('analyze-btn').disabled = false;
+  }
+
+  function kpiCard(label, value) {
+    return `<div class="bg-slate-900/50 rounded-lg p-3 border border-slate-700/50">
+      <div class="text-xs text-slate-500 uppercase mb-1">${label}</div>
+      <div class="text-xl font-bold text-slate-100">${value}</div>
+    </div>`;
+  }
+
+  function showError(msg) {
+    document.getElementById('error-panel').classList.remove('hidden');
+    document.getElementById('error-msg').textContent = msg;
+    document.getElementById('analyze-btn').disabled = false;
+    stopElapsedTimer();
+  }
+</script>
+
+</body>
+</html>
