@@ -89,32 +89,6 @@ JOBS = {}
 app = Flask(__name__, static_folder=".", static_url_path="")
 CORS(app)
 
-# Shut down python server once tab closes
-import threading
-import time
-
-_last_heartbeat = [time.time()]  # mutable container so the closure can update it
-
-@app.route("/api/heartbeat", methods=["POST"])
-def heartbeat():
-    _last_heartbeat[0] = time.time()
-    return "", 204
-
-@app.route("/api/shutdown", methods=["POST"])
-def shutdown():
-    threading.Thread(target=lambda: (time.sleep(1), os._exit(0)), daemon=True).start()
-    return "", 204
-
-def _watchdog():
-    while True:
-        time.sleep(5)
-        if time.time() - _last_heartbeat[0] > 15:  # no ping for 15 sec
-            print("[watchdog] No heartbeat — shutting down.")
-            os._exit(0)
-
-# At the bottom, before app.run():
-threading.Thread(target=_watchdog, daemon=True).start()
-
 # ═══════════════════════════════════════════════════════════════════════════
 # GOOGLE MAPS HELPERS
 # ═══════════════════════════════════════════════════════════════════════════

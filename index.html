@@ -321,18 +321,6 @@
     validateForm();
   }
 
-  // # Shut down python server once tab closes
-  // Heartbeat — tells the backend the tab is still open
-  setInterval(() => {
-    fetch('/api/heartbeat', { method: 'POST', keepalive: true })
-      .catch(() => {});  // ignore network errors
-  }, 3000);
-
-  // Final beacon on tab close — best-effort
-  window.addEventListener('beforeunload', () => {
-    navigator.sendBeacon('/api/shutdown');
-  });
-
   // ═══════════════ FILE HANDLING ═══════════════
   function setupDropZone() {
     const dz = document.getElementById('drop-zone');
