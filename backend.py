@@ -468,13 +468,33 @@ CRITICAL OUTPUT RULES:
 
 ## GGC Underwriting Methodology
 
-### COLLECTIONS (Gross Potential Rent + Vacancy/Bad Debt)
-- If collections are TRENDING UP month over month: use T3 annualized (last 3 months / 3 * 12)
-- If collections are FLAT or FLUCTUATING: use T12 as-is
-- If collections are TRENDING DOWN: use T3 annualized, but flag it heavily — ask why collections are declining
-- If there is a distorting one-time item in the T3 period (e.g. a positive bad debt recovery where a tenant paid back a large balance, inflating one month): use T6 annualized instead of T3 to avoid overstating income
-- Gross Potential Rent is pulled directly from the rent roll — sum of all occupied units at their contracted rent PLUS all vacant units at market rent. This is the ceiling number assuming 100% occupancy.
-- Back out physical vacancy (occupied vs total sites), concessions, and bad debt separately as negative line items
+### COLLECTIONS METHODOLOGY (NRI = Net Rental Income)
+
+Follow this exact 4-step sequence. Do not deviate.
+
+DEFINITIONS:
+- NRI (Net Rental Income) = GPR − Vacancy − Concessions − Bad Debt. This is the standard industry term; many sellers and brokers refer to "collections" when they mean NRI.
+- EGI (Effective Gross Income) = NRI + Other Income.
+- Other Income excludes Home Rent (Home Rent is its own income stream and gets bifurcated, see POH section).
+
+STEP 1 — GPR (Gross Potential Rent):
+- Pull directly from the rent roll. Sum of all occupied units at contracted lot rent PLUS all vacant units at market rent. If a vacant unit shows $0 market rent, impute it as the average of occupied lot rents within the same unit type. This is the 100%-occupied ceiling.
+
+STEP 2 — Physical Vacancy:
+ - Set from the rent roll occupancy. This is the actual physical vacancy at the property today (vacant units × market rent, as a negative line item). Do NOT use historical vacancy from the P&L for this line — physical vacancy ties to the rent roll only.
+
+STEP 3 — Concessions:
+Tie directly to T12 historical concessions. No annualization adjustment, no trend factor. If concessions are zero in the T12, set to zero.
+
+STEP 4 — Bad Debt (the "what-if" / goal-seek step):
+- This is the plug that makes underwritten NRI tie to the trend in historical collections. The logic:
+  (a) Calculate underwritten NRI target: if collections are trending UP, target = T3 annualized. If flat/fluctuating, target = T12. If trending DOWN, target = T3 annualized AND flag heavily (ask why collections are declining).
+  (b) Solve for Bad Debt so that: GPR − Physical Vacancy − Concessions − Bad Debt = Target NRI.
+  (c) The resulting Bad Debt is the underwritten figure. Sanity check it against historical bad debt — if the underwritten bad debt diverges materially from what the seller's P&L shows, flag it. A large divergence usually means either (i) the seller is hiding something, (ii) physical occupancy changed recently, or (iii) the T3 trend is being driven by a one-time event.
+
+- If there is a distorting one-time item in the T3 window (e.g. a one-month bad debt recovery that inflates a single month), use T6 annualized as the NRI target instead of T3, and note it.
+
+- Output a "notes" field on the Bad Debt line item showing: which NRI target was used (T3/T6/T12), the target $ figure, and any flags.
 
 ### OTHER INCOME
 - All other income items (laundry, application fees, pet fees, month-to-month premiums, storage, etc.): use T12 as-is, no annualization adjustment
@@ -485,26 +505,46 @@ CRITICAL OUTPUT RULES:
 - The 3% reflects standard annual inflation assumption going into year one of ownership
 - If an expense line appears materially above or below market on a per-unit basis, flag it and use your judgment — do not blindly apply T12 * 1.03 if the number is clearly distorted
 
-### TAXES
-- Do NOT use the seller's historical tax number — it will likely increase significantly after acquisition
-- When a property is sold, the county assessor sees the transaction and may reassess the property value upward
-- New assessed value is typically 60-70% of the purchase price (varies by county)
-- Apply the same local tax rate to the new estimated assessed value to get the underwritten tax expense
-- Note: Cook County IL is aggressive — reassesses frequently and chases sales. Other counties may reassess only every 10 years. Flag the county's reassessment methodology as a diligence item.
-- Formula: Underwritten Taxes = (Purchase Price * 0.65) * Local Tax Rate
-- If the county assessor data is available (parcel number lookup), use actual current assessed value as a cross-check
+### TAXES (post-acquisition reassessment)
+
+- Underwritten taxes must reflect post-sale reassessment, not the seller's historical number.
+
+- PRIMARY METHOD:
+  - Underwritten Taxes = (Purchase Price × 0.65) × Local Tax Rate
+
+- The new assessed value is typically 60-70% of purchase price; use 65% as the default. Apply the local tax rate (look up the millage rate or effective rate for the county/township).
+
+- FALLBACK RULE (when you cannot find a clean tax rate or when the calculation looks suspect):
+  - Underwritten Taxes = Historical T12 Taxes × 1.15
+
+- SANITY CHECK (always apply):
+  - If the primary method produces a number LOWER than historical T12 taxes, the primary method is wrong. Override it with: Historical T12 Taxes × 1.15. Reassessment after a sale never reduces taxes — if your math says it does, the millage rate or assessed value ratio is off.
+
+NOTES:
+- Cook County IL is aggressive: assesses at 10% of market value, then multiplies by a state equalization factor of ~3x, then applies the tax rate. Cook County also chases sales — flag any Cook County property as a high-reassessment-risk diligence item.
+- Other counties may only reassess every 10 years.
+- If a parcel number is available from the seller's tax bill, use it to look up current assessed value as a cross-check.
+- Always show both methods in the notes field so Michael can sanity-check.
 
 ### INSURANCE
-- Use T12 * 1.05 (5% inflation, not 3% — insurance has been rising faster than general inflation)
-- Note: GGC may be able to obtain better pricing than the seller through their portfolio umbrella policy — flag this as a potential expense reduction opportunity if the seller's insurance seems high on a per-unit basis
-- Lenders will require insurance as a condition of financing
+
+- Default: T12 × 1.05 (insurance has been inflating faster than general inflation).
+
+- FLOOD ZONE OVERRIDE:
+- If the property is in a FEMA flood zone (anything OTHER than Zone X), trend insurance by an additional 15%:
+  - Underwritten Insurance = T12 × 1.05 × 1.15 = T12 × 1.2075
+
+- Zone X = no special flood hazard, no override needed. Zones A, AE, AH, AO, AR, A99, V, VE = special flood hazard, apply the override.
+
+- The user will indicate flood zone status via a yes/no input in the form. If "yes," apply the override. If "no," use the base T12 × 1.05. If unknown, default to no override but flag "verify flood zone status via FEMA flood map" as a diligence item.
+
+- NOTE: GGC may obtain better pricing than the seller through their portfolio umbrella policy — if the seller's per-unit insurance figure is materially above market (rough benchmark: $200-300/unit/year for MHC), flag this as a potential expense reduction opportunity.
 
 ### MANAGEMENT FEE
-- Override the seller's management fee entirely — use GGC's standard rate
-- Properties under 200 sites: 5% of Effective Gross Income (EGI)
-- Properties 200 sites or more: 4% of Effective Gross Income (EGI)
-- EGI = Gross Potential Rent - Vacancy - Concessions - Bad Debt + Other Income
-- This fee funds GGC's office, payroll, and operational infrastructure
+Override the seller's management fee entirely.
+- Properties under 200 sites: 5% of EGI
+- Properties 200 sites or more: 4% of EGI
+- EGI = NRI + Other Income (where NRI = GPR − Vacancy − Concessions − Bad Debt)
 
 ### REPAIR & MAINTENANCE / GROUND MAINTENANCE
 - These are discretionary line items — apply judgment, do not blindly use T12 * 1.03
@@ -513,6 +553,27 @@ CRITICAL OUTPUT RULES:
 - Use per-unit benchmarks as a sanity check — flag if R&M is materially above or below typical range
 - R&M covers: road repairs, pothole patching, cement work, common area repairs, occasionally home repairs that get charged back to tenants
 - Ground Maintenance covers: landscaping, lawn care, tree trimming, snow removal, etc.
+
+HOME RENT EXPENSE RE-BUCKETING:
+Scan all expense line items for labels containing "home," "POH," "park-owned home," "home repairs," "RM Home," or similar. These are NOT general R&M — they belong in the Home Rent Expense bucket (GGC category: "Home Rent Expense (MH)"), not in the general "Repair and Maintenance" line.
+
+Examples to re-bucket:
+- "RM Home Repairs" → Home Rent Expense (MH)
+- "POH Maintenance" → Home Rent Expense (MH)
+- "Home Renovations" → Home Rent Expense (MH)
+
+Items that stay in general R&M:
+- "RM Community" → Repair and Maintenance
+- "Road Repairs" → Repair and Maintenance
+- "Common Area" → Repair and Maintenance
+
+When in doubt, flag the line item and ask in the questions array.
+
+POH percentage cross-check: If POH > 20% and you see no Home Rent Expense in the seller's financials, assume home expenses are embedded inside general R&M and flag it. Expense ratio benchmarks:
+- All-TOH (no park-owned homes): 25-35% expense ratio
+- Mixed (some POH): 35-40% expense ratio  
+- High POH (40%+): 45-50% expense ratio
+- If actual expense ratio is materially above these benchmarks for the POH mix, flag "expenses appear inflated by hidden home rent costs."
 
 ### PAYROLL
 - Typically one on-site manager per community
@@ -534,6 +595,29 @@ CRITICAL OUTPUT RULES:
 - Replace current contracted lot rents with market rents (from rent comps) to show what the property generates at full market occupancy and market rents
 - This is the "ceiling" valuation — what is this worth once the value-add plan is fully executed
 - Stabilized cap rate = Stabilized NOI / Purchase Price — this tells you the ingoing cap rate on a fully stabilized basis
+
+### STABILIZED YIELD ON COST (critical decision metric)
+
+- In addition to Stabilized NOI, compute Stabilized Yield on Cost:
+  - Stabilized Yield on Cost = Stabilized NOI / (Purchase Price + CapEx Reserve)
+
+- Why "on cost" not "on price": the CapEx reserve is real money GGC has to raise and deploy to reach the stabilized state. Total cost basis is the honest denominator.
+
+- Also compute Ingoing Cap Rate:
+  - Ingoing Cap Rate = Underwritten (year-1) NOI / Purchase Price
+
+- The decision metric is the SPREAD:
+  - Spread = Stabilized Yield on Cost − Ingoing Cap Rate
+
+- GGC's rule: the spread must be at least 200 basis points (2.00%) for the deal to clear. If the spread is below 200 bps, flag it as a hard "DOES NOT MEET INVESTMENT CRITERIA" warning at the top of the output. If the spread is above 200 bps, note how much above (e.g. "+250 bps — meets criteria with 50 bps cushion").
+
+- GGC does NOT pay for value it's creating. The recommended purchase price should be based on the INGOING NOI at market cap rate, NOT the stabilized NOI. The stabilized column is a forward-looking check, not a valuation input.
+
+- Return these in propertyInfo:
+  - ingoingCapRate (decimal)
+  - stabilizedYieldOnCost (decimal)
+  - spreadBps (integer, basis points)
+  - meetsInvestmentCriteria (boolean)
 
 ### CAPEX RESERVE
 - Add a CapEx reserve on top of T12 expenses — this is not in the seller's financials
@@ -578,7 +662,11 @@ CRITICAL OUTPUT RULES:
   "propertyInfo": {{
     "name": "string", "address": "string", "city": "string", "state": "string",
     "county": "string", "totalUnits": integer, "askingPrice": number,
-    "propertyType": "MHC|RV|Hybrid"
+    "propertyType": "MHC|RV|Hybrid",
+    "ingoingCapRate": number,
+    "stabilizedYieldOnCost": number,
+    "spreadBps": integer,
+    "meetsInvestmentCriteria": boolean
   }},
   "income": [
     {{
@@ -624,6 +712,7 @@ def call_parse_financials(api_key, file_blocks, property_info):
 - Address: {property_info.get('address', 'N/A')}
 - Total Units: {property_info.get('units', 'N/A')}
 - Asking Price: ${property_info.get('askingPrice', 'N/A')}
+- Flood Zone Status: {property_info.get('floodZone', 'unknown')}
 
 Parse the attached documents and return the structured JSON."""
     }]
@@ -929,6 +1018,75 @@ def add_comps_analysis_tab(wb, financials, market):
           color="6B7280", size=10, align="center")
     ws.row_dimensions[3].height = 18
 
+    # ── INVESTMENT CRITERIA CHECK (Michael's 200 bps spread rule) ───────────
+    prop_info = financials.get("propertyInfo", {}) or {}
+    ingoing_cap = prop_info.get("ingoingCapRate")
+    stab_yoc = prop_info.get("stabilizedYieldOnCost")
+    spread_bps = prop_info.get("spreadBps")
+    meets_criteria = prop_info.get("meetsInvestmentCriteria")
+
+    crit_start = 5
+    section_header(crit_start, 12, "  INVESTMENT CRITERIA CHECK  —  200 bps spread rule")
+
+    # Headers row
+    crit_headers = ["Ingoing Cap Rate", "Stabilized Yield on Cost", "Spread (bps)", "Hurdle", "Verdict"]
+    for i, h in enumerate(crit_headers):
+        col_header(crit_start + 1, 2 + i, h)
+    # Span the verdict column wider so the pass/fail box is prominent
+    ws.merge_cells(start_row=crit_start + 1, start_column=6, end_row=crit_start + 1, end_column=12)
+    col_header(crit_start + 1, 6, "Verdict")
+    ws.row_dimensions[crit_start + 1].height = 28
+
+    # Values row
+    val_row = crit_start + 2
+    style(ws.cell(row=val_row, column=2), ingoing_cap, bg=LIGHT_YEL, color="0000FF",
+          align="center", size=14, bold=True, fmt="0.00%")
+    style(ws.cell(row=val_row, column=3), stab_yoc, bg=LIGHT_YEL, color="0000FF",
+          align="center", size=14, bold=True, fmt="0.00%")
+    style(ws.cell(row=val_row, column=4),
+          (f"{spread_bps:+,} bps" if isinstance(spread_bps, (int, float)) else "—"),
+          bg=LIGHT_YEL, color="0000FF", align="center", size=14, bold=True)
+    style(ws.cell(row=val_row, column=5), "≥ 200 bps",
+          align="center", size=12, italic=True, color="6B7280")
+
+    # Pass / fail / unknown verdict box — spans cols F through L for visual impact
+    ws.merge_cells(start_row=val_row, start_column=6, end_row=val_row, end_column=12)
+    if meets_criteria is True:
+        verdict_text = "✓ PASSES INVESTMENT CRITERIA"
+        verdict_bg = "16A34A"   # green
+    elif meets_criteria is False:
+        verdict_text = "✗ DOES NOT MEET INVESTMENT CRITERIA"
+        verdict_bg = "DC2626"   # red
+    else:
+        verdict_text = "— INSUFFICIENT DATA TO EVALUATE"
+        verdict_bg = "6B7280"   # gray
+    style(ws.cell(row=val_row, column=6), verdict_text, bold=True, color=WHITE,
+          size=14, bg=verdict_bg, align="center")
+    ws.row_dimensions[val_row].height = 42
+
+    # Explanatory subtext row
+    explain_row = val_row + 1
+    ws.merge_cells(start_row=explain_row, start_column=2, end_row=explain_row, end_column=12)
+    if meets_criteria is True and isinstance(spread_bps, (int, float)):
+        cushion = spread_bps - 200
+        explain_text = (f"Spread is {spread_bps:,} bps — {cushion:+,} bps cushion above the 200 bps hurdle. "
+                        f"Deal clears GGC's go/no-go threshold on stabilized yield economics.")
+    elif meets_criteria is False and isinstance(spread_bps, (int, float)):
+        shortfall = 200 - spread_bps
+        explain_text = (f"Spread is {spread_bps:,} bps — {shortfall:,} bps short of the 200 bps hurdle. "
+                        f"GGC does not pay for value it's creating; this deal would require either a "
+                        f"lower purchase price or a more aggressive stabilized plan to clear.")
+    else:
+        explain_text = ("One or more inputs missing. Verify the model produced both an ingoing cap rate "
+                        "(year-1 underwritten NOI / purchase price) and stabilized yield on cost "
+                        "(stabilized NOI / total cost basis incl. CapEx).")
+    style(ws.cell(row=explain_row, column=2), explain_text, italic=True, color="374151",
+          size=10, wrap=True, v_align="top")
+    ws.row_dimensions[explain_row].height = 36
+
+    # Push the "SUBJECT vs MARKET" section down to avoid overlap
+    # (it starts at row 5 in the original — shift to row 11)
+
     rent_comps = market.get("rentComps", []) or []
     sale_comps = market.get("saleComps", []) or []
 
@@ -956,11 +1114,11 @@ def add_comps_analysis_tab(wb, financials, market):
         n = len(s)
         return s[n//2] if n % 2 else (s[n//2 - 1] + s[n//2]) / 2
 
-    section_header(5, 12, "  SUBJECT vs MARKET — KEY METRICS")
+    section_header(11, 12, "  SUBJECT vs MARKET — KEY METRICS")
     headers = ["Metric", "Subject", "Comp Min", "Comp Max", "Comp Avg", "Comp Median", "Subject Position"]
     for i, h in enumerate(headers):
-        col_header(6, 2 + i, h)
-    ws.row_dimensions[6].height = 28
+        col_header(12, 2 + i, h)
+    ws.row_dimensions[12].height = 28
 
     def positioning(subj, comp_avg):
         if subj is None or comp_avg is None or comp_avg == 0:
@@ -983,7 +1141,7 @@ def add_comps_analysis_tab(wb, financials, market):
          safe_avg(occ_list), safe_median(occ_list), "", LIGHT_GRAY, "0.0%"),
     ]
     for i, m in enumerate(metrics):
-        r = 7 + i
+        r = 13 + i
         style(ws.cell(row=r, column=2), m[0], bold=True, size=10)
         for j in range(5):
             val = m[1 + j]
@@ -993,7 +1151,7 @@ def add_comps_analysis_tab(wb, financials, market):
         ws.row_dimensions[r].height = 18
 
     # ── RENT COMPS TABLE ─────────────────────────────────────────────────────
-    rc_start = 12
+    rc_start = 18
     section_header(rc_start, 12, f"  RENT COMPS  ({len(rent_comps)} found)")
     rc_headers = ["Property", "Location", "Distance", "# Sites", "Lot Rent",
                   "Occupancy", "Year Built", "POH %", "Amenities", "Quality", "Source"]
@@ -1534,6 +1692,7 @@ def analyze():
         "state":       request.form.get("state", ""),
         "units":       request.form.get("units", ""),
         "askingPrice": request.form.get("asking_price", ""),
+        "floodZone":   request.form.get("flood_zone", "unknown"),
     }
 
     if not property_info["city"] or not property_info["state"]:
