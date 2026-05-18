@@ -207,6 +207,7 @@ def call_claude(api_key, system_prompt, user_content, tools=None, use_thinking=T
     headers = {"x-api-key": api_key, "anthropic-version": API_VERSION,
                "content-type": "application/json"}
     body = {"model": MODEL_ID, "max_tokens": MAX_TOKENS, "system": system_prompt,
+            "temperature": 0,
             "messages": [{"role": "user", "content": user_content}],
             "stream": True,}  # Enable streaming for long requests
     if use_thinking:
@@ -603,6 +604,12 @@ Override the seller's management fee entirely.
 - Properties 200 sites or more: 4% of EGI
 - EGI = NRI + Other Income (where NRI = GPR − Vacancy − Concessions − Bad Debt)
 
+DO NOT REASSIGN PAYROLL TO MANAGEMENT FEE:
+- If the seller's P&L has a "Payroll" or "Wages" line, that's on-site staff (manager, maintenance). It stays in the Payroll category.
+- The Management Fee category is GGC's synthetic 4-5% of EGI fee — it's added ON TOP of payroll, not in place of it.
+- If the seller already has a "Management Fee" line, override it with GGC's calculated fee. Do NOT add the seller's mgmt fee number to anything else.
+- Result: every deal has BOTH a Payroll line (from seller actuals) AND a Management Fee line (synthetic GGC override). They are different categories serving different purposes.
+
 ### REPAIR & MAINTENANCE / GROUND MAINTENANCE
 - These are discretionary line items — apply judgment, do not blindly use T12 * 1.03
 - Look for one-time items: a single month with a spike (e.g. $4,000 vs $1,500 in all other months) likely indicates a one-time project. FLAG these per the One-Time Item Handling rule above — do not silently exclude them.
@@ -937,6 +944,181 @@ Pull comps, demographics, alt housing, landmarks, and visual URLs."""
           f"(stop_reason: {response.get('stop_reason', '?')})")
     return extract_json(response)
 
+def call_market_research_merged(api_key, property_info, n_runs=3):
+    """
+    Run market research multiple times in parallel and merge the results.
+    Dedupes rent comps by name, sale comps by name+date, takes the union of
+    landmarks and demographics (most common value wins), and concatenates
+    the narrative conclusions.
+
+    Cost: ~n_runs × single-run cost. Use for high-stakes deals.
+    """
+    print(f"[Claude] Starting {n_runs}× market research merge...")
+    t0 = time.time()
+
+    # Fire all runs in parallel — they're independent and the bottleneck is
+    # network/web-search latency, not local CPU
+    with ThreadPoolExecutor(max_workers=n_runs) as executor:
+        futures = [executor.submit(call_market_research, api_key, property_info)
+                   for _ in range(n_runs)]
+        results = []
+        for i, f in enumerate(as_completed(futures)):
+            try:
+                results.append(f.result())
+                print(f"[Claude] Market research run {i+1}/{n_runs} complete")
+            except Exception as e:
+                print(f"[Claude] Market research run {i+1}/{n_runs} FAILED: {e}")
+                # Continue with however many succeeded — don't lose the whole job
+                # because one of three calls timed out
+
+    if not results:
+        raise RuntimeError(f"All {n_runs} market research runs failed")
+
+    elapsed = time.time() - t0
+    print(f"[Claude] Merged {len(results)} runs in {elapsed:.1f}s")
+
+    return _merge_market_research(results)
+
+
+def _merge_market_research(runs):
+    """
+    Merge logic:
+    - rentComps: union by name (case-insensitive), prefer the run with more fields populated
+    - saleComps: union by name+saleDate, prefer the run with more fields
+    - landmarks: union by type, prefer the closest-distance entry for each type
+    - demographics: take the most common non-null value per field (mode), fall back to first
+    - altHousing: average the numeric fields, take most common for strings
+    - narrative conclusions: concatenate with " | " separator, deduped
+    - demandSignal: majority vote across runs
+    """
+    def _completeness(d):
+        """Score how 'full' a comp dict is — used to break ties between duplicate comps."""
+        return sum(1 for v in d.values() if v not in (None, "", 0))
+
+    # ── RENT COMPS: dedupe by lowercased name, keep most complete version ──
+    rent_by_name = {}
+    for run in runs:
+        for comp in run.get("rentComps", []) or []:
+            key = (comp.get("name") or "").strip().lower()
+            if not key:
+                continue
+            if key not in rent_by_name or _completeness(comp) > _completeness(rent_by_name[key]):
+                rent_by_name[key] = comp
+    merged_rent_comps = sorted(rent_by_name.values(),
+                                key=lambda c: c.get("distance", "999"))
+
+    # ── SALE COMPS: dedupe by name+saleDate, same completeness rule ──
+    sale_by_key = {}
+    for run in runs:
+        for comp in run.get("saleComps", []) or []:
+            key = ((comp.get("name") or "").strip().lower(),
+                   (comp.get("saleDate") or "").strip())
+            if not key[0]:
+                continue
+            if key not in sale_by_key or _completeness(comp) > _completeness(sale_by_key[key]):
+                sale_by_key[key] = comp
+    merged_sale_comps = sorted(sale_by_key.values(),
+                                key=lambda c: c.get("saleDate") or "")
+
+    # ── LANDMARKS: one entry per landmark type, keep closest ──
+    landmark_by_type = {}
+    for run in runs:
+        for lm in run.get("landmarks", []) or []:
+            t = lm.get("type", "")
+            if not t:
+                continue
+            dist = lm.get("distanceMiles") or 999
+            if t not in landmark_by_type or dist < (landmark_by_type[t].get("distanceMiles") or 999):
+                landmark_by_type[t] = lm
+    merged_landmarks = list(landmark_by_type.values())
+
+    # ── DEMOGRAPHICS: mode (most common value) per field, falls back to first non-null ──
+    from collections import Counter
+    def _consensus(field_name, runs_list):
+        values = [r.get("demographics", {}).get(field_name) for r in runs_list]
+        non_null = [v for v in values if v not in (None, "")]
+        if not non_null:
+            return None
+        # For numeric fields, average; for strings, take mode
+        if all(isinstance(v, (int, float)) for v in non_null):
+            return sum(non_null) / len(non_null)
+        if all(isinstance(v, list) for v in non_null):
+            # Lists like majorEmployers — take union, preserve order
+            seen, out = set(), []
+            for v in non_null:
+                for item in v:
+                    if item not in seen:
+                        seen.add(item)
+                        out.append(item)
+            return out
+        # Strings — return most common
+        c = Counter(str(v) for v in non_null)
+        return c.most_common(1)[0][0]
+
+    demo_fields = ["countyName", "countyPopulation", "populationGrowth1yr",
+                    "populationGrowth5yr", "populationGrowth10yr", "populationProjection5yr",
+                    "medianHHIncome", "incomeGrowth5yr", "unemploymentRate",
+                    "unemploymentRate1yrAgo", "povertyRate", "pctHHUnder50k",
+                    "majorEmployers", "majorIndustries", "plannedDevelopments"]
+    merged_demo = {f: _consensus(f, runs) for f in demo_fields}
+
+    # ── ALT HOUSING: average numerics, mode for strings ──
+    alt_fields = ["avgSFHomePrice", "medianSFHomePrice", "homePriceGrowth1yr",
+                   "avgRent1BR", "avgRent2BR", "avgRent3BR",
+                   "apartmentRentGrowth1yr", "apartmentVacancyRate",
+                   "mhpAllInCost", "mhpVsApartmentSavingsPercent"]
+    merged_alt = {}
+    for f in alt_fields:
+        values = [r.get("altHousing", {}).get(f) for r in runs]
+        non_null = [v for v in values if isinstance(v, (int, float))]
+        if non_null:
+            merged_alt[f] = sum(non_null) / len(non_null)
+
+    # ── VISUALS: take first non-empty per field ──
+    visual_fields = ["aerialView", "streetViewEntrance", "streetViewInterior",
+                      "exampleHome1", "exampleHome2", "directions"]
+    merged_visuals = {}
+    for f in visual_fields:
+        for r in runs:
+            v = (r.get("visuals", {}) or {}).get(f)
+            if v:
+                merged_visuals[f] = v
+                break
+
+    # ── NARRATIVE CONCLUSIONS: concat, deduped — different runs caught different angles ──
+    def _merge_narrative(field):
+        seen, parts = set(), []
+        for r in runs:
+            text = (r.get(field) or "").strip()
+            if text and text.lower() not in seen:
+                seen.add(text.lower())
+                parts.append(text)
+        return "  ||  ".join(parts) if parts else ""
+
+    # ── DEMAND SIGNAL: majority vote ──
+    signals = [r.get("demandSignal") for r in runs if r.get("demandSignal")]
+    if signals:
+        signal_vote = Counter(signals).most_common(1)[0][0]
+    else:
+        signal_vote = "MODERATE"
+
+    return {
+        "rentComps": merged_rent_comps,
+        "saleComps": merged_sale_comps,
+        "landmarks": merged_landmarks,
+        "demographics": merged_demo,
+        "altHousing": merged_alt,
+        "visuals": merged_visuals,
+        "marketRentConclusion": _merge_narrative("marketRentConclusion"),
+        "marketCapRateConclusion": _merge_narrative("marketCapRateConclusion"),
+        "demandSignal": signal_vote,
+        "demandRationale": _merge_narrative("demandRationale"),
+        "_meta": {
+            "merge_runs": len(runs),
+            "merged_rent_comps_count": len(merged_rent_comps),
+            "merged_sale_comps_count": len(merged_sale_comps),
+        }
+    }
 
 # ═══════════════════════════════════════════════════════════════════════════
 # TEMPLATE FILLING — uses GGC's actual blank template
@@ -1709,9 +1891,13 @@ def run_analysis_job(job_id, api_key, file_blocks, property_info):
         job["status"] = "running"
         job["progress"] = "Starting parallel analysis..."
 
+        deep_search = property_info.get("deepSearch", "off") == "on"
+        market_fn = (lambda *a, **k: call_market_research_merged(*a, **k, n_runs=3)) if deep_search else call_market_research
+
         with ThreadPoolExecutor(max_workers=2) as executor:
             future_financials = executor.submit(call_parse_financials, api_key, file_blocks, property_info)
-            future_market = executor.submit(call_market_research, api_key, property_info)
+            future_market = executor.submit(market_fn, api_key, property_info)
+
 
             results = {}
             for future in as_completed([future_financials, future_market]):
@@ -1772,6 +1958,7 @@ def analyze():
         "units":       request.form.get("units", ""),
         "askingPrice": request.form.get("asking_price", ""),
         "floodZone":   request.form.get("flood_zone", "unknown"),
+        "deepSearch":  request.form.get("deep_search", "off"),
     }
 
     if not property_info["city"] or not property_info["state"]:
