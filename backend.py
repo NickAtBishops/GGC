@@ -21,11 +21,12 @@ import base64
 import traceback
 import re
 from pathlib import Path
-from dotenv import load_dotenv
 from threading import Thread
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from io import BytesIO
 from urllib.parse import quote_plus
+from google.cloud import documentai
+from google.api_core.client_options import ClientOptions
 
 import requests
 from flask import Flask, request, jsonify, send_file, send_from_directory
@@ -41,7 +42,7 @@ from dotenv import load_dotenv
 # ═══════════════════════════════════════════════════════════════════════════
 ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
 MODEL_FINANCIAL   = "claude-sonnet-4-6"   # deterministic with temperature=0
-MODEL_MARKET      = "claude-sonnet-4-6"     # adaptive thinking for open-ended research
+MODEL_MARKET      = "claude-opus-4-7"     # adaptive thinking for open-ended research
 API_VERSION       = "2023-06-01"
 MAX_TOKENS        = 32000  # bumped from 16k — large rent rolls + comp lists need headroom
 MAX_RETRIES       = 6
@@ -61,6 +62,11 @@ load_dotenv()
 
 DEFAULT_ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 GOOGLE_MAPS_API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY", "")
+
+GCP_PROJECT_ID         = os.environ.get("GCP_PROJECT_ID", "")
+GCP_LOCATION           = os.environ.get("GCP_LOCATION", "us")
+GCP_LAYOUT_PROCESSOR_ID = os.environ.get("GCP_LAYOUT_PROCESSOR_ID", "")
+DOC_AI_ENABLED = bool(GCP_PROJECT_ID and GCP_LAYOUT_PROCESSOR_ID)
 
 # IMPORTANT: GGC's official blank template, extended to 1000 rent roll rows
 TEMPLATE_PATH = Path(__file__).parent / "GGC_Blank_Underwriting_Sizer_Extended.xlsx"
@@ -293,6 +299,87 @@ def safe_money(value, suffix=""):
         return f"${float(value):,.0f}{suffix}"
     except (TypeError, ValueError):
         return str(value)
+
+def parse_pdf_with_document_ai(pdf_bytes, filename):
+    """
+    Send a PDF to Google Document AI's Layout Parser and return structured
+    markdown text that preserves tables, headers, and reading order.
+
+    Returns the markdown string on success, or None on failure (caller should
+    fall back to Anthropic's PDF handling).
+    """
+    if not DOC_AI_ENABLED:
+        return None
+
+    cache_key = f"docai_{abs(hash(pdf_bytes))}"
+    cache_path = IMG_CACHE_DIR / f"{cache_key}.md"
+    if cache_path.exists():
+        print(f"[DocAI] Cache hit for {filename}")
+        return cache_path.read_text()
+
+    try:
+        # The Layout Parser endpoint lives in a region-specific host
+        opts = ClientOptions(api_endpoint=f"{GCP_LOCATION}-documentai.googleapis.com")
+        client = documentai.DocumentProcessorServiceClient(client_options=opts)
+
+        processor_name = (
+            f"projects/{GCP_PROJECT_ID}/locations/{GCP_LOCATION}"
+            f"/processors/{GCP_LAYOUT_PROCESSOR_ID}"
+        )
+
+        raw_document = documentai.RawDocument(
+            content=pdf_bytes,
+            mime_type="application/pdf",
+        )
+
+        # Layout Parser's structured output mode — returns markdown with
+        # tables, headers, and reading order preserved
+        process_options = documentai.ProcessOptions(
+            layout_config=documentai.ProcessOptions.LayoutConfig(
+                chunking_config=documentai.ProcessOptions.LayoutConfig.ChunkingConfig(
+                    chunk_size=1000,            # tokens-ish per chunk
+                    include_ancestor_headings=True,  # gives each chunk its
+                                                     # section context
+                )
+            )
+        )
+
+        request = documentai.ProcessRequest(
+            name=processor_name,
+            raw_document=raw_document,
+            process_options=process_options,
+        )
+
+        print(f"[DocAI] Parsing {filename} ({len(pdf_bytes)//1024} KB)...")
+        t0 = time.time()
+        result = client.process_document(request=request)
+        elapsed = time.time() - t0
+        print(f"[DocAI] Parsed in {elapsed:.1f}s")
+
+        # The Layout Parser returns structured chunks. Reassemble them into
+        # a single markdown string with section headers preserved.
+        doc = result.document
+        markdown_parts = [f"# Document: {filename}\n"]
+
+        if doc.chunked_document and doc.chunked_document.chunks:
+            for chunk in doc.chunked_document.chunks:
+                if chunk.page_headers:
+                    for hdr in chunk.page_headers:
+                        markdown_parts.append(f"\n## {hdr.text}\n")
+                markdown_parts.append(chunk.content)
+                markdown_parts.append("\n")
+        else:
+            # Fallback if chunking didn't produce useful output
+            markdown_parts.append(doc.text)
+
+        markdown = "\n".join(markdown_parts)
+        cache_path.write_text(markdown)
+        return markdown
+
+    except Exception as e:
+        print(f"[DocAI] Failed for {filename}: {e}")
+        traceback.print_exc()
+        return None
 
 GOOGLE_GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
 
@@ -594,6 +681,15 @@ def encode_file_for_claude(file_storage):
     b64 = base64.standard_b64encode(data).decode("utf-8")
 
     if ext == ".pdf":
+        # First try Google Document AI Layout Parser for deterministic,
+        # high-accuracy table extraction. Falls back to Anthropic's native
+        # PDF handling if Doc AI is disabled or fails.
+        markdown = parse_pdf_with_document_ai(data, filename)
+        if markdown:
+            return {"type": "text",
+                    "text": f"[PDF parsed by Google Document AI Layout Parser: {filename}]\n\n{markdown[:200000]}"}
+        # Fallback — send PDF directly to Claude
+        print(f"[Encode] Doc AI parsing unavailable, falling back to native PDF for {filename}")
         return {"type": "document",
                 "source": {"type": "base64", "media_type": "application/pdf", "data": b64},
                 "title": filename}
@@ -2179,6 +2275,7 @@ if __name__ == "__main__":
     print(f"║  Models: Financial={MODEL_FINANCIAL}, Market={MODEL_MARKET}                         ║")
     print(f"║  Template: GGC_Blank_Underwriting_Sizer_Extended (1000 rows)                        ║")
     print(f"║  Google Maps: {'ENABLED' if GOOGLE_MAPS_API_KEY else 'DISABLED (no key set)':<43s}  ║")
+    print(f"║  Document AI: {'ENABLED' if DOC_AI_ENABLED else 'DISABLED (no GCP config)':<43s} ║")
     print(" ║  Open: http://localhost:5001                                                        ║")
     print(" ╚═════════════════════════════════════════════════════════════════════════════════════╝")
     app.run(host="0.0.0.0", port=5001, debug=False, threaded=True)

@@ -25,3 +25,6 @@ env/
 
 # Logs
 *.log
+
+gcp-credentials.json
+*.json.key
