@@ -95,12 +95,28 @@ CORS(app)
 def fetch_google_static_map(address, map_type="satellite", zoom=17, size="600x400"):
     if not GOOGLE_MAPS_API_KEY:
         return None
-    cache_key = f"map_{abs(hash(address))}_{map_type}_{zoom}_{size}"
+
+    geo = geocode_address(address)
+    if not geo:
+        # Fallback to address-based
+        center_param = address
+        cache_key = f"map_{abs(hash(address))}_{map_type}_{zoom}_{size}"
+    else:
+        center_param = f"{geo['lat']},{geo['lng']}"
+        cache_key = f"map_{geo['lat']:.6f}_{geo['lng']:.6f}_{map_type}_{zoom}_{size}"
+
     cache_path = IMG_CACHE_DIR / f"{cache_key}.png"
     if cache_path.exists():
         return str(cache_path)
-    params = {"center": address, "zoom": zoom, "size": size, "maptype": map_type,
-              "markers": f"color:red|{address}", "key": GOOGLE_MAPS_API_KEY}
+
+    params = {
+        "center": center_param,
+        "zoom": zoom,
+        "size": size,
+        "maptype": map_type,
+        "markers": f"color:red|{center_param}",
+        "key": GOOGLE_MAPS_API_KEY,
+    }
     try:
         r = requests.get(GOOGLE_STATIC_MAPS_URL, params=params, timeout=15)
         if r.status_code == 200 and r.headers.get("content-type", "").startswith("image/"):
@@ -111,15 +127,88 @@ def fetch_google_static_map(address, map_type="satellite", zoom=17, size="600x40
     return None
 
 
-def fetch_google_streetview(address, heading=0, pitch=0, fov=90, size="600x400"):
+GOOGLE_STREETVIEW_METADATA_URL = "https://maps.googleapis.com/maps/api/streetview/metadata"
+
+def fetch_google_streetview(address, heading=0, pitch=0, fov=90, size="600x400",
+                             radius=200):
+    """
+    Fetch a Street View image, intelligently handling cases where the address
+    doesn't sit on a road with panorama coverage.
+
+    Strategy:
+    1. Geocode the address to lat/lng (with centroid offset for MHCs)
+    2. Query the Street View Metadata API to find the nearest panorama
+       within `radius` meters
+    3. If found, request the image using the panorama's actual lat/lng
+       and compute a heading that points BACK TOWARD the property
+    4. If no panorama within radius, fall back to address-based request
+    """
     if not GOOGLE_MAPS_API_KEY:
         return None
-    cache_key = f"sv_{abs(hash(address))}_{heading}_{pitch}_{fov}_{size}"
+
+    geo = geocode_address(address)
+    if not geo:
+        return _fetch_streetview_by_address(address, heading, pitch, fov, size)
+
+    cache_key = f"sv_{geo['lat']:.6f}_{geo['lng']:.6f}_{heading}_{pitch}_{fov}_{size}"
+    cache_path = IMG_CACHE_DIR / f"{cache_key}.png"
+    if cache_path.exists():
+        return str(cache_path)
+
+    # Find the closest panorama within `radius` meters of the geocoded point
+    try:
+        meta = requests.get(GOOGLE_STREETVIEW_METADATA_URL,
+                             params={
+                                 "location": f"{geo['lat']},{geo['lng']}",
+                                 "radius": radius,
+                                 "source": "outdoor",
+                                 "key": GOOGLE_MAPS_API_KEY,
+                             }, timeout=10).json()
+    except Exception as e:
+        print(f"[StreetView] Metadata fetch failed: {e}")
+        meta = {"status": "ERROR"}
+
+    if meta.get("status") == "OK":
+        # The panorama exists. Get the panorama's actual location, then
+        # compute a heading that points from the panorama AT the property
+        pano_lat = meta["location"]["lat"]
+        pano_lng = meta["location"]["lng"]
+        bearing_to_property = _bearing(pano_lat, pano_lng, geo["lat"], geo["lng"])
+
+        # The `heading` arg lets the caller request "looking left", "looking
+        # right" etc. Treat it as an offset from the property-facing bearing.
+        effective_heading = (bearing_to_property + heading) % 360
+
+        params = {
+            "location": f"{pano_lat},{pano_lng}",
+            "size": size,
+            "heading": effective_heading,
+            "pitch": pitch,
+            "fov": fov,
+            "key": GOOGLE_MAPS_API_KEY,
+            "source": "outdoor",
+        }
+        try:
+            r = requests.get(GOOGLE_STATIC_STREETVIEW_URL, params=params, timeout=15)
+            if r.status_code == 200 and r.headers.get("content-type", "").startswith("image/") and len(r.content) > 5000:
+                cache_path.write_bytes(r.content)
+                return str(cache_path)
+        except Exception as e:
+            print(f"[StreetView] Image fetch failed: {e}")
+
+    # Fallback: address-based, original behavior — better than nothing
+    return _fetch_streetview_by_address(address, heading, pitch, fov, size)
+
+
+def _fetch_streetview_by_address(address, heading, pitch, fov, size):
+    """Original fallback path — used when geocoding or metadata fails."""
+    cache_key = f"sv_addr_{abs(hash(address))}_{heading}_{pitch}_{fov}_{size}"
     cache_path = IMG_CACHE_DIR / f"{cache_key}.png"
     if cache_path.exists():
         return str(cache_path)
     params = {"location": address, "size": size, "heading": heading,
-              "pitch": pitch, "fov": fov, "key": GOOGLE_MAPS_API_KEY}
+              "pitch": pitch, "fov": fov, "key": GOOGLE_MAPS_API_KEY,
+              "source": "outdoor"}
     try:
         r = requests.get(GOOGLE_STATIC_STREETVIEW_URL, params=params, timeout=15)
         if r.status_code == 200 and r.headers.get("content-type", "").startswith("image/"):
@@ -128,8 +217,18 @@ def fetch_google_streetview(address, heading=0, pitch=0, fov=90, size="600x400")
             cache_path.write_bytes(r.content)
             return str(cache_path)
     except Exception as e:
-        print(f"[GoogleMaps] Street View error: {e}")
+        print(f"[StreetView] Error: {e}")
     return None
+
+
+def _bearing(lat1, lng1, lat2, lng2):
+    """Calculate compass bearing in degrees from point 1 to point 2."""
+    import math
+    lat1_r, lat2_r = math.radians(lat1), math.radians(lat2)
+    diff = math.radians(lng2 - lng1)
+    y = math.sin(diff) * math.cos(lat2_r)
+    x = math.cos(lat1_r) * math.sin(lat2_r) - math.sin(lat1_r) * math.cos(lat2_r) * math.cos(diff)
+    return (math.degrees(math.atan2(y, x)) + 360) % 360
 
 
 def embed_image_in_cell(ws, image_path, anchor_cell, width_px=400, height_px=280):
@@ -194,6 +293,68 @@ def safe_money(value, suffix=""):
     except (TypeError, ValueError):
         return str(value)
 
+GOOGLE_GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
+
+def geocode_address(address):
+    """
+    Resolve an address to its best lat/lng, using the property centroid
+    when the geocoder returns a bounding box (common for MHCs and complexes).
+    Returns dict with 'lat', 'lng', 'precision', and 'place_id'.
+    """
+    if not GOOGLE_MAPS_API_KEY or not address:
+        return None
+
+    cache_key = f"geo_{abs(hash(address))}"
+    cache_path = IMG_CACHE_DIR / f"{cache_key}.json"
+    if cache_path.exists():
+        try:
+            return json.loads(cache_path.read_text())
+        except Exception:
+            pass
+
+    try:
+        r = requests.get(GOOGLE_GEOCODE_URL,
+                          params={"address": address, "key": GOOGLE_MAPS_API_KEY},
+                          timeout=15)
+        if r.status_code != 200:
+            return None
+        data = r.json()
+        if data.get("status") != "OK" or not data.get("results"):
+            print(f"[Geocode] No result for {address}: {data.get('status')}")
+            return None
+
+        result = data["results"][0]
+        loc = result["geometry"]["location"]
+        precision = result["geometry"].get("location_type", "UNKNOWN")
+
+        # If the geocoder returns a bounding box (common for MHCs, apartment
+        # complexes, business parks), prefer the box centroid over the snap
+        # point — it's typically further inside the property
+        bounds = result["geometry"].get("bounds") or result["geometry"].get("viewport")
+        if bounds:
+            ne = bounds["northeast"]
+            sw = bounds["southwest"]
+            centroid_lat = (ne["lat"] + sw["lat"]) / 2
+            centroid_lng = (ne["lng"] + sw["lng"]) / 2
+            # Only use centroid if it's reasonably close to the geocoder pin
+            # (sanity check — sometimes viewports are huge city-level boxes)
+            lat_diff = abs(centroid_lat - loc["lat"])
+            lng_diff = abs(centroid_lng - loc["lng"])
+            if lat_diff < 0.005 and lng_diff < 0.005:  # ~500m
+                loc = {"lat": centroid_lat, "lng": centroid_lng}
+
+        out = {
+            "lat": loc["lat"],
+            "lng": loc["lng"],
+            "precision": precision,
+            "place_id": result.get("place_id"),
+            "formatted_address": result.get("formatted_address"),
+        }
+        cache_path.write_text(json.dumps(out))
+        return out
+    except Exception as e:
+        print(f"[Geocode] Error for {address}: {e}")
+        return None
 
 # ═══════════════════════════════════════════════════════════════════════════
 # CLAUDE API CLIENT
