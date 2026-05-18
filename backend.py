@@ -40,7 +40,8 @@ from dotenv import load_dotenv
 # CONFIG
 # ═══════════════════════════════════════════════════════════════════════════
 ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
-MODEL_ID          = "claude-opus-4-7"
+MODEL_FINANCIAL   = "claude-sonnet-4-6"   # deterministic with temperature=0
+MODEL_MARKET      = "claude-sonnet-4-6"     # adaptive thinking for open-ended research
 API_VERSION       = "2023-06-01"
 MAX_TOKENS        = 32000  # bumped from 16k — large rent rolls + comp lists need headroom
 MAX_RETRIES       = 6
@@ -359,21 +360,33 @@ def geocode_address(address):
 # ═══════════════════════════════════════════════════════════════════════════
 # CLAUDE API CLIENT
 # ═══════════════════════════════════════════════════════════════════════════
-def call_claude(api_key, system_prompt, user_content, tools=None, use_thinking=True):
+def call_claude(api_key, system_prompt, user_content, tools=None,
+                use_thinking=True, temperature=None, model=None):
     """
     Call Claude with streaming enabled. Streaming keeps the connection alive
     during long-running requests (which can hit 3+ minutes when Claude is doing
     heavy thinking + web search) instead of timing out at the request level.
+
+    Model routing:
+    - Defaults to MODEL_MARKET (Opus 4.7) for market research with adaptive thinking
+    - Pass model=MODEL_FINANCIAL (Sonnet 4.6) for deterministic financial parsing
+      with temperature=0
+
+    NOTE: Opus 4.7 deprecated temperature/top_p/top_k entirely. Only pass
+    temperature when targeting Sonnet 4.6 (or other pre-4.7 models).
     """
     headers = {"x-api-key": api_key, "anthropic-version": API_VERSION,
                "content-type": "application/json"}
-    body = {"model": MODEL_ID, "max_tokens": MAX_TOKENS, "system": system_prompt,
-            "temperature": 0,
+    body = {"model": model or MODEL_MARKET,
+            "max_tokens": MAX_TOKENS,
+            "system": system_prompt,
             "messages": [{"role": "user", "content": user_content}],
-            "stream": True,}  # Enable streaming for long requests
+            "stream": True,}
     if use_thinking:
         body["thinking"] = {"type": "adaptive"}
         body["output_config"] = {"effort": "high"}
+    elif temperature is not None:
+        body["temperature"] = temperature
     if tools:
         body["tools"] = tools
 
@@ -406,13 +419,16 @@ def call_claude(api_key, system_prompt, user_content, tools=None, use_thinking=T
             print(f"[Claude] Stream interrupted — retrying...")
             time.sleep(BASE_BACKOFF_SEC * (2 ** attempt))
             last_err = f"Stream interrupted: {e}"
+        except requests.exceptions.ConnectionError as e:
+            print(f"[Claude] Connection error (likely DNS/network) — retrying...")
+            time.sleep(BASE_BACKOFF_SEC * (2 ** attempt))
+            last_err = f"Connection error: {e}"
         except Exception as e:
             last_err = str(e)
             if attempt == MAX_RETRIES - 1:
                 raise
             time.sleep(BASE_BACKOFF_SEC * (2 ** attempt))
     raise RuntimeError(f"Claude API failed after {MAX_RETRIES} retries: {last_err}")
-
 
 def _parse_stream(resp):
     """
@@ -964,7 +980,7 @@ Parse the attached documents and return the structured JSON."""
     }]
     print("[Claude] Starting financial parsing call...")
     t0 = time.time()
-    response = call_claude(api_key, FINANCIAL_PARSE_PROMPT, user_blocks)
+    response = call_claude(api_key, FINANCIAL_PARSE_PROMPT, user_blocks, use_thinking=False, temperature=0, model=MODEL_FINANCIAL)
     elapsed = time.time() - t0
     print(f"[Claude] Financial parsing returned in {elapsed:.1f}s "
           f"(stop_reason: {response.get('stop_reason', '?')})")
@@ -974,11 +990,11 @@ Parse the attached documents and return the structured JSON."""
 # ═══════════════════════════════════════════════════════════════════════════
 # CLAUDE CALL #2 — Market Research
 # ═══════════════════════════════════════════════════════════════════════════
-MARKET_RESEARCH_PROMPT = """You are a CRE analyst at GGC researching a mobile home park acquisition. Be exhaustive — better data means a better deal decision.
+MARKET_RESEARCH_PROMPT = """You are a CRE analyst at GGC researching a mobile home park acquisition. Be exhaustive - better data means a better deal decision.
 
 Use web_search aggressively (8 searches available) to find:
 
-1. **Rent comps** — 12-20 neighboring MHPs within ~25 miles. For EACH one capture:
+1. **Rent comps** - 12-20 neighboring MHPs within ~25 miles. For EACH one capture:
    - Name, full address, city, state
    - Distance from subject (miles)
    - Total units (sites)
@@ -1099,7 +1115,7 @@ Pull comps, demographics, alt housing, landmarks, and visual URLs."""
     print("[Claude] Starting market research call (with web_search)...")
     t0 = time.time()
     response = call_claude(api_key, MARKET_RESEARCH_PROMPT,
-                           [{"type": "text", "text": prompt}], tools=tools)
+                            [{"type": "text", "text": prompt}], tools=tools)
     elapsed = time.time() - t0
     print(f"[Claude] Market research returned in {elapsed:.1f}s "
           f"(stop_reason: {response.get('stop_reason', '?')})")
@@ -2158,11 +2174,11 @@ def download(job_id):
 
 
 if __name__ == "__main__":
-    print("╔═════════════════════════════════════════════════════════════════════════════════════╗")
-    print("║  GGC Deal Engine — Backend Server v5                                                ║")
-    print(f"║  Model: {MODEL_ID:<48s}                                                            ║")
-    print(f"║  Template: GGC_Blank_Underwriting_Sizer_Extended (1000 rows)                       ║")
-    print(f"║  Google Maps: {'ENABLED' if GOOGLE_MAPS_API_KEY else 'DISABLED (no key set)':<43s} ║")
-    print("║  Open: http://localhost:5001                                                        ║")
-    print("╚═════════════════════════════════════════════════════════════════════════════════════╝")
+    print(" ╔═════════════════════════════════════════════════════════════════════════════════════╗")
+    print(" ║  GGC Deal Engine — Backend Server v5                                                ║")
+    print(f"║  Models: Financial={MODEL_FINANCIAL}, Market={MODEL_MARKET}                         ║")
+    print(f"║  Template: GGC_Blank_Underwriting_Sizer_Extended (1000 rows)                        ║")
+    print(f"║  Google Maps: {'ENABLED' if GOOGLE_MAPS_API_KEY else 'DISABLED (no key set)':<43s}  ║")
+    print(" ║  Open: http://localhost:5001                                                        ║")
+    print(" ╚═════════════════════════════════════════════════════════════════════════════════════╝")
     app.run(host="0.0.0.0", port=5001, debug=False, threaded=True)
