@@ -503,7 +503,16 @@ DEFINITIONS:
 - Other Income excludes Home Rent (Home Rent is its own income stream and gets bifurcated, see POH section).
 
 STEP 1 — GPR (Gross Potential Rent):
-- Pull directly from the rent roll. Sum of all occupied units at contracted lot rent PLUS all vacant units at market rent. If a vacant unit shows $0 market rent, impute it as the average of occupied lot rents within the same unit type. This is the 100%-occupied ceiling.
+Pull directly from the rent roll.
+
+- For OCCUPIED units: use contracted lot rent from the rent roll.
+- For VACANT units WITH a market rent listed: use that market rent.
+- For VACANT units WITHOUT a market rent (i.e. $0, blank, or missing): impute the market rent as the AVERAGE of occupied lot rents within the same unit type. Calculate this per unit type — a vacant Premium Lot uses the average of occupied Premium Lots, not the average of all occupied lots.
+- If there is only ONE unit type in the rent roll, use the overall average of occupied rents.
+- If a unit type has NO occupied units to average from (all vacant), use the average of all occupied lot rents at the property as the fallback.
+
+- Sum the above to get GPR. This represents the 100%-occupied, market-rate ceiling.
+- Note in the income line item "notes" field if you imputed market rents for any vacant units, and how many were imputed.
 
 STEP 2 — Physical Vacancy:
  - Set from the rent roll occupancy. This is the actual physical vacancy at the property today (vacant units × market rent, as a negative line item). Do NOT use historical vacancy from the P&L for this line — physical vacancy ties to the rent roll only.
@@ -518,8 +527,57 @@ STEP 4 — Bad Debt (the "what-if" / goal-seek step):
   (c) The resulting Bad Debt is the underwritten figure. Sanity check it against historical bad debt — if the underwritten bad debt diverges materially from what the seller's P&L shows, flag it. A large divergence usually means either (i) the seller is hiding something, (ii) physical occupancy changed recently, or (iii) the T3 trend is being driven by a one-time event.
 
 - If there is a distorting one-time item in the T3 window (e.g. a one-month bad debt recovery that inflates a single month), use T6 annualized as the NRI target instead of T3, and note it.
-
 - Output a "notes" field on the Bad Debt line item showing: which NRI target was used (T3/T6/T12), the target $ figure, and any flags.
+
+STEP 4.5 — Income Spike Detection (pre-paid rent / lump sum):
+
+Before annualizing T3 or T6, scan the monthly income data for anomalous spikes — single months where rental income or other income is materially above the surrounding months.
+
+A spike is defined as: any month where a single income line is ≥1.5× the average of the other 11 months in the same line item.
+
+Common causes:
+- Tenants pre-paying multiple months at once (residents do this to avoid eviction or to lock in current rent)
+- A lump-sum bad debt recovery (someone paid back a large past-due balance)
+- A one-time lease-up bonus, settlement, or insurance proceeds miscategorized as rental income
+
+If a spike is detected:
+- Do NOT include the spike month in any T3 or T6 annualization calculation. Replace it with the average of the surrounding 11 months when computing T3 or T6.
+- Flag the spike in the flags array with severity "medium": "Income spike detected in [month] for [line item]: [amount] vs. [avg] average. Likely pre-paid rent or lump-sum recovery. Excluded from T3/T6 annualization but kept in T12 total. Confirm with seller."
+- DO include the spike in the T12 total (because T12 is the trailing reality, not the run-rate forecast).
+
+- This is symmetric with how expense spikes are handled — flag, don't auto-strip the historical, but exclude from annualized forecasts.
+
+### DATA QUALITY CROSS-CHECKS (run these first, before any underwriting math)
+
+The user provides two counts in the property form: Total Units and Park-Owned Home (POH) Count. Both must reconcile against the rent roll. If they don't, you must flag it explicitly — these mismatches almost always indicate missing data, not a clean dataset.
+
+CHECK 1 — Total Units vs. Rent Roll Rows:
+Compare the user-entered "Total Units" against the number of rent roll rows you find in the uploaded documents.
+
+- If MATCH: proceed normally.
+- If RENT ROLL HAS FEWER ROWS than Total Units: this is the most common case. Sellers often omit vacant sites from the rent roll. Assume the missing rows are vacant lots and include them in GPR at market rent (use the average of occupied lot rents in the same unit type as the imputed market rent). Add a "high" severity flag to the flags array with the exact wording: "Rent roll shows [N rows] but property is [Total Units] units — assumed [difference] additional vacant lots at market rent. Confirm with broker: are vacant sites excluded from the rent roll, or is the property actually smaller than stated?"
+- If RENT ROLL HAS MORE ROWS than Total Units: flag as "high" severity. This means the user entered the wrong unit count or the rent roll includes something non-unit (model homes, storage spaces, common-area structures). Do not silently override — ask the user to confirm.
+
+CHECK 2 — POH Count vs. Rent Roll Home Rent Entries:
+Compare the user-entered "Park-Owned Home Count" against the number of rent roll rows where Home Rent > 0.
+
+- If MATCH (within ±2): proceed normally, no flag.
+- If USER SAYS MORE POH than rent roll shows home rent for: the seller is likely hiding home rent income (or comping the home for the on-site manager). Flag as "medium" severity: "User stated [X] POH but only [Y] rent roll entries show home rent. Possible employee allowance (comped lot for manager) or hidden home rent income. Verify with seller."
+- If USER SAYS FEWER POH than rent roll shows home rent for: the user count is probably wrong, or some rent roll "home rent" entries are actually other charges miscategorized. Flag as "medium" severity and use the rent roll count as the authoritative POH number.
+- If USER STATED 0 POH but rent roll has home rent entries: flag as "high" severity. The user either didn't know or input wrong. Use rent roll count.
+
+POH PERCENTAGE CALCULATION:
+After reconciliation, compute POH % = (POH Count / Total Units) × 100. Use this number throughout the rest of the analysis (affects expense ratio benchmarks, NOI bifurcation, and risk flags).
+
+Output a "dataQualityChecks" object in the JSON response showing what you found:
+- totalUnitsStated (integer, user input)
+- rentRollRowsFound (integer, what you parsed)
+- unitCountReconciliation ("match" | "rent_roll_short" | "rent_roll_long")
+- pohCountStated (integer, user input)
+- pohRowsFound (integer, what you parsed from rent roll)
+- pohReconciliation ("match" | "stated_high" | "stated_low" | "stated_zero_but_found")
+- finalPohCount (integer, the number to use going forward)
+- finalPohPercent (decimal)
 
 ### OTHER INCOME
 - All other income items (laundry, application fees, pet fees, month-to-month premiums, storage, etc.): use T12 as-is, no annualization adjustment
@@ -573,8 +631,18 @@ Override the seller's management fee entirely.
 
 ### REPAIR & MAINTENANCE / GROUND MAINTENANCE
 - These are discretionary line items — apply judgment, do not blindly use T12 * 1.03
-- Look for one-time items: a single month with a spike (e.g. $4,000 vs $1,500 in all other months) likely indicates a one-time project that should be excluded from the underwritten run rate
-- If monthly data is available, identify and back out one-time items before calculating the underwritten figure
+- Look for one-time items: a single month with a spike (e.g. $4,000 vs $1,500 in all other months) likely indicates a one-time project. FLAG these per the One-Time Item Handling rule above — do not silently exclude them.
+- ONE-TIME ITEM HANDLING (flag, do not auto-strip):
+    - Scan monthly data for anomalous spikes: any month where a single expense line is ≥2× the average of the other 11 months.
+    - DO NOT automatically back out these items. Michael (the reviewer) wants to make the inclusion/exclusion decision himself.
+    - Instead, flag each spike in the flags array with severity "medium" and these exact fields:
+    - item: the line item name
+    - issue: "One-time item detected: [month] showed [amount] vs. [avg] average across other months. Variance of [X]×."
+    - severity: "medium"
+    - recommendation: "Possible one-time project (e.g. tree work, road repair, plumbing). Confirm scope with seller. If genuinely one-time, exclude from T12 × 1.03 underwriting basis. If recurring, leave in."
+    - In the line item's "notes" field, also note the spike month and amount, so the reviewer can see it next to the line.
+    - Use the T12 total AS-IS for the underwriting basis (T12 × 1.03). The reviewer will manually adjust if they decide a spike was truly one-time.
+        - This rule applies to ALL expense lines, not just R&M — Insurance, Professional Fees, Repairs, Ground Maintenance, anything with a discernible monthly pattern. Apply consistently.
 - Use per-unit benchmarks as a sanity check — flag if R&M is materially above or below typical range
 - R&M covers: road repairs, pothole patching, cement work, common area repairs, occasionally home repairs that get charged back to tenants
 - Ground Maintenance covers: landscaping, lawn care, tree trimming, snow removal, etc.
@@ -721,6 +789,16 @@ POH percentage cross-check: If POH > 20% and you see no Home Rent Expense in the
     ]
   }},
   "flags": [{{"item", "issue", "severity", "recommendation"}}],
+    "dataQualityChecks": {{
+    "totalUnitsStated": integer,
+    "rentRollRowsFound": integer,
+    "unitCountReconciliation": "match|rent_roll_short|rent_roll_long",
+    "pohCountStated": integer,
+    "pohRowsFound": integer,
+    "pohReconciliation": "match|stated_high|stated_low|stated_zero_but_found",
+    "finalPohCount": integer,
+    "finalPohPercent": number
+  }},
   "questions": ["string"],
   "dataQuality": {{"hasT12", "hasT3", "hasRentRoll", "hasMonthlyBreakdown",
     "t12Period": "string", "missingData": ["string"]}}
@@ -736,6 +814,7 @@ def call_parse_financials(api_key, file_blocks, property_info):
 - Name: {property_info.get('name', 'N/A')}
 - Address: {property_info.get('address', 'N/A')}
 - Total Units: {property_info.get('units', 'N/A')}
+- Park-Owned Home Count (user-stated): {property_info.get('pohCount', '0')}
 - Asking Price: ${property_info.get('askingPrice', 'N/A')}
 - Flood Zone Status: {property_info.get('floodZone', 'unknown')}
 
@@ -1714,6 +1793,7 @@ def analyze():
         "name":        request.form.get("property_name", ""),
         "address":     request.form.get("address", ""),
         "city":        request.form.get("city", ""),
+        "pohCount":    request.form.get("poh_count", "0"),
         "state":       request.form.get("state", ""),
         "units":       request.form.get("units", ""),
         "askingPrice": request.form.get("asking_price", ""),
