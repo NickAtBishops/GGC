@@ -61,7 +61,14 @@ MODEL_EXTRACTION  = os.environ.get("MODEL_EXTRACTION",  "claude-sonnet-4-6")
 MODEL_METHODOLOGY = os.environ.get("MODEL_METHODOLOGY", "claude-opus-4-8")
 MODEL_MARKET      = os.environ.get("MODEL_MARKET",      "claude-opus-4-8")
 API_VERSION       = "2023-06-01"
-MAX_TOKENS        = 32000  # bumped from 16k — large rent rolls + comp lists need headroom
+MAX_TOKENS             = 32000  # default; safe for Sonnet 4.6 (64k cap) and non-thinking calls
+# Opus 4.8 with adaptive thinking + effort=high spends most of the budget on
+# thinking — a complex deal can burn 30-50k thinking tokens before emitting
+# any visible JSON. max_tokens is the COMBINED ceiling for thinking + output,
+# so the methodology + market stages need much more headroom than extraction.
+# Opus supports up to 128k output via streaming (which we already use).
+MAX_TOKENS_METHODOLOGY = 96000  # ~80k thinking headroom + ~16k for JSON
+MAX_TOKENS_MARKET      = 64000  # thinking + web_search results + comp tables
 MAX_RETRIES       = 6
 BASE_BACKOFF_SEC  = 2
 
@@ -840,7 +847,7 @@ def geocode_address(address):
 # ═══════════════════════════════════════════════════════════════════════════
 def call_claude(api_key, system_prompt, user_content, tools=None,
                 use_thinking=True, temperature=None, model=None,
-                output_schema=None):
+                output_schema=None, max_tokens=None):
     """
     Call Claude with streaming enabled. Streaming keeps the connection alive
     during long-running requests (which can hit 3+ minutes when Claude is doing
@@ -859,7 +866,7 @@ def call_claude(api_key, system_prompt, user_content, tools=None,
     headers = {"x-api-key": api_key, "anthropic-version": API_VERSION,
                "content-type": "application/json"}
     body = {"model": model or MODEL_MARKET,
-            "max_tokens": MAX_TOKENS,
+            "max_tokens": max_tokens or MAX_TOKENS,
             "system": system_prompt,
             "messages": [{"role": "user", "content": user_content}],
             "stream": True,}
@@ -2457,7 +2464,8 @@ Apply the GGC methodology and return the structured JSON."""
     t0 = time.time()
     response = call_claude(api_key, FINANCIAL_PARSE_PROMPT, user_blocks,
                            use_thinking=True, model=MODEL_METHODOLOGY,
-                           output_schema=METHODOLOGY_OUTPUT_SCHEMA)
+                           output_schema=METHODOLOGY_OUTPUT_SCHEMA,
+                           max_tokens=MAX_TOKENS_METHODOLOGY)
     elapsed = time.time() - t0
     print(f"[Claude] Methodology returned in {elapsed:.1f}s "
           f"(stop_reason: {response.get('stop_reason', '?')})")
@@ -2593,7 +2601,8 @@ Pull comps, demographics, alt housing, landmarks, and visual URLs."""
     t0 = time.time()
     response = call_claude(api_key, MARKET_RESEARCH_PROMPT,
                             [{"type": "text", "text": prompt}], tools=tools,
-                            model=MODEL_MARKET)
+                            model=MODEL_MARKET,
+                            max_tokens=MAX_TOKENS_MARKET)
     elapsed = time.time() - t0
     print(f"[Claude] Market research returned in {elapsed:.1f}s "
           f"(stop_reason: {response.get('stop_reason', '?')})")
