@@ -18,11 +18,14 @@ import os
 import json
 import time
 import base64
+import hashlib
+import statistics
 import traceback
 import re
 from pathlib import Path
 from threading import Thread
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from collections import Counter
 from io import BytesIO
 from urllib.parse import quote_plus
 from google.cloud import documentai
@@ -36,17 +39,70 @@ from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
 from openpyxl.drawing.image import Image as XLImage
 from dotenv import load_dotenv
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 # ═══════════════════════════════════════════════════════════════════════════
 # CONFIG
 # ═══════════════════════════════════════════════════════════════════════════
 ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
-MODEL_FINANCIAL   = "claude-sonnet-4-6"   # deterministic with temperature=0
-MODEL_MARKET      = "claude-opus-4-7"     # adaptive thinking for open-ended research
+# Two-stage financial pipeline:
+#   EXTRACTION  → Sonnet 4.6 at temperature=0. Deterministic. Just reads the
+#                 documents and pulls clean numbers. Same input → same output.
+#   METHODOLOGY → Opus 4.8 (effort=high by default). Judgment-heavy: GGC
+#                 categorization, collections, POH bifurcation, taxes. Opus 4.8
+#                 flags its own uncertainty better, which matters for underwriting.
+# NOTE: Opus 4.8 (like 4.7) does NOT accept temperature/top_p/top_k — only
+# adaptive thinking. So temperature=0 is only used on the Sonnet extraction call.
+#
+# Pin model versions explicitly. Bare aliases like "claude-sonnet-4-6" silently
+# re-point to new snapshots over time — a hidden source of run-to-run variance.
+# Override via env once a dated snapshot is confirmed in the Anthropic docs.
+MODEL_EXTRACTION  = os.environ.get("MODEL_EXTRACTION",  "claude-sonnet-4-6")
+MODEL_METHODOLOGY = os.environ.get("MODEL_METHODOLOGY", "claude-opus-4-8")
+MODEL_MARKET      = os.environ.get("MODEL_MARKET",      "claude-opus-4-8")
 API_VERSION       = "2023-06-01"
 MAX_TOKENS        = 32000  # bumped from 16k — large rent rolls + comp lists need headroom
 MAX_RETRIES       = 6
 BASE_BACKOFF_SEC  = 2
+
+# Anthropic Structured Outputs is now GA (verified against
+# platform.claude.com/docs/en/build-with-claude/structured-outputs as of
+# 2026-06). When a JSON Schema is passed to call_claude(), it's compiled into
+# a token grammar and invalid tokens are masked at inference — guarantees
+# schema compliance and eliminates the class of variance where Claude emits
+# the wrong field types / out-of-enum categories / malformed JSON.
+# Confirmed supported (GA list): Sonnet 4.5/4.6, Opus 4.5/4.6/4.7/4.8,
+# Haiku 4.5, Mythos Preview. No beta header required.
+# STRUCTURED_OUTPUTS_BETA is kept for backward compatibility with deployments
+# pinned to a model snapshot where only the beta path is recognized.
+STRUCTURED_OUTPUTS_BETA = "structured-outputs-2025-11-13"
+USE_STRUCTURED_OUTPUTS  = os.environ.get("USE_STRUCTURED_OUTPUTS", "1") == "1"
+# Default to off — GA path doesn't need it. Flip on if your pinned snapshot
+# rejects output_config.format without the legacy beta header.
+SO_LEGACY_BETA_HEADER   = os.environ.get("SO_LEGACY_BETA_HEADER", "0") == "1"
+
+# Retries when verify_extraction returns any status=fail. Each retry feeds the
+# failure messages back to Claude (Instructor pattern).
+MAX_PARSE_RETRIES = int(os.environ.get("MAX_PARSE_RETRIES", "2"))
+
+# N parallel extraction runs to field-merge when deep_search=on (Wang et al.
+# self-consistency). 1 disables it. Costs ~N× extraction tokens.
+FINANCIAL_PARSE_RUNS_DEEP = int(os.environ.get("FINANCIAL_PARSE_RUNS_DEEP", "3"))
+
+# Versioned extraction cache: (file content + property_info + config) hash →
+# the full financial_pipeline output. A hit returns the exact same numbers
+# every time for previously-seen inputs. Lives in EXTRACTION_CACHE_DIR.
+EXTRACTION_CACHE_ENABLED = os.environ.get("EXTRACTION_CACHE_ENABLED", "1") == "1"
+
+# Parser backend: which OCR/layout engine converts PDFs to text for Claude.
+# Options: "docai" (Google, current), "azure" (Document Intelligence Layout,
+# deterministic), "tensorlake" (vision-first, 91.7% F1 per vendor),
+# "reducto" (vision-first, 90.2% on RD-TableBench per vendor).
+# Per the 2026 playbook, Doc AI scores 64.6% on complex tables — swap once a
+# 50-doc benchmark confirms a better fit. Backend name + version go into the
+# extraction cache key, so swapping invalidates the cache.
+PARSER_BACKEND = os.environ.get("PARSER_BACKEND", "docai").lower()
+PARSER_VERSION = "v1"  # bump when changing parser configuration
 
 GOOGLE_MAPS_API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY", "***REMOVED_GOOGLE_MAPS_KEY***")
 GOOGLE_STATIC_MAPS_URL       = "https://maps.googleapis.com/maps/api/staticmap"
@@ -68,12 +124,21 @@ GCP_LOCATION           = os.environ.get("GCP_LOCATION", "us")
 GCP_LAYOUT_PROCESSOR_ID = os.environ.get("GCP_LAYOUT_PROCESSOR_ID", "")
 DOC_AI_ENABLED = bool(GCP_PROJECT_ID and GCP_LAYOUT_PROCESSOR_ID)
 
+# Alternate parser backends (Phase 2 of the 2026 playbook). Set the env vars
+# for whichever backend you select in PARSER_BACKEND.
+AZURE_DOC_INTEL_ENDPOINT = os.environ.get("AZURE_DOC_INTEL_ENDPOINT", "")
+AZURE_DOC_INTEL_KEY      = os.environ.get("AZURE_DOC_INTEL_KEY", "")
+TENSORLAKE_API_KEY       = os.environ.get("TENSORLAKE_API_KEY", "")
+REDUCTO_API_KEY          = os.environ.get("REDUCTO_API_KEY", "")
+
 # IMPORTANT: GGC's official blank template, extended to 1000 rent roll rows
-TEMPLATE_PATH = Path(__file__).parent / "GGC_Blank_Underwriting_Sizer_Extended.xlsx"
-JOBS_DIR      = Path(__file__).parent.parent / "jobs"
-IMG_CACHE_DIR = Path(__file__).parent.parent / "img_cache"
+TEMPLATE_PATH        = Path(__file__).parent / "GGC_Blank_Underwriting_Sizer_Extended.xlsx"
+JOBS_DIR             = Path(__file__).parent.parent / "jobs"
+IMG_CACHE_DIR        = Path(__file__).parent.parent / "img_cache"
+EXTRACTION_CACHE_DIR = Path(__file__).parent.parent / "extraction_cache"
 JOBS_DIR.mkdir(exist_ok=True)
 IMG_CACHE_DIR.mkdir(exist_ok=True)
+EXTRACTION_CACHE_DIR.mkdir(exist_ok=True)
 
 # GGC's exact category strings — must match column A in Data Consolidation
 # (these feed the SUMIFS in the GGC Underwriting tab)
@@ -300,92 +365,412 @@ def safe_money(value, suffix=""):
     except (TypeError, ValueError):
         return str(value)
 
-def parse_pdf_with_document_ai(pdf_bytes, filename):
-    """
-    Send a PDF to Google Document AI's Layout Parser and return structured
-    markdown text that preserves tables, headers, and reading order.
+# ═══════════════════════════════════════════════════════════════════════════
+# PDF PARSER ABSTRACTION
+# Single entry point `parse_pdf(bytes, filename) → markdown | None`.
+# Dispatches by PARSER_BACKEND. Parser name + version are baked into the
+# cache filename so swapping backends or bumping config invalidates stale
+# parses (the file SHA stays stable so identical bytes hit the cache).
+#
+# Backends:
+#   docai      — Google Document AI Layout Parser (current default).
+#                Per RD-TableBench Nov 2024, scored 64.6% on complex tables
+#                — lowest of the major cloud providers.
+#   azure      — Azure Document Intelligence Layout. ~82.7% on the same
+#                benchmark; deterministic given identical input.
+#   tensorlake — Vision-first parser. 91.7% F1 per vendor (Nov 2025).
+#   reducto    — Vision-first parser. 90.2% on RD-TableBench per vendor.
+# ═══════════════════════════════════════════════════════════════════════════
 
-    Returns the markdown string on success, or None on failure (caller should
-    fall back to Anthropic's PDF handling).
-    """
-    if not DOC_AI_ENABLED:
-        return None
+def _stable_pdf_hash(pdf_bytes):
+    return hashlib.sha256(pdf_bytes).hexdigest()[:16]
 
-    cache_key = f"docai_{abs(hash(pdf_bytes))}"
+
+def parse_pdf(pdf_bytes, filename):
+    """
+    Parse a PDF using whichever backend PARSER_BACKEND names. Returns the
+    markdown string on success, None on failure (caller falls back to
+    Anthropic's native PDF handling).
+    """
+    backend = PARSER_BACKEND
+    cache_key  = f"{backend}_{PARSER_VERSION}_{_stable_pdf_hash(pdf_bytes)}"
     cache_path = IMG_CACHE_DIR / f"{cache_key}.md"
     if cache_path.exists():
-        print(f"[DocAI] Cache hit for {filename}")
+        print(f"[Parser:{backend}] Cache hit for {filename}")
         return cache_path.read_text()
 
     try:
-        # The Layout Parser endpoint lives in a region-specific host
-        opts = ClientOptions(api_endpoint=f"{GCP_LOCATION}-documentai.googleapis.com")
-        client = documentai.DocumentProcessorServiceClient(client_options=opts)
-
-        processor_name = (
-            f"projects/{GCP_PROJECT_ID}/locations/{GCP_LOCATION}"
-            f"/processors/{GCP_LAYOUT_PROCESSOR_ID}"
-        )
-
-        raw_document = documentai.RawDocument(
-            content=pdf_bytes,
-            mime_type="application/pdf",
-        )
-
-        # Layout Parser's structured output mode — returns markdown with
-        # tables, headers, and reading order preserved
-        process_options = documentai.ProcessOptions(
-            layout_config=documentai.ProcessOptions.LayoutConfig(
-                chunking_config=documentai.ProcessOptions.LayoutConfig.ChunkingConfig(
-                    chunk_size=1000,            # tokens-ish per chunk
-                    include_ancestor_headings=True,  # gives each chunk its
-                                                     # section context
-                )
-            )
-        )
-
-        request = documentai.ProcessRequest(
-            name=processor_name,
-            raw_document=raw_document,
-            process_options=process_options,
-        )
-
-        print(f"[DocAI] Parsing {filename} ({len(pdf_bytes)//1024} KB)...")
-        t0 = time.time()
-        result = client.process_document(request=request)
-        elapsed = time.time() - t0
-        print(f"[DocAI] Parsed in {elapsed:.1f}s")
-
-        # The Layout Parser returns structured chunks. Reassemble them into
-        # a single markdown string with section headers preserved.
-        doc = result.document
-        markdown_parts = [f"# Document: {filename}\n"]
-
-        if doc.chunked_document and doc.chunked_document.chunks:
-            for chunk in doc.chunked_document.chunks:
-                if chunk.page_headers:
-                    for hdr in chunk.page_headers:
-                        markdown_parts.append(f"\n## {hdr.text}\n")
-                markdown_parts.append(chunk.content)
-                markdown_parts.append("\n")
+        if backend == "docai":
+            markdown = _parse_via_docai(pdf_bytes, filename)
+        elif backend == "azure":
+            markdown = _parse_via_azure(pdf_bytes, filename)
+        elif backend == "tensorlake":
+            markdown = _parse_via_tensorlake(pdf_bytes, filename)
+        elif backend == "reducto":
+            markdown = _parse_via_reducto(pdf_bytes, filename)
         else:
-            # Fallback if chunking didn't produce useful output
-            markdown_parts.append(doc.text)
-
-        markdown = "\n".join(markdown_parts)
-
-        # Diagnostic: hash the markdown so we can verify determinism across runs
-        import hashlib
-        md_hash = hashlib.md5(markdown.encode()).hexdigest()[:12]
-        print(f"[DocAI] Markdown hash for {filename}: {md_hash} ({len(markdown)} chars)")
-
-        cache_path.write_text(markdown)
-        return markdown
-
+            print(f"[Parser] Unknown PARSER_BACKEND='{backend}' — "
+                  "supported: docai, azure, tensorlake, reducto")
+            return None
     except Exception as e:
-        print(f"[DocAI] Failed for {filename}: {e}")
+        print(f"[Parser:{backend}] Failed for {filename}: {e}")
         traceback.print_exc()
         return None
+
+    if markdown:
+        # Diagnostic hash — if this changes across runs of the same file,
+        # the parser itself is non-deterministic (and Claude variance has
+        # nothing to do with run-to-run drift)
+        md_hash = hashlib.md5(markdown.encode()).hexdigest()[:12]
+        print(f"[Parser:{backend}] Markdown hash for {filename}: "
+              f"{md_hash} ({len(markdown)} chars)")
+        cache_path.write_text(markdown)
+    return markdown
+
+
+# Backward-compat alias — encode_file_for_claude callers and any external
+# wrappers expecting the old name still work.
+parse_pdf_with_document_ai = parse_pdf
+
+
+def _parse_via_docai(pdf_bytes, filename):
+    """Google Document AI Layout Parser — markdown with tables/headers."""
+    if not DOC_AI_ENABLED:
+        print("[Parser:docai] GCP_PROJECT_ID / GCP_LAYOUT_PROCESSOR_ID not "
+              "set — skipping Doc AI")
+        return None
+
+    opts = ClientOptions(api_endpoint=f"{GCP_LOCATION}-documentai.googleapis.com")
+    client = documentai.DocumentProcessorServiceClient(client_options=opts)
+    processor_name = (
+        f"projects/{GCP_PROJECT_ID}/locations/{GCP_LOCATION}"
+        f"/processors/{GCP_LAYOUT_PROCESSOR_ID}"
+    )
+    raw_document = documentai.RawDocument(content=pdf_bytes, mime_type="application/pdf")
+    process_options = documentai.ProcessOptions(
+        layout_config=documentai.ProcessOptions.LayoutConfig(
+            chunking_config=documentai.ProcessOptions.LayoutConfig.ChunkingConfig(
+                chunk_size=1000,
+                include_ancestor_headings=True,
+            )
+        )
+    )
+    request = documentai.ProcessRequest(
+        name=processor_name,
+        raw_document=raw_document,
+        process_options=process_options,
+    )
+
+    print(f"[Parser:docai] Parsing {filename} ({len(pdf_bytes)//1024} KB)...")
+    t0 = time.time()
+    result = client.process_document(request=request)
+    print(f"[Parser:docai] Parsed in {time.time() - t0:.1f}s")
+
+    doc = result.document
+    parts = [f"# Document: {filename}\n"]
+    if doc.chunked_document and doc.chunked_document.chunks:
+        for chunk in doc.chunked_document.chunks:
+            if chunk.page_headers:
+                for hdr in chunk.page_headers:
+                    parts.append(f"\n## {hdr.text}\n")
+            parts.append(chunk.content)
+            parts.append("\n")
+    else:
+        parts.append(doc.text)
+    return "\n".join(parts)
+
+
+def _parse_via_azure(pdf_bytes, filename):
+    """
+    Azure Document Intelligence Layout (prebuilt-layout model) — returns
+    markdown when outputContentFormat=markdown is requested. Async: POST
+    returns 202 with an operation-location header; poll until done.
+
+    Verified 2026-06 against
+      learn.microsoft.com/en-us/azure/ai-services/document-intelligence/
+    REST API v4.0 (api-version=2024-11-30) is the current GA. v4.0 changed
+    table representation to HTML inside the markdown stream to support
+    merged cells + multirow headers, which is desirable for T12s.
+    """
+    if not AZURE_DOC_INTEL_ENDPOINT or not AZURE_DOC_INTEL_KEY:
+        print("[Parser:azure] AZURE_DOC_INTEL_ENDPOINT / AZURE_DOC_INTEL_KEY "
+              "not set — skipping")
+        return None
+
+    base = AZURE_DOC_INTEL_ENDPOINT.rstrip("/")
+    api_version = os.environ.get("AZURE_DOC_INTEL_API_VERSION", "2024-11-30")
+    start_url = (
+        f"{base}/documentintelligence/documentModels/"
+        f"prebuilt-layout:analyze"
+        f"?api-version={api_version}&outputContentFormat=markdown"
+    )
+    headers = {
+        "Ocp-Apim-Subscription-Key": AZURE_DOC_INTEL_KEY,
+        "Content-Type": "application/pdf",
+    }
+
+    print(f"[Parser:azure] Parsing {filename} ({len(pdf_bytes)//1024} KB)...")
+    t0 = time.time()
+    r = requests.post(start_url, headers=headers, data=pdf_bytes, timeout=120)
+    if r.status_code not in (200, 202):
+        print(f"[Parser:azure] start failed: {r.status_code} {r.text[:300]}")
+        return None
+    op_url = r.headers.get("operation-location") or r.headers.get("Operation-Location")
+    if not op_url:
+        print(f"[Parser:azure] no operation-location header: {dict(r.headers)}")
+        return None
+
+    poll_headers = {"Ocp-Apim-Subscription-Key": AZURE_DOC_INTEL_KEY}
+    deadline = time.time() + 300
+    while time.time() < deadline:
+        time.sleep(2)
+        pr = requests.get(op_url, headers=poll_headers, timeout=30)
+        if pr.status_code != 200:
+            print(f"[Parser:azure] poll {pr.status_code}: {pr.text[:200]}")
+            return None
+        data = pr.json()
+        status = data.get("status")
+        if status == "succeeded":
+            print(f"[Parser:azure] Parsed in {time.time() - t0:.1f}s")
+            content = data.get("analyzeResult", {}).get("content", "")
+            return f"# Document: {filename}\n\n{content}"
+        if status in ("failed", "canceled"):
+            print(f"[Parser:azure] terminal status {status}: {data}")
+            return None
+    print("[Parser:azure] polling timed out (5 min)")
+    return None
+
+
+def _parse_via_tensorlake(pdf_bytes, filename):
+    """
+    Tensorlake document parsing (v2 async) per docs.tensorlake.ai/api-reference
+    (verified 2026-06):
+      1) POST /documents/v2/files (multipart) → {"file_id": "..."}
+         NOTE: the upload endpoint URL is the one piece NOT explicitly shown
+         in the public docs preview — verify against your account's actual
+         endpoint or use the official Tensorlake Python SDK for upload.
+         Override via TENSORLAKE_UPLOAD_PATH if needed.
+      2) POST /documents/v2/parse with {"file_id", "mime_type",
+         "parsing_options": {"table_output_mode": "markdown"}} → {"parse_id"}
+      3) GET /documents/v2/parse/{parse_id} until status="successful"
+      4) Markdown is the joined chunks[].content
+    Pricing: $0.01/page flat ($10/1k pages).
+    """
+    if not TENSORLAKE_API_KEY:
+        print("[Parser:tensorlake] TENSORLAKE_API_KEY not set — skipping")
+        return None
+
+    base = os.environ.get("TENSORLAKE_BASE_URL", "https://api.tensorlake.ai").rstrip("/")
+    upload_path = os.environ.get("TENSORLAKE_UPLOAD_PATH", "/documents/v2/files")
+    auth = {"Authorization": f"Bearer {TENSORLAKE_API_KEY}"}
+
+    # Step 1 — upload, get file_id
+    print(f"[Parser:tensorlake] Uploading {filename} "
+          f"({len(pdf_bytes)//1024} KB)...")
+    t0 = time.time()
+    up = requests.post(f"{base}{upload_path}", headers=auth,
+                       files={"file": (filename, pdf_bytes, "application/pdf")},
+                       timeout=300)
+    if up.status_code not in (200, 201):
+        print(f"[Parser:tensorlake] upload {up.status_code}: {up.text[:300]} "
+              f"— if 404/405 the upload endpoint differs; set "
+              "TENSORLAKE_UPLOAD_PATH or use the Tensorlake SDK")
+        return None
+    try:
+        file_id = (up.json().get("file_id") or up.json().get("id"))
+    except json.JSONDecodeError:
+        print(f"[Parser:tensorlake] upload non-JSON: {up.text[:200]}")
+        return None
+    if not file_id:
+        print(f"[Parser:tensorlake] upload missing file_id: {up.text[:200]}")
+        return None
+
+    # Step 2 — submit parse job
+    body = {
+        "file_id":   file_id,
+        "mime_type": "application/pdf",
+        "parsing_options": {"table_output_mode": "markdown"},
+    }
+    sub = requests.post(f"{base}/documents/v2/parse",
+                        headers={**auth, "Content-Type": "application/json"},
+                        json=body, timeout=120)
+    if sub.status_code not in (200, 201, 202):
+        print(f"[Parser:tensorlake] parse submit {sub.status_code}: {sub.text[:300]}")
+        return None
+    try:
+        parse_id = sub.json().get("parse_id") or sub.json().get("id")
+    except json.JSONDecodeError:
+        print(f"[Parser:tensorlake] submit non-JSON: {sub.text[:200]}")
+        return None
+    if not parse_id:
+        print(f"[Parser:tensorlake] submit missing parse_id: {sub.text[:200]}")
+        return None
+
+    # Step 3 — poll until successful (or timeout at 5 min)
+    poll_url = f"{base}/documents/v2/parse/{parse_id}"
+    deadline = time.time() + 300
+    while time.time() < deadline:
+        time.sleep(3)
+        pr = requests.get(poll_url, headers=auth, timeout=30)
+        if pr.status_code != 200:
+            print(f"[Parser:tensorlake] poll {pr.status_code}: {pr.text[:200]}")
+            return None
+        data = pr.json()
+        status = (data.get("status") or "").lower()
+        if status in ("successful", "succeeded", "completed", "complete"):
+            chunks = (data.get("chunks") or data.get("result", {}).get("chunks")
+                      or [])
+            parts = [ch.get("content", "") for ch in chunks if ch.get("content")]
+            if not parts:
+                print(f"[Parser:tensorlake] no chunks in result; keys="
+                      f"{list(data.keys())}")
+                return None
+            print(f"[Parser:tensorlake] Parsed in {time.time() - t0:.1f}s "
+                  f"({len(parts)} chunks)")
+            return f"# Document: {filename}\n\n" + "\n\n".join(parts)
+        if status in ("failed", "error", "errored", "canceled"):
+            print(f"[Parser:tensorlake] terminal status {status}: {data}")
+            return None
+    print("[Parser:tensorlake] polling timed out (5 min)")
+    return None
+
+
+def _parse_via_reducto(pdf_bytes, filename):
+    """
+    Reducto vision-first parser. Two-step synchronous flow per
+    docs.reducto.ai/quickstart (verified 2026-06):
+      1) POST /upload (multipart) → {"file_id": "reducto://..."}
+      2) POST /parse (JSON, input=file_id) → {"result": {"chunks":[{"content":...}]}}
+    Markdown is the concatenated chunks[].content. Published pricing
+    starts at $0.015/page.
+    """
+    if not REDUCTO_API_KEY:
+        print("[Parser:reducto] REDUCTO_API_KEY not set — skipping")
+        return None
+
+    base = os.environ.get("REDUCTO_BASE_URL", "https://platform.reducto.ai").rstrip("/")
+    auth = {"Authorization": f"Bearer {REDUCTO_API_KEY}"}
+
+    # Step 1 — upload bytes, get file_id
+    print(f"[Parser:reducto] Uploading {filename} "
+          f"({len(pdf_bytes)//1024} KB)...")
+    t0 = time.time()
+    up = requests.post(f"{base}/upload", headers=auth,
+                       files={"file": (filename, pdf_bytes, "application/pdf")},
+                       timeout=300)
+    if up.status_code not in (200, 201):
+        print(f"[Parser:reducto] upload {up.status_code}: {up.text[:300]}")
+        return None
+    try:
+        file_id = up.json().get("file_id")
+    except json.JSONDecodeError:
+        print(f"[Parser:reducto] upload returned non-JSON: {up.text[:200]}")
+        return None
+    if not file_id:
+        print(f"[Parser:reducto] upload response missing file_id: {up.text[:200]}")
+        return None
+
+    # Step 2 — parse with markdown table formatting
+    body = {"input": file_id, "formatting": {"table_output_format": "md"}}
+    pr = requests.post(f"{base}/parse",
+                       headers={**auth, "Content-Type": "application/json"},
+                       json=body, timeout=600)
+    if pr.status_code not in (200, 201):
+        print(f"[Parser:reducto] parse {pr.status_code}: {pr.text[:300]}")
+        return None
+
+    try:
+        payload = pr.json()
+    except json.JSONDecodeError:
+        print(f"[Parser:reducto] parse non-JSON: {pr.text[:200]}")
+        return None
+
+    chunks = (payload.get("result") or {}).get("chunks") or payload.get("chunks") or []
+    parts = []
+    for ch in chunks:
+        # Per docs, ch.content is the full text; ch.blocks[] is per-element.
+        # Prefer content; fall back to joined block contents.
+        txt = ch.get("content")
+        if not txt and ch.get("blocks"):
+            txt = "\n\n".join(b.get("content", "") for b in ch["blocks"]
+                              if b.get("content"))
+        if txt:
+            parts.append(txt)
+
+    if not parts:
+        print(f"[Parser:reducto] parse response had no chunks: "
+              f"keys={list(payload.keys())}")
+        return None
+
+    print(f"[Parser:reducto] Parsed in {time.time() - t0:.1f}s "
+          f"({payload.get('usage', {}).get('num_pages', '?')} pages)")
+    return f"# Document: {filename}\n\n" + "\n\n".join(parts)
+
+# ═══════════════════════════════════════════════════════════════════════════
+# VERSIONED EXTRACTION CACHE
+# Key = SHA-256 of (file_blocks + property_info + model pins + parser config +
+# prompt hashes + schema hashes + n_runs). On a hit, returns the exact same
+# financial_pipeline output that was produced last time the same inputs were
+# seen. This is the operational fix for the "same PDF produces different
+# output" complaint — fingerprinted memoization.
+# Bumping any prompt, schema, or model invalidates all entries automatically
+# (their hash changes). To force-clear, delete EXTRACTION_CACHE_DIR.
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _hash_obj(obj):
+    """Stable SHA-256 hex digest of any JSON-serializable object."""
+    return hashlib.sha256(
+        json.dumps(obj, sort_keys=True, default=str).encode()
+    ).hexdigest()
+
+
+def extraction_cache_key(file_blocks, property_info, n_extraction_runs,
+                         extraction_prompt, methodology_prompt):
+    """
+    Build the cache key tuple, then hash it. Anything that changes the output
+    must be in here. PARSER_BACKEND is in via PARSER_VERSION + the fact that
+    PARSER_BACKEND affects what's *in* file_blocks (the parser's markdown is
+    embedded directly).
+    """
+    key_obj = {
+        "files":        _hash_obj(file_blocks),
+        "property":     _hash_obj(property_info),
+        "model_x":      MODEL_EXTRACTION,
+        "model_m":      MODEL_METHODOLOGY,
+        "use_so":       USE_STRUCTURED_OUTPUTS,
+        "parser":       PARSER_BACKEND,
+        "parser_v":     PARSER_VERSION,
+        "ext_prompt":   _hash_obj(extraction_prompt)[:16],
+        "meth_prompt":  _hash_obj(methodology_prompt)[:16],
+        "ext_schema":   _hash_obj(EXTRACTION_OUTPUT_SCHEMA)[:16],
+        "meth_schema":  _hash_obj(METHODOLOGY_OUTPUT_SCHEMA)[:16],
+        "n_runs":       n_extraction_runs,
+    }
+    return _hash_obj(key_obj)[:32]
+
+
+def extraction_cache_get(key):
+    if not EXTRACTION_CACHE_ENABLED:
+        return None
+    path = EXTRACTION_CACHE_DIR / f"{key}.json"
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text())
+    except Exception as e:
+        print(f"[ExtractionCache] read failed for {key[:8]}: {e}")
+        return None
+
+
+def extraction_cache_put(key, payload):
+    if not EXTRACTION_CACHE_ENABLED:
+        return
+    path = EXTRACTION_CACHE_DIR / f"{key}.json"
+    try:
+        path.write_text(json.dumps(payload))
+    except Exception as e:
+        print(f"[ExtractionCache] write failed for {key[:8]}: {e}")
+
 
 GOOGLE_GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
 
@@ -454,19 +839,22 @@ def geocode_address(address):
 # CLAUDE API CLIENT
 # ═══════════════════════════════════════════════════════════════════════════
 def call_claude(api_key, system_prompt, user_content, tools=None,
-                use_thinking=True, temperature=None, model=None):
+                use_thinking=True, temperature=None, model=None,
+                output_schema=None):
     """
     Call Claude with streaming enabled. Streaming keeps the connection alive
     during long-running requests (which can hit 3+ minutes when Claude is doing
     heavy thinking + web search) instead of timing out at the request level.
 
     Model routing:
-    - Defaults to MODEL_MARKET (Opus 4.7) for market research with adaptive thinking
-    - Pass model=MODEL_FINANCIAL (Sonnet 4.6) for deterministic financial parsing
-      with temperature=0
+    - Defaults to MODEL_MARKET (Opus 4.8) for market research with adaptive thinking
+    - Pass model=MODEL_METHODOLOGY (Opus 4.8) for GGC categorization + methodology
+    - Pass model=MODEL_EXTRACTION (Sonnet 4.6) with use_thinking=False, temperature=0
+      for deterministic document extraction
 
-    NOTE: Opus 4.7 deprecated temperature/top_p/top_k entirely. Only pass
-    temperature when targeting Sonnet 4.6 (or other pre-4.7 models).
+    NOTE: Opus 4.7 and 4.8 deprecated temperature/top_p/top_k entirely. Only pass
+    temperature when targeting Sonnet 4.6 (or other pre-4.7 models). Opus 4.8
+    defaults to effort=high, which is what we want for judgment-heavy work.
     """
     headers = {"x-api-key": api_key, "anthropic-version": API_VERSION,
                "content-type": "application/json"}
@@ -480,6 +868,20 @@ def call_claude(api_key, system_prompt, user_content, tools=None,
         body["output_config"] = {"effort": "high"}
     elif temperature is not None:
         body["temperature"] = temperature
+
+    # Structured outputs (GA). The schema is compiled into a token-level
+    # grammar — Claude literally cannot emit a property outside it.
+    # Composes with thinking by sharing output_config.
+    use_so = bool(output_schema) and USE_STRUCTURED_OUTPUTS
+    if use_so:
+        # The GA path doesn't need a beta header; SO_LEGACY_BETA_HEADER opts
+        # back in if a pinned snapshot still requires the transition header.
+        if SO_LEGACY_BETA_HEADER:
+            headers["anthropic-beta"] = STRUCTURED_OUTPUTS_BETA
+        body.setdefault("output_config", {})["format"] = {
+            "type": "json_schema",
+            "schema": output_schema,
+        }
     if tools:
         body["tools"] = tools
 
@@ -491,6 +893,23 @@ def call_claude(api_key, system_prompt, user_content, tools=None,
             resp = requests.post(ANTHROPIC_API_URL, headers=headers,
                                  json=body, timeout=(30, 600), stream=True)
             if resp.status_code != 200:
+                # If structured outputs is rejected for the pinned snapshot,
+                # drop it and retry — prompt + Pydantic still enforce the
+                # shape, just without grammar-level masking.
+                if resp.status_code == 400 and use_so:
+                    err_text = resp.text[:500].lower()
+                    if any(t in err_text for t in ("structured", "beta", "output_config", "schema")):
+                        print(f"[Claude] Structured outputs rejected for "
+                              f"{body['model']} ({resp.status_code}: "
+                              f"{resp.text[:160]}); falling back to "
+                              f"prompt-only schema")
+                        headers.pop("anthropic-beta", None)
+                        if isinstance(body.get("output_config"), dict):
+                            body["output_config"].pop("format", None)
+                            if not body["output_config"]:
+                                body.pop("output_config", None)
+                        use_so = False
+                        continue
                 if resp.status_code in (429, 500, 502, 503, 504, 529):
                     retry_after = resp.headers.get("retry-after")
                     delay = int(retry_after) if retry_after else BASE_BACKOFF_SEC * (2 ** attempt)
@@ -687,15 +1106,15 @@ def encode_file_for_claude(file_storage):
     b64 = base64.standard_b64encode(data).decode("utf-8")
 
     if ext == ".pdf":
-        # First try Google Document AI Layout Parser for deterministic,
+        # Try the configured PARSER_BACKEND first for deterministic,
         # high-accuracy table extraction. Falls back to Anthropic's native
-        # PDF handling if Doc AI is disabled or fails.
-        markdown = parse_pdf_with_document_ai(data, filename)
+        # PDF handling if the parser is disabled, misconfigured, or fails.
+        markdown = parse_pdf(data, filename)
         if markdown:
             return {"type": "text",
-                    "text": f"[PDF parsed by Google Document AI Layout Parser: {filename}]\n\n{markdown[:200000]}"}
-        # Fallback — send PDF directly to Claude
-        print(f"[Encode] Doc AI parsing unavailable, falling back to native PDF for {filename}")
+                    "text": f"[PDF parsed by {PARSER_BACKEND}: {filename}]\n\n{markdown[:200000]}"}
+        print(f"[Encode] Parser {PARSER_BACKEND} unavailable; "
+              f"falling back to Anthropic native PDF for {filename}")
         return {"type": "document",
                 "source": {"type": "base64", "media_type": "application/pdf", "data": b64},
                 "title": filename}
@@ -725,11 +1144,912 @@ def encode_file_for_claude(file_storage):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# CLAUDE CALL #1 — Financial Parsing
+# JSON SCHEMAS + PYDANTIC MODELS
+# Two correctness layers:
+#   (1) JSON Schema sent to Anthropic Structured Outputs → token-grammar
+#       compliance. Eliminates malformed JSON + category-mapping drift.
+#   (2) Pydantic models run after extract_json → mirror the schema for the
+#       Python side and give the validator something to type-check against.
+# verify_extraction (the pure-Python tie-out function) runs in addition and
+# catches numeric/cross-field problems the schema layer can't see.
+# ═══════════════════════════════════════════════════════════════════════════
+
+CONFIDENCE_LEVELS = ["high", "medium", "low"]
+SEVERITY_LEVELS   = ["high", "medium", "low"]
+PROPERTY_TYPES    = ["MHC", "RV", "Hybrid"]
+RECONCILE_UNIT    = ["match", "rent_roll_short", "rent_roll_long"]
+RECONCILE_POH     = ["match", "stated_high", "stated_low", "stated_zero_but_found"]
+SECTION_INCOME    = ["income"]
+SECTION_EXPENSE   = ["expense"]
+
+
+# ── EXTRACTION SCHEMA (Sonnet 4.6 output) ─────────────────────────────────
+
+def _extracted_line_schema(section_values):
+    """Income/expense row from the extraction stage."""
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["sellerLabel", "annualTotal", "monthly", "section", "isSubtotal"],
+        "properties": {
+            "sellerLabel": {"type": "string"},
+            "annualTotal": {"type": ["number", "null"]},
+            # monthly: 12-element array OR null. Anthropic schema accepts the
+            # type-array form for nullables.
+            "monthly": {
+                "type": ["array", "null"],
+                "items":    {"type": "number"},
+                "minItems": 12,
+                "maxItems": 12,
+            },
+            "section":    {"type": "string", "enum": section_values},
+            "isSubtotal": {"type": "boolean"},
+        },
+    }
+
+
+EXTRACTION_OUTPUT_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["reportingPeriod", "income", "expenses", "rentRoll",
+                 "documentsSeen", "extractionNotes"],
+    "properties": {
+        "reportingPeriod": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["periodUsed", "dateRange", "monthsCovered",
+                         "candidatePeriodsSeen", "notes"],
+            "properties": {
+                "periodUsed":           {"type": "string"},
+                "dateRange":            {"type": "string"},
+                "monthsCovered":        {"type": ["integer", "null"]},
+                "candidatePeriodsSeen": {"type": "array", "items": {"type": "string"}},
+                "notes":                {"type": "string"},
+            },
+        },
+        "income":   {"type": "array", "items": _extracted_line_schema(SECTION_INCOME)},
+        "expenses": {"type": "array", "items": _extracted_line_schema(SECTION_EXPENSE)},
+        "rentRoll": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["totalRowsInRentRoll", "statedTotalRentMonthly",
+                         "statedTotalIsMonthly", "occupiedCount", "vacantCount",
+                         "unitTypes"],
+            "properties": {
+                "totalRowsInRentRoll":    {"type": ["integer", "null"]},
+                "statedTotalRentMonthly": {"type": ["number", "null"]},
+                "statedTotalIsMonthly":   {"type": "boolean"},
+                "occupiedCount":          {"type": ["integer", "null"]},
+                "vacantCount":            {"type": ["integer", "null"]},
+                "unitTypes": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": ["unitType", "count", "occupiedCount",
+                                     "vacantCount", "avgLotRentOccupied",
+                                     "hasHomeRentEntries", "avgHomeRent"],
+                        "properties": {
+                            "unitType":           {"type": "string"},
+                            "count":              {"type": "integer"},
+                            "occupiedCount":      {"type": "integer"},
+                            "vacantCount":        {"type": "integer"},
+                            "avgLotRentOccupied": {"type": ["number", "null"]},
+                            "hasHomeRentEntries": {"type": "boolean"},
+                            "avgHomeRent":        {"type": ["number", "null"]},
+                        },
+                    },
+                },
+            },
+        },
+        "documentsSeen":   {"type": "array", "items": {"type": "string"}},
+        "extractionNotes": {"type": "string"},
+    },
+}
+
+
+# ── METHODOLOGY SCHEMA (Opus 4.8 output) ───────────────────────────────────
+
+def _methodology_line_schema(category_enum):
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["ggcCategory", "sellerName", "fyPrior", "fyCurrent",
+                     "brokerProforma", "t12Total", "monthly",
+                     "ggcUnderwritten", "confidence", "notes"],
+        "properties": {
+            "ggcCategory":     {"type": "string", "enum": category_enum},
+            "sellerName":      {"type": "string"},
+            "fyPrior":         {"type": "number"},
+            "fyCurrent":       {"type": "number"},
+            "brokerProforma":  {"type": "number"},
+            "t12Total":        {"type": "number"},
+            "monthly":         {"type": "array", "items": {"type": "number"},
+                                "minItems": 12, "maxItems": 12},
+            "ggcUnderwritten": {"type": "number"},
+            "confidence":      {"type": "string", "enum": CONFIDENCE_LEVELS},
+            "notes":           {"type": "string"},
+        },
+    }
+
+
+METHODOLOGY_OUTPUT_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["propertyInfo", "income", "expenses", "rentRoll",
+                 "flags", "dataQualityChecks", "questions", "dataQuality"],
+    "properties": {
+        "propertyInfo": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["name", "address", "city", "state", "county",
+                         "totalUnits", "askingPrice", "propertyType",
+                         "ingoingCapRate", "stabilizedYieldOnCost",
+                         "spreadBps", "meetsInvestmentCriteria"],
+            "properties": {
+                "name":        {"type": "string"},
+                "address":     {"type": "string"},
+                "city":        {"type": "string"},
+                "state":       {"type": "string"},
+                "county":      {"type": "string"},
+                "totalUnits":  {"type": "integer"},
+                "askingPrice": {"type": "number"},
+                "propertyType":            {"type": "string", "enum": PROPERTY_TYPES},
+                "ingoingCapRate":          {"type": "number"},
+                "stabilizedYieldOnCost":   {"type": "number"},
+                "spreadBps":               {"type": "integer"},
+                "meetsInvestmentCriteria": {"type": "boolean"},
+            },
+        },
+        "income":   {"type": "array", "items": _methodology_line_schema(GGC_INCOME_CATEGORIES)},
+        "expenses": {"type": "array", "items": _methodology_line_schema(GGC_EXPENSE_CATEGORIES)},
+        "rentRoll": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["totalUnits", "occupiedUnits", "vacantUnits",
+                         "occupancyRate", "avgLotRent", "parkOwnedHomes",
+                         "pohPercent", "unitGroups", "unitMixSummary"],
+            "properties": {
+                "totalUnits":     {"type": "integer"},
+                "occupiedUnits":  {"type": "integer"},
+                "vacantUnits":    {"type": "integer"},
+                "occupancyRate":  {"type": "number"},
+                "avgLotRent":     {"type": "number"},
+                "parkOwnedHomes": {"type": "integer"},
+                "pohPercent":     {"type": "number"},
+                "unitGroups": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": ["unitType", "occupiedCount", "vacantCount",
+                                     "lotRent", "pohRent", "ltoPremium",
+                                     "tenantNamePattern"],
+                        "properties": {
+                            "unitType":          {"type": "string"},
+                            "occupiedCount":     {"type": "integer"},
+                            "vacantCount":       {"type": "integer"},
+                            "lotRent":           {"type": "number"},
+                            "pohRent":           {"type": "number"},
+                            "ltoPremium":        {"type": "number"},
+                            "tenantNamePattern": {"type": "string"},
+                        },
+                    },
+                },
+                "unitMixSummary": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": ["unitType", "count", "occupied",
+                                     "avgRent", "marketRent"],
+                        "properties": {
+                            "unitType":   {"type": "string"},
+                            "count":      {"type": "integer"},
+                            "occupied":   {"type": "integer"},
+                            "avgRent":    {"type": "number"},
+                            "marketRent": {"type": "number"},
+                        },
+                    },
+                },
+            },
+        },
+        "flags": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["item", "issue", "severity", "recommendation"],
+                "properties": {
+                    "item":           {"type": "string"},
+                    "issue":          {"type": "string"},
+                    "severity":       {"type": "string", "enum": SEVERITY_LEVELS},
+                    "recommendation": {"type": "string"},
+                },
+            },
+        },
+        "dataQualityChecks": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["totalUnitsStated", "rentRollRowsFound",
+                         "unitCountReconciliation", "pohCountStated",
+                         "pohRowsFound", "pohReconciliation",
+                         "finalPohCount", "finalPohPercent"],
+            "properties": {
+                "totalUnitsStated":         {"type": "integer"},
+                "rentRollRowsFound":        {"type": "integer"},
+                "unitCountReconciliation":  {"type": "string", "enum": RECONCILE_UNIT},
+                "pohCountStated":           {"type": "integer"},
+                "pohRowsFound":             {"type": "integer"},
+                "pohReconciliation":        {"type": "string", "enum": RECONCILE_POH},
+                "finalPohCount":            {"type": "integer"},
+                "finalPohPercent":          {"type": "number"},
+            },
+        },
+        "questions": {"type": "array", "items": {"type": "string"}},
+        "dataQuality": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["hasT12", "hasT3", "hasRentRoll",
+                         "hasMonthlyBreakdown", "t12Period", "missingData"],
+            "properties": {
+                "hasT12":              {"type": "boolean"},
+                "hasT3":               {"type": "boolean"},
+                "hasRentRoll":         {"type": "boolean"},
+                "hasMonthlyBreakdown": {"type": "boolean"},
+                "t12Period":           {"type": "string"},
+                "missingData":         {"type": "array", "items": {"type": "string"}},
+            },
+        },
+    },
+}
+
+
+# ── Pydantic mirrors (extraction stage) ───────────────────────────────────
+
+class ExtractedLineItem(BaseModel):
+    sellerLabel: str
+    annualTotal: float | None = None
+    monthly:     list[float] | None = None
+    section:     str
+    isSubtotal:  bool = False
+
+
+class ExtractedRentRoll(BaseModel):
+    totalRowsInRentRoll:    int | None = None
+    statedTotalRentMonthly: float | None = None
+    statedTotalIsMonthly:   bool = True
+    occupiedCount:          int | None = None
+    vacantCount:            int | None = None
+    unitTypes:              list[dict] = Field(default_factory=list)
+
+
+class ExtractedReportingPeriod(BaseModel):
+    periodUsed:           str = ""
+    dateRange:            str = ""
+    monthsCovered:        int | None = None
+    candidatePeriodsSeen: list[str] = Field(default_factory=list)
+    notes:                str = ""
+
+
+class ExtractedFinancials(BaseModel):
+    reportingPeriod: ExtractedReportingPeriod
+    income:          list[ExtractedLineItem]
+    expenses:        list[ExtractedLineItem]
+    rentRoll:        ExtractedRentRoll
+    documentsSeen:   list[str] = Field(default_factory=list)
+    extractionNotes: str = ""
+
+
+# ── Pydantic mirrors (methodology stage) ──────────────────────────────────
+
+class MethodologyLineItem(BaseModel):
+    ggcCategory: str
+    sellerName: str = ""
+    fyPrior: float = 0
+    fyCurrent: float = 0
+    brokerProforma: float = 0
+    t12Total: float = 0
+    monthly: list[float] = Field(default_factory=lambda: [0.0] * 12)
+    ggcUnderwritten: float = 0
+    confidence: str = "medium"
+    notes: str = ""
+
+    @model_validator(mode="after")
+    def monthly_ties_to_total(self):
+        if not self.monthly or len(self.monthly) != 12 or abs(self.t12Total) < 1:
+            return self
+        total = sum(self.monthly)
+        tolerance = max(5.0, abs(self.t12Total) * 0.01)
+        if abs(total - self.t12Total) > tolerance:
+            raise ValueError(
+                f"{self.ggcCategory} ({self.sellerName}): monthly sum "
+                f"${total:,.2f} != t12Total ${self.t12Total:,.2f} "
+                f"(diff ${abs(total - self.t12Total):,.2f})"
+            )
+        return self
+
+
+class MethodologyIncomeItem(MethodologyLineItem):
+    @field_validator("ggcCategory")
+    @classmethod
+    def category_in_enum(cls, v):
+        if v not in GGC_INCOME_CATEGORIES:
+            raise ValueError(
+                f"income.ggcCategory='{v}' not in GGC_INCOME_CATEGORIES"
+            )
+        return v
+
+
+class MethodologyExpenseItem(MethodologyLineItem):
+    @field_validator("ggcCategory")
+    @classmethod
+    def category_in_enum(cls, v):
+        if v not in GGC_EXPENSE_CATEGORIES:
+            raise ValueError(
+                f"expense.ggcCategory='{v}' not in GGC_EXPENSE_CATEGORIES"
+            )
+        return v
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# CLAUDE CALL #1 — EXTRACTION (deterministic, Sonnet 4.6 @ temp=0)
+# ═══════════════════════════════════════════════════════════════════════════
+# This call does ONE job: read the documents and pull out clean numbers.
+# No GGC categorization, no underwriting methodology, no judgment. Just faithful
+# transcription of what's actually in the source, with the correct reporting
+# period identified. Keeping this separate from the methodology call is what
+# makes the numbers reliable — the model isn't juggling extraction AND analysis
+# at the same time, which is what was causing wrong periods and wrong values.
+EXTRACTION_PROMPT = """You are a financial data extraction engine for a real estate underwriting team. Your ONLY job is to faithfully transcribe the numbers from the attached seller documents into clean structured JSON. You do NOT categorize, analyze, or apply any methodology. You transcribe exactly what is in the documents.
+
+CRITICAL OUTPUT RULES:
+- Your response MUST start with `{` and end with `}`. NOTHING before or after.
+- DO NOT add preamble, explanation, or commentary.
+- DO NOT wrap the JSON in markdown code fences.
+- Transcribe numbers EXACTLY as they appear. Do not round, adjust, or "correct" them.
+- If a value is genuinely not present in the documents, use null. Never invent a number.
+
+## STEP 1 — IDENTIFY THE CORRECT REPORTING PERIOD (most important)
+
+Seller financials frequently contain MULTIPLE time periods side by side. You MUST identify which one is the operative trailing-12-month (T12) period before extracting anything.
+
+- Look for column headers like "T-12 Ended 5/23", "T-12 Ended 9/22", "Oct 2022 - May 2023", "FY2023", individual month columns, etc.
+- The operative T12 is the MOST RECENT complete trailing-12-month column. If there are several "T-12 Ended X" columns, use the one with the latest ending date.
+- A column covering fewer than 12 months (e.g. "Oct 2022 - May 2023" = 8 months) is a PARTIAL period. NEVER treat a partial period as the annual figure.
+- If individual monthly columns are present, the 12 most recent consecutive months ARE the T12. Sum them to cross-check against any stated T12 total.
+- Report exactly which period you used and its date range in the "reportingPeriod" field.
+
+## STEP 2 — EXTRACT THE INCOME STATEMENT (P&L / T12)
+
+For EVERY line item in the seller's operating statement, transcribe:
+- "sellerLabel": the exact label as written (e.g. "6950 · UTILITIES", "4010 · RENTAL INCOME")
+- "annualTotal": the value from the operative T12 column you identified in Step 1
+- "monthly": an array of the 12 monthly values for that line, IN CHRONOLOGICAL ORDER, if monthly detail exists. If no monthly detail exists, use null.
+- "section": your best read of whether this is "income" or "expense" based on where it sits in the statement (this is structural, NOT GGC categorization — just income vs expense)
+
+Rules:
+- If monthly values exist, they should sum to (or very close to) the annualTotal. If they don't, still transcribe both faithfully — the verification step will flag the discrepancy.
+- Include EVERY line, even ones that look like subtotals or totals. Mark subtotals/totals with "isSubtotal": true so they can be excluded from sums later.
+- Preserve the seller's account numbers in the label if present.
+
+## STEP 3 — EXTRACT THE RENT ROLL
+
+Transcribe the rent roll into structured form:
+- "totalRowsInRentRoll": the number of unit/space rows you found (integer)
+- "statedTotalRentMonthly": if the rent roll shows a "Total Possible Rent" or "Totals" figure, transcribe it here. Note whether it is monthly or annual.
+- "occupiedCount": number of occupied units
+- "vacantCount": number of vacant units
+- "unitTypes": array of distinct unit types found, each with:
+    - "unitType": the label (e.g. "TURQUOISE SPACE", "Standard Lot")
+    - "count": how many of this type
+    - "occupiedCount": occupied of this type
+    - "vacantCount": vacant of this type
+    - "avgLotRentOccupied": average lot rent of the OCCUPIED units of this type
+    - "hasHomeRentEntries": true if any unit of this type shows a home rent / POH rent value
+    - "avgHomeRent": average home rent among units of this type that have one (null if none)
+
+## OUTPUT SCHEMA (JSON only)
+
+{
+  "reportingPeriod": {
+    "periodUsed": "string — exact label of the column you used, e.g. 'T-12 Ended 5/23'",
+    "dateRange": "string — e.g. 'Jun 2022 - May 2023'",
+    "monthsCovered": 12,
+    "candidatePeriodsSeen": ["list every period column header you saw in the document"],
+    "notes": "string — explain any ambiguity in choosing the period"
+  },
+  "income": [
+    {"sellerLabel": "string", "annualTotal": number|null, "monthly": [12 numbers]|null, "section": "income", "isSubtotal": false}
+  ],
+  "expenses": [
+    {"sellerLabel": "string", "annualTotal": number|null, "monthly": [12 numbers]|null, "section": "expense", "isSubtotal": false}
+  ],
+  "rentRoll": {
+    "totalRowsInRentRoll": integer|null,
+    "statedTotalRentMonthly": number|null,
+    "statedTotalIsMonthly": true,
+    "occupiedCount": integer|null,
+    "vacantCount": integer|null,
+    "unitTypes": [
+      {"unitType": "string", "count": integer, "occupiedCount": integer, "vacantCount": integer,
+       "avgLotRentOccupied": number|null, "hasHomeRentEntries": false, "avgHomeRent": number|null}
+    ]
+  },
+  "documentsSeen": ["list each document by what it appears to be, e.g. 'T12 operating statement', 'rent roll', 'offering memorandum'"],
+  "extractionNotes": "string — anything that was hard to read, ambiguous, or that the downstream analyst should know"
+}"""
+
+
+def call_extract_financials(api_key, file_blocks, property_info):
+    """
+    Call 1 of the financial pipeline: deterministic extraction.
+    Sonnet 4.6 at temperature=0 reads the documents and returns clean numbers
+    with the correct reporting period identified. No GGC methodology applied.
+
+    Two correctness layers:
+      (a) Structured outputs grammar (Anthropic beta) — guarantees schema
+          compliance; the model literally cannot emit a property outside
+          EXTRACTION_OUTPUT_SCHEMA.
+      (b) Pydantic structural validation + verify_extraction tie-outs. On
+          either kind of failure, the errors are appended to the prompt and
+          extraction is re-run (up to MAX_PARSE_RETRIES). Failures past the
+          last retry are surfaced by verify_extraction downstream — not
+          silently dropped.
+    """
+    base_context = {
+        "type": "text",
+        "text": f"""Documents are attached above. Property context for reference only:
+- Name: {property_info.get('name', 'N/A')}
+- Total Units (user-stated): {property_info.get('units', 'N/A')}
+- Park-Owned Home Count (user-stated): {property_info.get('pohCount', '0')}
+
+Extract the income statement, rent roll, and reporting period into the structured JSON. Transcribe faithfully — do not categorize or analyze."""
+    }
+    base_user_blocks = file_blocks + [base_context]
+
+    user_blocks    = base_user_blocks
+    last_extracted = None
+
+    for attempt in range(MAX_PARSE_RETRIES + 1):
+        print(f"[Claude] Stage 1/2 — EXTRACTION attempt "
+              f"{attempt+1}/{MAX_PARSE_RETRIES+1} ({MODEL_EXTRACTION}, temp=0)...")
+        t0 = time.time()
+        response = call_claude(api_key, EXTRACTION_PROMPT, user_blocks,
+                               use_thinking=False, temperature=0,
+                               model=MODEL_EXTRACTION,
+                               output_schema=EXTRACTION_OUTPUT_SCHEMA)
+        elapsed = time.time() - t0
+        print(f"[Claude] Extraction returned in {elapsed:.1f}s "
+              f"(stop_reason: {response.get('stop_reason', '?')})")
+        extracted = extract_json(response)
+        last_extracted = extracted
+
+        # Layer (b1): Pydantic structural check
+        pydantic_errors = []
+        try:
+            ExtractedFinancials(**extracted)
+        except ValidationError as e:
+            for err in e.errors():
+                loc = ".".join(str(x) for x in err.get("loc", []))
+                pydantic_errors.append(f"{loc}: {err.get('msg', 'invalid')}")
+
+        # Layer (b2): pure-Python tie-out checks
+        checks   = verify_extraction(extracted, property_info)
+        failures = [c for c in checks if c.get("status") == "fail"]
+
+        if not pydantic_errors and not failures:
+            print(f"[Extract] Validation passed on attempt {attempt+1}")
+            return extracted
+
+        print(f"[Extract] Attempt {attempt+1} issues: "
+              f"{len(pydantic_errors)} schema, {len(failures)} tie-out")
+        for e in pydantic_errors[:5]:
+            print(f"  - schema: {e}")
+        for c in failures[:5]:
+            print(f"  - tie-out: {c.get('item', '')}: {c.get('detail', '')}")
+
+        if attempt < MAX_PARSE_RETRIES:
+            err_lines = ([f"- schema: {e}" for e in pydantic_errors[:8]]
+                         + [f"- {c.get('item','?')}: {c.get('detail','?')}"
+                            for c in failures[:10]])
+            user_blocks = base_user_blocks + [{
+                "type": "text",
+                "text": (
+                    "Your previous extraction failed these checks. "
+                    "Re-read the documents and produce a CORRECTED "
+                    "extraction:\n\n"
+                    + "\n".join(err_lines)
+                    + "\n\nPay attention to: (a) the monthly array of each "
+                    "income/expense line summing to its annualTotal, "
+                    "(b) the rent roll occupiedCount + vacantCount equaling "
+                    "totalRowsInRentRoll, (c) picking the MOST RECENT "
+                    "12-month period (not a partial period), (d) section "
+                    "labels exactly matching 'income' or 'expense'."
+                ),
+            }]
+
+    # Retries exhausted. Return the last extraction. Downstream
+    # verify_extraction surfaces the failures on the Extraction Check tab —
+    # they are visible to the reviewer, not silently passed.
+    print(f"[Extract] {MAX_PARSE_RETRIES+1} attempts exhausted; "
+          "downstream verify_extraction will surface residual failures")
+    return last_extracted
+
+
+def verify_extraction(extracted, property_info):
+    """
+    Pure-Python verification of the extracted data — NO AI involved, so this is
+    fully deterministic. Catches the failure modes that showed up in testing:
+    monthly values not summing to the annual total, rent roll row count not
+    matching the stated unit count, partial periods used as annual, etc.
+
+    Returns a list of check dicts: {item, check, status, detail}
+    status is "ok" | "warn" | "fail". These get surfaced on the Extraction
+    Check tab so the reviewer can confirm the numbers tie before trusting
+    anything downstream.
+    """
+    checks = []
+
+    # ── Reporting period sanity ──────────────────────────────────────────
+    rp = extracted.get("reportingPeriod", {}) or {}
+    months = rp.get("monthsCovered")
+    if months == 12:
+        checks.append({"item": "Reporting period", "check": "T12 (12 months)",
+                       "status": "ok",
+                       "detail": f"{rp.get('periodUsed', '?')} ({rp.get('dateRange', '?')})"})
+    elif months is not None:
+        checks.append({"item": "Reporting period", "check": "Should be 12 months",
+                       "status": "fail",
+                       "detail": f"Period used covers {months} months — this is a PARTIAL period, not a T12. {rp.get('periodUsed', '?')}"})
+    else:
+        checks.append({"item": "Reporting period", "check": "12 months",
+                       "status": "warn",
+                       "detail": "Could not confirm months covered. Verify the period manually."})
+    candidates = rp.get("candidatePeriodsSeen") or []
+    if len(candidates) > 1:
+        checks.append({"item": "Multiple periods in doc", "check": "Picked most recent T12",
+                       "status": "warn",
+                       "detail": f"Document had {len(candidates)} period columns: {', '.join(str(c) for c in candidates[:6])}. Confirm the right one was used."})
+
+    # ── Monthly vs annual reconciliation for each line ───────────────────
+    def _check_lines(lines, label):
+        for ln in lines or []:
+            if ln.get("isSubtotal"):
+                continue
+            monthly = ln.get("monthly")
+            annual = ln.get("annualTotal")
+            name = ln.get("sellerLabel", "(unlabeled)")
+            if isinstance(monthly, list) and len(monthly) == 12 and isinstance(annual, (int, float)):
+                msum = sum(v for v in monthly if isinstance(v, (int, float)))
+                if annual == 0:
+                    pct_off = 0 if msum == 0 else 100
+                else:
+                    pct_off = abs(msum - annual) / abs(annual) * 100
+                if pct_off <= 1:
+                    checks.append({"item": f"{label}: {name}", "check": "Monthlies sum to annual",
+                                   "status": "ok", "detail": f"Σmonthly={msum:,.0f} vs annual={annual:,.0f}"})
+                elif pct_off <= 5:
+                    checks.append({"item": f"{label}: {name}", "check": "Monthlies ≈ annual",
+                                   "status": "warn",
+                                   "detail": f"Σmonthly={msum:,.0f} vs annual={annual:,.0f} ({pct_off:.1f}% off)"})
+                else:
+                    checks.append({"item": f"{label}: {name}", "check": "Monthlies vs annual MISMATCH",
+                                   "status": "fail",
+                                   "detail": f"Σmonthly={msum:,.0f} vs annual={annual:,.0f} ({pct_off:.1f}% off) — check extraction"})
+
+    _check_lines(extracted.get("income"), "Income")
+    _check_lines(extracted.get("expenses"), "Expense")
+
+    # ── Rent roll row count vs user-stated unit count ────────────────────
+    rr = extracted.get("rentRoll", {}) or {}
+    rows = rr.get("totalRowsInRentRoll")
+    try:
+        stated_units = int(str(property_info.get("units", "")).strip() or 0)
+    except (ValueError, TypeError):
+        stated_units = 0
+    if rows is not None and stated_units:
+        if rows == stated_units:
+            checks.append({"item": "Rent roll rows vs unit count", "check": "Match",
+                           "status": "ok", "detail": f"{rows} rows = {stated_units} units"})
+        elif rows < stated_units:
+            checks.append({"item": "Rent roll rows vs unit count", "check": "Rent roll short",
+                           "status": "warn",
+                           "detail": f"{rows} rows but {stated_units} units stated — {stated_units - rows} likely vacant lots omitted by seller. Should be imputed at market rent."})
+        else:
+            checks.append({"item": "Rent roll rows vs unit count", "check": "Rent roll long",
+                           "status": "fail",
+                           "detail": f"{rows} rows but only {stated_units} units stated — verify unit count or check for non-unit rows."})
+
+    # ── Rent roll stated total vs sum of unit-type rents (rough) ─────────
+    stated_total = rr.get("statedTotalRentMonthly")
+    annual_from_monthly = None
+    if isinstance(stated_total, (int, float)) and stated_total:
+        annual_from_monthly = stated_total * 12 if rr.get("statedTotalIsMonthly", True) else stated_total
+        checks.append({"item": "Rent roll total", "check": "Monthly → annual",
+                       "status": "ok",
+                       "detail": f"Stated rent roll total {stated_total:,.0f}/mo → {annual_from_monthly:,.0f}/yr (this should approximate GPR)"})
+
+    # ── Rent anomaly across unit types (hybrid 2σ + ratio-to-median) ─────
+    # With only 3 unit types and one extreme outlier, the outlier itself
+    # inflates the stdev and z stays under 2. So we also check ratio to
+    # the median (robust statistic): flag any rent ≥3× or ≤1/3 the median.
+    # Catches both subtle and obvious mispricings.
+    rents = [ut.get("avgLotRentOccupied") for ut in (rr.get("unitTypes") or [])
+             if isinstance(ut.get("avgLotRentOccupied"), (int, float))
+             and ut.get("avgLotRentOccupied") > 0]
+    if len(rents) >= 3:
+        mean = sum(rents) / len(rents)
+        median = statistics.median(rents)
+        try:
+            sd = statistics.stdev(rents)
+        except statistics.StatisticsError:
+            sd = 0
+        for ut in rr.get("unitTypes") or []:
+            rent = ut.get("avgLotRentOccupied")
+            if not isinstance(rent, (int, float)) or rent <= 0:
+                continue
+            z = (rent - mean) / sd if sd > 0 else 0
+            ratio = rent / median if median > 0 else 1
+            if abs(z) >= 2 or ratio >= 3 or ratio <= 1/3:
+                checks.append({
+                    "item":  f"Rent anomaly: {ut.get('unitType', '?')}",
+                    "check": "Lot rent within property range",
+                    "status": "warn",
+                    "detail": (
+                        f"avgLotRent ${rent:,.0f} vs median ${median:,.0f} "
+                        f"(ratio {ratio:.2f}×, z={z:+.2f}σ). "
+                        "Verify this isn't a data entry error or a "
+                        "mispriced unit type."
+                    ),
+                })
+
+    # ── POH cross-check vs user-stated count ─────────────────────────────
+    try:
+        stated_poh = int(str(property_info.get("pohCount", "")).strip() or 0)
+    except (ValueError, TypeError):
+        stated_poh = 0
+    any_home_entries = any(ut.get("hasHomeRentEntries")
+                           for ut in (rr.get("unitTypes") or []))
+    if stated_poh > 0 and not any_home_entries:
+        checks.append({
+            "item": "POH count vs rent roll",
+            "check": f"User stated {stated_poh} POH",
+            "status": "warn",
+            "detail": (
+                f"User stated {stated_poh} park-owned homes but no unit "
+                "type in the rent roll has home rent entries. The seller "
+                "may be hiding home rent income (or POH lots are comped "
+                "for on-site staff). Verify with seller."
+            ),
+        })
+    elif stated_poh == 0 and any_home_entries:
+        checks.append({
+            "item": "POH count vs rent roll",
+            "check": "User stated 0 POH",
+            "status": "fail",
+            "detail": (
+                "User stated 0 park-owned homes but the rent roll has "
+                "home rent entries. Use the rent-roll count as "
+                "authoritative — the user input was wrong."
+            ),
+        })
+
+    # ── Cross-document parity: rent-roll annual GPR vs sum of income ─────
+    docs = extracted.get("documentsSeen") or []
+    if len(docs) >= 2 and annual_from_monthly:
+        income_sum = sum(
+            ln.get("annualTotal") or 0
+            for ln in (extracted.get("income") or [])
+            if not ln.get("isSubtotal")
+            and isinstance(ln.get("annualTotal"), (int, float))
+        )
+        if income_sum > 0:
+            spread = abs(annual_from_monthly - income_sum) / max(income_sum, 1)
+            if spread > 0.20:
+                checks.append({
+                    "item": "Cross-doc revenue parity",
+                    "check": "Rent roll annual ≈ Σ income lines",
+                    "status": "warn",
+                    "detail": (
+                        f"Rent roll implies ${annual_from_monthly:,.0f}/yr "
+                        f"GPR but income lines sum to ${income_sum:,.0f}/yr "
+                        f"({spread*100:.0f}% gap). Either one source is "
+                        "stale (different period) or income lines are missing."
+                    ),
+                })
+
+    # ── Run-to-run disagreement, if N=3 merge ran ────────────────────────
+    note = (extracted.get("extractionNotes") or "")
+    if "Run-to-run disagreement" in note:
+        checks.append({
+            "item": "Run-to-run disagreement",
+            "check": "N=3 merge: line-item annualTotal spread",
+            "status": "warn",
+            "detail": note.split("Run-to-run disagreement")[-1].strip()[:300],
+        })
+
+    return checks
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# N=3 EXTRACTION MAJORITY VOTE (Wang et al. self-consistency)
+# Runs extraction in parallel N times and field-merges. Median across runs
+# for numerics, mode for strings, union for nested lists. Surfaces a
+# "Run-to-run disagreement" check when annualTotals diverge >5% between
+# runs — that signal is more useful than the median itself.
+# Gated by deep_search so the cost (≈N× extraction tokens) is opt-in.
+# ═══════════════════════════════════════════════════════════════════════════
+
+def call_extract_financials_merged(api_key, file_blocks, property_info, n_runs=3):
+    print(f"[Claude] Starting {n_runs}× extraction merge...")
+    t0 = time.time()
+    with ThreadPoolExecutor(max_workers=n_runs) as executor:
+        futures = [executor.submit(call_extract_financials, api_key,
+                                   file_blocks, property_info)
+                   for _ in range(n_runs)]
+        results = []
+        for i, f in enumerate(as_completed(futures)):
+            try:
+                results.append(f.result())
+                print(f"[Claude] Extraction run {i+1}/{n_runs} complete")
+            except Exception as e:
+                print(f"[Claude] Extraction run {i+1}/{n_runs} FAILED: {e}")
+
+    if not results:
+        raise RuntimeError(f"All {n_runs} extraction runs failed")
+    print(f"[Claude] Merged {len(results)} runs in {time.time() - t0:.1f}s")
+    return _merge_extraction(results)
+
+
+def _median_of(vs):
+    nums = [v for v in vs if isinstance(v, (int, float))]
+    return statistics.median(nums) if nums else None
+
+
+def _mode_of(vs):
+    nons = [v for v in vs if v not in (None, "")]
+    return Counter(nons).most_common(1)[0][0] if nons else ""
+
+
+def _merge_extraction(runs):
+    """Field-level median for numerics, mode for strings."""
+    # ── reportingPeriod: take the modal periodUsed across runs ───────────
+    rp_runs = [r.get("reportingPeriod", {}) for r in runs]
+    merged_rp = {
+        "periodUsed": _mode_of([r.get("periodUsed") for r in rp_runs]),
+        "dateRange":  _mode_of([r.get("dateRange")  for r in rp_runs]),
+        "monthsCovered": int(_median_of(
+            [r.get("monthsCovered") for r in rp_runs]) or 12),
+        "candidatePeriodsSeen": sorted({
+            p for r in rp_runs for p in (r.get("candidatePeriodsSeen") or [])
+        }),
+        "notes": " | ".join(sorted({
+            r.get("notes", "") for r in rp_runs if r.get("notes")
+        })),
+    }
+
+    # ── income / expenses: match line items by sellerLabel, median fields ──
+    def _merge_lines(runs_lists, section_value):
+        by_label = {}
+        for run_list in runs_lists:
+            for ln in run_list or []:
+                key = (ln.get("sellerLabel") or "").strip().lower()
+                if not key:
+                    continue
+                by_label.setdefault(key, []).append(ln)
+
+        merged = []
+        disagreements = []
+        for key, items in by_label.items():
+            annual = _median_of([i.get("annualTotal") for i in items])
+            # detect run-to-run disagreement on this line
+            non_null_annuals = [i.get("annualTotal") for i in items
+                                if isinstance(i.get("annualTotal"), (int, float))]
+            if len(non_null_annuals) >= 2 and max(non_null_annuals) != 0:
+                spread = ((max(non_null_annuals) - min(non_null_annuals))
+                          / abs(max(non_null_annuals)))
+                if spread > 0.05:
+                    disagreements.append({
+                        "label":  items[0].get("sellerLabel", key),
+                        "range":  (min(non_null_annuals), max(non_null_annuals)),
+                        "spread": spread,
+                    })
+
+            # monthly: median per index across runs that returned 12 values
+            monthly_runs = [i.get("monthly") for i in items
+                            if isinstance(i.get("monthly"), list) and len(i.get("monthly")) == 12]
+            monthly = ([_median_of([m[k] for m in monthly_runs])
+                       for k in range(12)] if monthly_runs else None)
+
+            merged.append({
+                "sellerLabel": items[0].get("sellerLabel", key),
+                "annualTotal": annual,
+                "monthly":     monthly,
+                "section":     section_value,
+                "isSubtotal":  any(i.get("isSubtotal") for i in items),
+            })
+        return merged, disagreements
+
+    income, inc_disagree = _merge_lines(
+        [r.get("income") for r in runs], "income")
+    expenses, exp_disagree = _merge_lines(
+        [r.get("expenses") for r in runs], "expense")
+
+    # ── rentRoll: median scalars, union of unitTypes by name ─────────────
+    rr_runs = [r.get("rentRoll", {}) for r in runs]
+    merged_rr = {
+        "totalRowsInRentRoll":   int(_median_of([r.get("totalRowsInRentRoll") for r in rr_runs]) or 0) or None,
+        "statedTotalRentMonthly": _median_of([r.get("statedTotalRentMonthly") for r in rr_runs]),
+        "statedTotalIsMonthly":  bool(rr_runs[0].get("statedTotalIsMonthly", True)) if rr_runs else True,
+        "occupiedCount":         int(_median_of([r.get("occupiedCount") for r in rr_runs]) or 0) or None,
+        "vacantCount":           int(_median_of([r.get("vacantCount")   for r in rr_runs]) or 0) or None,
+    }
+    types_by_name = {}
+    for r in rr_runs:
+        for ut in r.get("unitTypes") or []:
+            name = (ut.get("unitType") or "").strip().lower()
+            if not name:
+                continue
+            types_by_name.setdefault(name, []).append(ut)
+    merged_types = []
+    for name, items in types_by_name.items():
+        merged_types.append({
+            "unitType":           items[0].get("unitType", name),
+            "count":              int(_median_of([i.get("count") for i in items]) or 0),
+            "occupiedCount":      int(_median_of([i.get("occupiedCount") for i in items]) or 0),
+            "vacantCount":        int(_median_of([i.get("vacantCount") for i in items]) or 0),
+            "avgLotRentOccupied": _median_of([i.get("avgLotRentOccupied") for i in items]),
+            "hasHomeRentEntries": any(i.get("hasHomeRentEntries") for i in items),
+            "avgHomeRent":        _median_of([i.get("avgHomeRent") for i in items]),
+        })
+    merged_rr["unitTypes"] = merged_types
+
+    # ── documentsSeen + extractionNotes: union / concat ──────────────────
+    docs = sorted({d for r in runs for d in (r.get("documentsSeen") or [])})
+    notes = " || ".join(sorted({
+        r.get("extractionNotes", "") for r in runs if r.get("extractionNotes")
+    }))
+
+    # Add a synthetic line so the disagreement is visible downstream
+    if inc_disagree or exp_disagree:
+        all_disagree = inc_disagree + exp_disagree
+        sample = ", ".join(
+            f"{d['label']} ${d['range'][0]:,.0f}–${d['range'][1]:,.0f} "
+            f"({d['spread']*100:.0f}%)"
+            for d in all_disagree[:5]
+        )
+        notes = (
+            (notes + " || " if notes else "")
+            + f"Run-to-run disagreement on {len(all_disagree)} line item(s) "
+            + f"across {len(runs)} extraction runs. Sample: {sample}"
+        )
+
+    return {
+        "reportingPeriod": merged_rp,
+        "income":          income,
+        "expenses":        expenses,
+        "rentRoll":        merged_rr,
+        "documentsSeen":   docs,
+        "extractionNotes": notes,
+        "_meta": {
+            "merge_runs":   len(runs),
+            "disagreements": len(inc_disagree) + len(exp_disagree),
+        },
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# CLAUDE CALL #2 — METHODOLOGY (Opus 4.8, judgment)
+# Takes the CLEAN extracted data from Call 1 and applies GGC's categorization
+# and underwriting methodology. Because the numbers are already extracted and
+# verified, this call focuses purely on analysis instead of fighting raw PDFs.
 # ═══════════════════════════════════════════════════════════════════════════
 FINANCIAL_PARSE_PROMPT = f"""You are a real estate underwriting analyst at Gary Group Capital (GGC), a private equity firm focused on mobile home parks.
 
-Parse the attached seller financials and map every line item to GGC's standardized categories.
+You are given CLEAN, PRE-EXTRACTED financial data that a separate extraction step has already pulled from the seller's documents. The numbers have already been transcribed and the correct reporting period has already been identified for you. Your job is NOT to re-read raw documents — it is to apply GGC's categorization and underwriting methodology to the clean data you are given.
+
+Trust the extracted numbers as your source of truth. The annual totals and monthly arrays in the provided data are what you work from. Map every extracted line item to GGC's standardized categories and apply the methodology below.
 
 CRITICAL OUTPUT RULES:
 - Your response MUST start with `{{` (a JSON open brace) — NOTHING before it
@@ -1108,10 +2428,16 @@ POH percentage cross-check: If POH > 20% and you see no Home Rent Expense in the
 CRITICAL: For "unitGroups", aggregate by unit type. Do NOT list every unit individually — group them. Example: instead of listing 150 separate "Standard Lot" entries, return one entry with occupiedCount=140, vacantCount=10. The backend will expand groups into individual rows automatically."""
 
 
-def call_parse_financials(api_key, file_blocks, property_info):
-    user_blocks = file_blocks + [{
+def call_parse_financials(api_key, extracted, property_info):
+    """
+    Call 2 of the financial pipeline: GGC methodology on clean extracted data.
+    Opus 4.8 (adaptive thinking, effort=high) takes the verified extraction
+    output and applies categorization + underwriting logic. No raw documents —
+    it works from the clean JSON the extraction step produced.
+    """
+    user_blocks = [{
         "type": "text",
-        "text": f"""Property context:
+        "text": f"""Property context (user-stated):
 - Name: {property_info.get('name', 'N/A')}
 - Address: {property_info.get('address', 'N/A')}
 - Total Units: {property_info.get('units', 'N/A')}
@@ -1119,13 +2445,21 @@ def call_parse_financials(api_key, file_blocks, property_info):
 - Asking Price: ${property_info.get('askingPrice', 'N/A')}
 - Flood Zone Status: {property_info.get('floodZone', 'unknown')}
 
-Parse the attached documents and return the structured JSON."""
+Below is the CLEAN, PRE-EXTRACTED financial data from the seller's documents. The reporting period has already been identified and the numbers transcribed. Apply GGC's categorization and underwriting methodology to this data and return the structured JSON.
+
+=== EXTRACTED FINANCIAL DATA ===
+{json.dumps(extracted, indent=2)[:180000]}
+=== END EXTRACTED DATA ===
+
+Apply the GGC methodology and return the structured JSON."""
     }]
-    print("[Claude] Starting financial parsing call...")
+    print("[Claude] Stage 2/2 — METHODOLOGY (Opus 4.8, effort=high)...")
     t0 = time.time()
-    response = call_claude(api_key, FINANCIAL_PARSE_PROMPT, user_blocks, use_thinking=False, temperature=0, model=MODEL_FINANCIAL)
+    response = call_claude(api_key, FINANCIAL_PARSE_PROMPT, user_blocks,
+                           use_thinking=True, model=MODEL_METHODOLOGY,
+                           output_schema=METHODOLOGY_OUTPUT_SCHEMA)
     elapsed = time.time() - t0
-    print(f"[Claude] Financial parsing returned in {elapsed:.1f}s "
+    print(f"[Claude] Methodology returned in {elapsed:.1f}s "
           f"(stop_reason: {response.get('stop_reason', '?')})")
     return extract_json(response)
 
@@ -1258,7 +2592,8 @@ Pull comps, demographics, alt housing, landmarks, and visual URLs."""
     print("[Claude] Starting market research call (with web_search)...")
     t0 = time.time()
     response = call_claude(api_key, MARKET_RESEARCH_PROMPT,
-                            [{"type": "text", "text": prompt}], tools=tools)
+                            [{"type": "text", "text": prompt}], tools=tools,
+                            model=MODEL_MARKET)
     elapsed = time.time() - t0
     print(f"[Claude] Market research returned in {elapsed:.1f}s "
           f"(stop_reason: {response.get('stop_reason', '?')})")
@@ -1544,8 +2879,142 @@ def fill_template(financials, market, output_path):
         del wb["Comps Analysis"]
     add_comps_analysis_tab(wb, financials, market)
 
+    # ── Add Extraction Check tab (source reconciliation) ───────────────────
+    # This is the "do the numbers tie out?" tab Michael asked for in the
+    # meeting. Lives at the front so it's the first thing the reviewer sees.
+    if "Extraction Check" in wb.sheetnames:
+        del wb["Extraction Check"]
+    add_extraction_check_tab(wb, financials)
+
     wb.save(output_path)
     return output_path
+
+
+def add_extraction_check_tab(wb, financials):
+    """
+    Source-reconciliation tab. Shows what the extraction step pulled from the
+    documents and whether it ties out — the verification checkpoint that lets
+    the reviewer trust the numbers before reading the underwriting. Placed at
+    index 0 so it's the first tab in the workbook.
+    """
+    ws = wb.create_sheet("Extraction Check", 0)
+    ws.sheet_view.showGridLines = False
+
+    NAVY = "1F3864"
+    MID_BLUE = "2E5090"
+    GREEN = "16A34A"
+    AMBER = "D97706"
+    RED = "DC2626"
+    GRAY = "6B7280"
+    LIGHT_YEL = "FFF2CC"
+    WHITE = "FFFFFF"
+    GREEN_BG = "C6EFCE"
+    AMBER_BG = "FFEB9C"
+    RED_BG = "FFC7CE"
+
+    def style(cell, value=None, bold=False, color="000000", size=10,
+              bg=None, align="left", v_align="center", wrap=False, italic=False):
+        if value is not None:
+            cell.value = value
+        cell.font = Font(name="Arial", bold=bold, color=color, size=size, italic=italic)
+        cell.alignment = Alignment(horizontal=align, vertical=v_align, wrap_text=wrap)
+        if bg:
+            cell.fill = PatternFill("solid", fgColor=bg)
+
+    for col, w in enumerate([2, 38, 30, 12, 52], 1):
+        ws.column_dimensions[get_column_letter(col)].width = w
+
+    # Title
+    ws.merge_cells("B2:F2")
+    style(ws["B2"], "EXTRACTION CHECK — SOURCE RECONCILIATION", bold=True,
+          color=WHITE, size=16, bg=NAVY, align="center")
+    ws.row_dimensions[2].height = 30
+    ws.merge_cells("B3:F3")
+    style(ws["B3"], "What the model pulled from the documents, and whether it ties to the source. Review before trusting the underwriting.",
+          color=GRAY, size=10, align="center")
+    ws.row_dimensions[3].height = 18
+
+    extraction = financials.get("_extraction", {}) or {}
+    checks = financials.get("_extractionChecks", []) or []
+
+    # ── Reporting period summary ─────────────────────────────────────────
+    rp = extraction.get("reportingPeriod", {}) or {}
+    ws.merge_cells("B5:F5")
+    style(ws["B5"], "  REPORTING PERIOD USED", bold=True, color=WHITE, size=12, bg=NAVY)
+    ws.row_dimensions[5].height = 22
+
+    period_rows = [
+        ("Period used", rp.get("periodUsed", "—")),
+        ("Date range", rp.get("dateRange", "—")),
+        ("Months covered", rp.get("monthsCovered", "—")),
+        ("Other periods seen in doc", ", ".join(str(c) for c in (rp.get("candidatePeriodsSeen") or [])) or "—"),
+        ("Notes", rp.get("notes", "") or "—"),
+    ]
+    for i, (label, val) in enumerate(period_rows):
+        r = 6 + i
+        style(ws.cell(row=r, column=2), label, bold=True, size=10)
+        ws.merge_cells(start_row=r, start_column=3, end_row=r, end_column=6)
+        style(ws.cell(row=r, column=3), str(val), bg=LIGHT_YEL, color="0000FF", wrap=True)
+        ws.row_dimensions[r].height = 18
+
+    # ── Checks table ─────────────────────────────────────────────────────
+    checks_start = 6 + len(period_rows) + 1
+    ws.merge_cells(start_row=checks_start, start_column=2, end_row=checks_start, end_column=6)
+    style(ws.cell(row=checks_start, column=2), "  RECONCILIATION CHECKS", bold=True,
+          color=WHITE, size=12, bg=NAVY)
+    ws.row_dimensions[checks_start].height = 22
+
+    # Summary counts
+    n_ok = sum(1 for c in checks if c.get("status") == "ok")
+    n_warn = sum(1 for c in checks if c.get("status") == "warn")
+    n_fail = sum(1 for c in checks if c.get("status") == "fail")
+    summ_r = checks_start + 1
+    ws.merge_cells(start_row=summ_r, start_column=2, end_row=summ_r, end_column=6)
+    if n_fail:
+        summ_text = f"⚠ {n_fail} FAILED, {n_warn} warnings, {n_ok} passed — review the failures before using these numbers."
+        summ_bg = RED
+    elif n_warn:
+        summ_text = f"{n_warn} warnings, {n_ok} passed — numbers mostly tie out; check the warnings."
+        summ_bg = AMBER
+    else:
+        summ_text = f"✓ All {n_ok} checks passed — extracted numbers tie to the source."
+        summ_bg = GREEN
+    style(ws.cell(row=summ_r, column=2), summ_text, bold=True, color=WHITE, size=11,
+          bg=summ_bg, align="center")
+    ws.row_dimensions[summ_r].height = 24
+
+    # Column headers
+    hdr_r = summ_r + 1
+    for col, label in [(2, "Item"), (3, "Check"), (4, "Status"), (5, "Detail")]:
+        style(ws.cell(row=hdr_r, column=col), label, bold=True, color=WHITE,
+              size=9, bg=MID_BLUE, align="center")
+    ws.row_dimensions[hdr_r].height = 18
+
+    status_map = {
+        "ok":   ("✓ OK",   GREEN_BG, GREEN),
+        "warn": ("⚠ WARN", AMBER_BG, AMBER),
+        "fail": ("✗ FAIL", RED_BG,   RED),
+    }
+    # Sort so failures float to the top, then warnings, then OK
+    order = {"fail": 0, "warn": 1, "ok": 2}
+    sorted_checks = sorted(checks, key=lambda c: order.get(c.get("status"), 3))
+    for i, c in enumerate(sorted_checks):
+        r = hdr_r + 1 + i
+        label, bg, fg = status_map.get(c.get("status"), ("?", "FFFFFF", "000000"))
+        style(ws.cell(row=r, column=2), c.get("item", ""), size=9, wrap=True)
+        style(ws.cell(row=r, column=3), c.get("check", ""), size=9, wrap=True)
+        style(ws.cell(row=r, column=4), label, bold=True, color=fg, bg=bg, align="center", size=9)
+        style(ws.cell(row=r, column=5), c.get("detail", ""), size=9, wrap=True)
+        ws.row_dimensions[r].height = 24
+
+    if not checks:
+        r = hdr_r + 1
+        ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=6)
+        style(ws.cell(row=r, column=2), "No checks were generated for this run.",
+              italic=True, color=GRAY, align="center")
+
+    ws.sheet_properties.tabColor = "DC2626"
+    return ws
 
 
 def add_comps_analysis_tab(wb, financials, market):
@@ -2209,21 +3678,71 @@ def run_analysis_job(job_id, api_key, file_blocks, property_info):
     job = JOBS[job_id]
     try:
         job["status"] = "running"
-        job["progress"] = "Starting parallel analysis..."
+        job["progress"] = "Starting analysis..."
 
         deep_search = property_info.get("deepSearch", "off") == "on"
         market_fn = (lambda *a, **k: call_market_research_merged(*a, **k, n_runs=3)) if deep_search else call_market_research
 
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            future_financials = executor.submit(call_parse_financials, api_key, file_blocks, property_info)
-            future_market = executor.submit(market_fn, api_key, property_info)
+        # The financial side is now a 4-step sequence with two opt-in stages:
+        #   0. CACHE LOOKUP                   — fingerprint hit returns instantly
+        #   1. EXTRACT (Sonnet 4.6, temp=0)   — N=1 default, N=3 when deep_search
+        #      → field-level median across N runs
+        #   2. VERIFY  (pure Python)          — tie-outs, 2σ rents, POH, cross-doc
+        #   3. METHODOLOGY (Opus 4.8)         — GGC categorization + underwriting
+        #   4. CACHE WRITE                    — if no hard-fail in verification
+        # Market research is independent, so we run it in parallel with the
+        # whole financial sequence.
+        n_extract_runs = FINANCIAL_PARSE_RUNS_DEEP if deep_search else 1
 
+        def financial_pipeline():
+            cache_key = extraction_cache_key(
+                file_blocks, property_info, n_extract_runs,
+                EXTRACTION_PROMPT, FINANCIAL_PARSE_PROMPT)
+            cached = extraction_cache_get(cache_key)
+            if cached is not None:
+                print(f"[Cache] HIT key={cache_key[:8]}... — returning memoized "
+                      "financials (no Claude calls this run)")
+                cached.setdefault("_cache", {})
+                cached["_cache"].update({"hit": True, "key": cache_key[:8]})
+                return cached
+            print(f"[Cache] MISS key={cache_key[:8]} "
+                  f"(deep_search={deep_search}, n_extract_runs={n_extract_runs})")
+
+            if n_extract_runs > 1:
+                extracted = call_extract_financials_merged(
+                    api_key, file_blocks, property_info, n_runs=n_extract_runs)
+            else:
+                extracted = call_extract_financials(
+                    api_key, file_blocks, property_info)
+            checks = verify_extraction(extracted, property_info)
+            n_fail = sum(1 for c in checks if c["status"] == "fail")
+            n_warn = sum(1 for c in checks if c["status"] == "warn")
+            print(f"[Verify] {len(checks)} checks: {n_fail} fail, {n_warn} warn")
+            financials = call_parse_financials(api_key, extracted, property_info)
+            # Carry the raw extraction + checks through so they can be rendered
+            # on the Extraction Check tab.
+            financials["_extraction"] = extracted
+            financials["_extractionChecks"] = checks
+            financials["_cache"] = {"hit": False, "key": cache_key[:8],
+                                     "n_extract_runs": n_extract_runs}
+
+            # Only memoize a clean result. If hard fails remain we want the
+            # next run to re-try, not return the broken cached output.
+            if n_fail == 0:
+                extraction_cache_put(cache_key, financials)
+            else:
+                print(f"[Cache] Skipping write — {n_fail} hard failures remain")
+            return financials
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            future_market = executor.submit(market_fn, api_key, property_info)
+            future_financials = executor.submit(financial_pipeline)
 
             results = {}
             for future in as_completed([future_financials, future_market]):
                 if future is future_financials:
                     results["financials"] = future.result()
-                    job["progress"] = "✓ Financials parsed."
+                    job["progress"] = "✓ Financials extracted, verified, and underwritten."
                 else:
                     results["market"] = future.result()
                     job["progress"] = "✓ Market research complete."
@@ -2318,8 +3837,15 @@ def download(job_id):
 
 if __name__ == "__main__":
     print(" ╔═════════════════════════════════════════════════════════════════════════════════════╗")
-    print(" ║  GGC Deal Engine — Backend Server v5                                                ║")
-    print(f"║  Models: Financial={MODEL_FINANCIAL}, Market={MODEL_MARKET}                         ║")
+    print(" ║  GGC Deal Engine — Backend Server v6 (playbook hardening)                           ║")
+    print(f"║  Extraction:   {MODEL_EXTRACTION:<48s}                                 ║")
+    print(f"║  Methodology:  {MODEL_METHODOLOGY:<48s}                                 ║")
+    print(f"║  Market:       {MODEL_MARKET:<48s}                                 ║")
+    print(f"║  Pipeline: parse → extract (N={FINANCIAL_PARSE_RUNS_DEEP} deep) → verify → methodology → cache → fill ║")
+    print(f"║  Parser:       {PARSER_BACKEND:<48s}                                 ║")
+    print(f"║  Structured outputs (beta):  {'ENABLED' if USE_STRUCTURED_OUTPUTS else 'DISABLED':<48s}             ║")
+    print(f"║  Extraction cache:           {'ENABLED' if EXTRACTION_CACHE_ENABLED else 'DISABLED':<48s}             ║")
+    print(f"║  Validator retries:          {MAX_PARSE_RETRIES}                                                      ║")
     print(f"║  Template: GGC_Blank_Underwriting_Sizer_Extended (1000 rows)                        ║")
     print(f"║  Google Maps: {'ENABLED' if GOOGLE_MAPS_API_KEY else 'DISABLED (no key set)':<43s}  ║")
     print(f"║  Document AI: {'ENABLED' if DOC_AI_ENABLED else 'DISABLED (no GCP config)':<43s} ║")
