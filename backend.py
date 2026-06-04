@@ -3694,87 +3694,15 @@ def add_comps_analysis_tab(wb, financials, market):
           color="6B7280", size=10, align="center")
     ws.row_dimensions[3].height = 18
 
-    # ── INVESTMENT CRITERIA CHECK (Michael's 200 bps spread rule) ───────────
-    prop_info = financials.get("propertyInfo", {}) or {}
-    # Normalize cap-rate-like fields to decimal form (Excel's 0.00% format
-    # multiplies by 100). The LLM is inconsistent — a value like 7.5 could
-    # mean 7.5% (percent form) or 750% (decimal). to_decimal_pct heuristics
-    # divide values >= 1.5 by 100. spread_bps stays in basis points.
-    ingoing_cap = to_decimal_pct(prop_info.get("ingoingCapRate"))
-    stab_yoc = to_decimal_pct(prop_info.get("stabilizedYieldOnCost"))
-    spread_bps = prop_info.get("spreadBps")
-    # Recompute spread locally so we don't depend on the LLM's arithmetic
-    # being internally consistent with its rate fields.
-    if isinstance(ingoing_cap, (int, float)) and isinstance(stab_yoc, (int, float)):
-        spread_bps = round((stab_yoc - ingoing_cap) * 10000)
-    meets_criteria_local = (
-        isinstance(spread_bps, (int, float)) and spread_bps >= 200
-    )
-    meets_criteria = prop_info.get("meetsInvestmentCriteria")
-
-    crit_start = 5
-    section_header(crit_start, 12, "  INVESTMENT CRITERIA CHECK  —  200 bps spread rule")
-
-    # Headers row
-    crit_headers = ["Ingoing Cap Rate", "Stabilized Yield on Cost", "Spread (bps)", "Hurdle", "Verdict"]
-    for i, h in enumerate(crit_headers):
-        col_header(crit_start + 1, 2 + i, h)
-    # Span the verdict column wider so the pass/fail box is prominent
-    ws.merge_cells(start_row=crit_start + 1, start_column=6, end_row=crit_start + 1, end_column=12)
-    col_header(crit_start + 1, 6, "Verdict")
-    ws.row_dimensions[crit_start + 1].height = 28
-
-    # Values row
-    val_row = crit_start + 2
-    style(ws.cell(row=val_row, column=2), ingoing_cap, bg=LIGHT_YEL, color="0000FF",
-          align="center", size=14, bold=True, fmt="0.00%")
-    style(ws.cell(row=val_row, column=3), stab_yoc, bg=LIGHT_YEL, color="0000FF",
-          align="center", size=14, bold=True, fmt="0.00%")
-    style(ws.cell(row=val_row, column=4),
-          (f"{spread_bps:+,} bps" if isinstance(spread_bps, (int, float)) else "—"),
-          bg=LIGHT_YEL, color="0000FF", align="center", size=14, bold=True)
-    style(ws.cell(row=val_row, column=5), "≥ 200 bps",
-          align="center", size=12, italic=True, color="6B7280")
-
-    # Pass / fail / unknown verdict box — spans cols F through L for visual impact
-    ws.merge_cells(start_row=val_row, start_column=6, end_row=val_row, end_column=12)
-    # Use the locally recomputed verdict so the displayed status always
-    # agrees with the displayed spread, regardless of what the LLM flagged.
-    if not isinstance(spread_bps, (int, float)):
-        verdict_text = "— INSUFFICIENT DATA TO EVALUATE"
-        verdict_bg = "6B7280"
-    elif meets_criteria_local:
-        verdict_text = "✓ PASSES INVESTMENT CRITERIA"
-        verdict_bg = "16A34A"
-    else:
-        verdict_text = "✗ DOES NOT MEET INVESTMENT CRITERIA"
-        verdict_bg = "DC2626"
-    style(ws.cell(row=val_row, column=6), verdict_text, bold=True, color=WHITE,
-          size=14, bg=verdict_bg, align="center")
-    ws.row_dimensions[val_row].height = 42
-
-    # Explanatory subtext row
-    explain_row = val_row + 1
-    ws.merge_cells(start_row=explain_row, start_column=2, end_row=explain_row, end_column=12)
-    if meets_criteria_local and isinstance(spread_bps, (int, float)):
-        cushion = spread_bps - 200
-        explain_text = (f"Spread is {spread_bps:,} bps — {cushion:+,} bps cushion above the 200 bps hurdle. "
-                        f"Deal clears GGC's go/no-go threshold on stabilized yield economics.")
-    elif (not meets_criteria_local) and isinstance(spread_bps, (int, float)):
-        shortfall = 200 - spread_bps
-        explain_text = (f"Spread is {spread_bps:,} bps — {shortfall:,} bps short of the 200 bps hurdle. "
-                        f"GGC does not pay for value it's creating; this deal would require either a "
-                        f"lower purchase price or a more aggressive stabilized plan to clear.")
-    else:
-        explain_text = ("One or more inputs missing. Verify the model produced both an ingoing cap rate "
-                        "(year-1 underwritten NOI / purchase price) and stabilized yield on cost "
-                        "(stabilized NOI / total cost basis incl. CapEx).")
-    style(ws.cell(row=explain_row, column=2), explain_text, italic=True, color="374151",
-          size=10, wrap=True, v_align="top")
-    ws.row_dimensions[explain_row].height = 36
-
-    # Push the "SUBJECT vs MARKET" section down to avoid overlap
-    # (it starts at row 5 in the original — shift to row 11)
+    # Investment Criteria Check was removed: GGC reviewers consistently
+    # flagged the ingoing cap rate / stabilized YOC / spread numbers as
+    # wrong (the LLM's spreadBps drifts off the rates it emits, the
+    # ingoing cap depends on a purchase price that may be a placeholder,
+    # and the verdict was being shown with high visual prominence on
+    # values nobody trusted). The 200-bps rule still lives in the prompt
+    # and in the methodology audit trail — but it no longer prints a
+    # verdict box on the Comps tab that contradicts what the underwriter
+    # sees when they actually read the Pro Forma.
 
     rent_comps = market.get("rentComps", []) or []
     sale_comps = market.get("saleComps", []) or []
@@ -3947,7 +3875,15 @@ def add_comps_analysis_tab(wb, financials, market):
             style(ws.cell(row=r, column=2 + j), val, size=9, bg=bg, align=align, fmt=fmt)
         ws.row_dimensions[r].height = 18
 
-    # Sale comp statistics
+    # Sale comp statistics — only $/Unit averaged. Cap-rate aggregates
+    # (Avg Cap, trimmed mean, median, std dev, Implied Valuation, Market
+    # Cap Rate Conclusion) were removed: GGC reviewers consistently said
+    # the per-comp cap rates the LLM scrapes are unreliable (sources
+    # rarely disclose cap rates honestly, and what's printed is often a
+    # broker's marketing number rather than the actual deal economics).
+    # Averaging unreliable inputs into a single "market cap rate" amplifies
+    # the noise. Per-comp cap rates remain visible in the table as raw
+    # data — but the tool stops computing aggregates from them.
     if sale_comps:
         stats_r = sc_start + 2 + len(sale_comps[:30])
         style(ws.cell(row=stats_r, column=2), "STATISTICS", bold=True,
@@ -3958,68 +3894,11 @@ def add_comps_analysis_tab(wb, financials, market):
                   bg=MID_BLUE, align="center")
             style(ws.cell(row=stats_r, column=6), "Avg $/Unit:", bold=True,
                   color=WHITE, bg=MID_BLUE, align="right")
-        if sale_caps:
-            style(ws.cell(row=stats_r, column=9),
-                  f"{safe_avg(sale_caps)*100:.2f}%", bold=True, color=WHITE,
-                  bg=MID_BLUE, align="center")
-            style(ws.cell(row=stats_r, column=8), "Avg Cap:", bold=True,
-                  color=WHITE, bg=MID_BLUE, align="right")
         ws.row_dimensions[stats_r].height = 20
 
-    # Subject implied valuation row. Requires at least 3 sale comps before
-    # surfacing a single "market cap rate" — averaging 1-2 comps is just
-    # repackaging one data point as a market signal.
-    if sale_caps and subject_units:
-        impl_r = sc_start + 4 + len(sale_comps[:30])
-        section_header(impl_r, 12, "  IMPLIED VALUATION USING COMP SET")
-        if len(sale_caps) < 3:
-            note_r = impl_r + 1
-            ws.merge_cells(start_row=note_r, start_column=2,
-                           end_row=note_r, end_column=12)
-            style(ws.cell(row=note_r, column=2),
-                  f"INSUFFICIENT DATA — only {len(sale_caps)} sale comp(s) "
-                  f"with usable cap rate. GGC requires ≥3 to publish a "
-                  f"market cap rate. Sourcing additional comps is "
-                  f"recommended before valuation.",
-                  bold=True, color="DC2626", bg=LIGHT_YEL, wrap=True, size=10)
-            ws.row_dimensions[note_r].height = 36
-        else:
-            # Trimmed mean: drop the highest and lowest cap rate if N>=5
-            # to reduce single-outlier sensitivity.
-            sorted_caps = sorted(sale_caps)
-            trimmed = sorted_caps[1:-1] if len(sorted_caps) >= 5 else sorted_caps
-            avg_cap = safe_avg(trimmed)
-            med_cap = safe_median(sale_caps)
-            avg_ppu = safe_avg(sale_ppu) if sale_ppu else None
-            try:
-                import statistics
-                std_cap = statistics.pstdev(sale_caps) if len(sale_caps) > 1 else 0
-            except Exception:
-                std_cap = 0
-            labels = [
-                ("Asking Price", asking, "$#,##0"),
-                ("Asking $ / Unit", ppu_ask, "$#,##0"),
-                ("Comp Avg $ / Unit", avg_ppu, "$#,##0"),
-                (f"Comp Cap (trimmed mean, N={len(sale_caps)})", avg_cap, "0.00%"),
-                ("Comp Cap (median)", med_cap, "0.00%"),
-                ("Comp Cap (std dev)", std_cap, "0.00%"),
-            ]
-            for i, (label, val, fmt) in enumerate(labels):
-                r = impl_r + 1 + i
-                style(ws.cell(row=r, column=2), label, bold=True, size=10)
-                style(ws.cell(row=r, column=3), val, bg=LIGHT_YEL, color="0000FF",
-                      align="right", fmt=fmt)
-                ws.row_dimensions[r].height = 18
-
-    # ── MARKET CAP RATE CONCLUSION ──────────────────────────────────────────
-    cap_concl_r = sc_start + 4 + len(sale_comps[:30]) + (5 if sale_caps else 0)
-    section_header(cap_concl_r, 12, "  MARKET CAP RATE CONCLUSION")
-    style(ws.cell(row=cap_concl_r + 1, column=2),
-          market.get("marketCapRateConclusion", ""),
-          size=11, wrap=True, bg=LIGHT_YEL, color="0000FF", v_align="top")
-    ws.merge_cells(start_row=cap_concl_r + 1, start_column=2,
-                   end_row=cap_concl_r + 1, end_column=12)
-    ws.row_dimensions[cap_concl_r + 1].height = 60
+    # cap_concl_r is kept defined to anchor downstream sections that
+    # were calculated relative to it (Demographics block, etc.).
+    cap_concl_r = sc_start + 4 + len(sale_comps[:30])
 
     # ── DEMOGRAPHICS DEEP DIVE ───────────────────────────────────────────────
     demo = market.get("demographics", {}) or {}
