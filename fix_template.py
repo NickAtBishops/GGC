@@ -48,8 +48,10 @@ ws["A16"] = "Retail Income"
 
 # Subject property value cells (M:N block). Template ships with labels at
 # column O but no value at all for # of Units, so every per-unit formula
-# resolves to 0. We point at the rebuilt Unit Mix Summary (Total Units
-# moves to E8 in the new 4-row layout).
+# resolves to 0. Layout mirrors CorrectOutput: M4 Name, M5 Address, M6
+# Type, M7 Units (the missing M4 label was the reason backend was writing
+# the property name into the Address slot).
+ws["M4"] = "Property Name"
 ws["M5"] = "Property Address"
 ws["M6"] = "Property Type"
 ws["M7"] = "# of Units"
@@ -207,6 +209,14 @@ for r in range(3, 1003):
     # Clear stale POH/LTO columns from old layout
     for col in (5, 6, 7, 8):
         rr.cell(row=r, column=col).value = None
+
+# Total rows at row 151 — Underwriting!G13 (Stabilized Home Rent Income)
+# reads J151 × 12 × 95% as the stabilized monthly POH rent total. Without
+# this SUM the Home Rent Income line resolves to zero.
+rr["B151"] = "Totals"
+rr["I151"] = "=SUM(I3:I150)"     # Total monthly Lot Rent across active rows
+rr["J151"] = "=SUM(J3:J150)"     # Total monthly Home Rent
+rr["K151"] = "=SUM(K3:K150)"     # Total monthly Combined
 
 # ════════════════════════════════════════════════════════════════════════
 # 4. UNIT MIX RENT GROWTH — replace 6 #REF! rows with 2 real rows

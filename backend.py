@@ -1626,16 +1626,27 @@ class ExtractedFinancials(BaseModel):
 # ── Pydantic mirrors (methodology stage) ──────────────────────────────────
 
 class MethodologyLineItem(BaseModel):
+    # All numeric fields accept None — the LLM frequently emits null when
+    # a particular FY column doesn't exist in the source P&L (e.g. fyPrior
+    # null for a deal that only has 2024 + T12). Treating null as 0 via a
+    # pre-validator keeps the downstream math clean without flooding the
+    # Extraction Check tab with "Input should be a valid number" noise.
     ggcCategory: str
     sellerName: str = ""
-    fyPrior: float = 0
-    fyCurrent: float = 0
-    brokerProforma: float = 0
-    t12Total: float = 0
-    monthly: list[float] = Field(default_factory=lambda: [0.0] * 12)
-    ggcUnderwritten: float = 0
+    fyPrior: float | None = 0
+    fyCurrent: float | None = 0
+    brokerProforma: float | None = 0
+    t12Total: float | None = 0
+    monthly: list[float] | None = Field(default_factory=lambda: [0.0] * 12)
+    ggcUnderwritten: float | None = 0
     confidence: str = "medium"
     notes: str = ""
+
+    @field_validator("fyPrior", "fyCurrent", "brokerProforma",
+                      "t12Total", "ggcUnderwritten", mode="before")
+    @classmethod
+    def _none_to_zero(cls, v):
+        return 0 if v is None else v
 
     @model_validator(mode="after")
     def monthly_ties_to_total(self):
@@ -3466,11 +3477,16 @@ def fill_template(financials, market, output_path):
         # negotiating below ask.
         underw["P4"] = ask
         underw["P9"] = ask
-    # Property metadata for the M-N subject block.
+    # Property metadata for the M-N subject block. CorrectOutput's row
+    # layout is: M4 Name, M5 Address, M6 Type, M7 Units, M8 Occupancy,
+    # M9 Acreage, M10 County. Earlier code was off by one (name landed at
+    # N5 where the Address label sits) — fixed here to match correct.
     if prop.get("name"):
-        underw["N5"] = prop.get("name")
+        underw["N4"] = prop.get("name")
     if prop.get("address"):
-        underw["N6"] = prop.get("address")
+        underw["N5"] = prop.get("address")
+    if prop.get("propertyType"):
+        underw["N6"] = prop.get("propertyType")
     if prop.get("county"):
         underw["N10"] = prop.get("county")
 
