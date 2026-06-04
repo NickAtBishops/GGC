@@ -115,6 +115,10 @@
           <input id="city" placeholder="City" class="input-field col-span-2 rounded-lg px-4 py-2 text-sm">
           <input id="state" placeholder="ST" maxlength="2" class="input-field rounded-lg px-4 py-2 text-sm uppercase">
         </div>
+        <div class="grid grid-cols-2 gap-2">
+          <input id="county" placeholder="County" class="input-field rounded-lg px-4 py-2 text-sm" title="County name — used for tax reassessment lookup and demographics.">
+          <input id="county_tax_rate" type="number" step="0.0001" placeholder="County Tax Rate (e.g. 0.0125)" class="input-field rounded-lg px-4 py-2 text-sm" title="Effective millage / tax rate as a decimal (1.25% = 0.0125). Leave blank if unknown; backend will fall back to T12 × 1.15.">
+        </div>
         <div class="grid grid-cols-3 gap-2">
           <input id="units" type="number" placeholder="Total Units" class="input-field rounded-lg px-4 py-2 text-sm">
           <input id="poh_count" type="number" placeholder="POH Count" class="input-field rounded-lg px-4 py-2 text-sm" title="Number of Park-Owned Homes. Enter 0 if all tenant-owned (TOH).">
@@ -283,16 +287,17 @@
     startTime: null,
   };
 
-  const PROPERTY_FIELDS = ['property_name', 'address', 'city', 'state', 'units', 'asking_price'];
+  const PROPERTY_FIELDS = ['property_name', 'address', 'city', 'state', 'county',
+                           'units', 'asking_price'];
 
   // ═══════════════ INIT ═══════════════
-  // Load any backend-configured default API key (from DEFAULT_ANTHROPIC_KEY in backend.py)
+  // Reflect whether the server has a default API key set. Note: we
+  // intentionally do NOT receive that key from the server (returning it
+  // here would let any visitor read GGC's billing credential). If the
+  // backend says one is available, the per-request `/api/analyze` call
+  // uses it when state.apiKey is empty.
   fetch('/api/config').then(r => r.json()).then(cfg => {
-    // Only use the default if the user hasn't already saved their own key
-    if (!state.apiKey && cfg.default_api_key) {
-      state.apiKey = cfg.default_api_key;
-      document.getElementById('api-key').value = cfg.default_api_key;
-      localStorage.setItem('anthropic_api_key', cfg.default_api_key);
+    if (!state.apiKey && cfg.default_api_key_present) {
       updateApiStatus(true);
       validateForm();
     }
@@ -358,9 +363,44 @@
     });
   }
 
+  // HTML-escape any string we paste into innerHTML. Filenames and LLM
+  // outputs are user-controlled; without this a filename like
+  // `<img onerror=alert(1)>` executes in the page.
+  function escHtml(s) {
+    if (s === null || s === undefined) return '';
+    return String(s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  // Upload constraints. Reject obvious garbage at the client so we don't
+  // round-trip a 2 GB video to the server before discovering it isn't a P&L.
+  const ALLOWED_EXTS = ['pdf', 'xlsx', 'xls', 'csv', 'png', 'jpg', 'jpeg', 'txt', 'md'];
+  const MAX_FILE_BYTES = 50 * 1024 * 1024;        // 50 MB per file
+  const MAX_TOTAL_BYTES = 150 * 1024 * 1024;      // 150 MB across all uploads
+
   function addFiles(fileList) {
+    const errors = [];
+    let runningTotal = state.files.reduce((s, f) => s + f.size, 0);
     for (const f of fileList) {
+      const ext = (f.name.split('.').pop() || '').toLowerCase();
+      if (!ALLOWED_EXTS.includes(ext)) {
+        errors.push(`${f.name}: unsupported file type .${ext}`);
+        continue;
+      }
+      if (f.size > MAX_FILE_BYTES) {
+        errors.push(`${f.name}: ${(f.size / 1024 / 1024).toFixed(1)} MB exceeds 50 MB limit`);
+        continue;
+      }
+      if (runningTotal + f.size > MAX_TOTAL_BYTES) {
+        errors.push(`${f.name}: would exceed 150 MB total upload limit`);
+        continue;
+      }
+      runningTotal += f.size;
       state.files.push(f);
+    }
+    if (errors.length) {
+      alert('Some files were rejected:\n\n' + errors.join('\n'));
     }
     renderFileList();
     validateForm();
@@ -376,7 +416,7 @@
     const el = document.getElementById('file-list');
     el.innerHTML = state.files.map((f, i) => `
       <div class="flex items-center justify-between bg-slate-900/40 rounded px-3 py-2 text-sm">
-        <span class="truncate flex-1">${f.name}</span>
+        <span class="truncate flex-1">${escHtml(f.name)}</span>
         <span class="text-xs text-slate-500 mx-3">${(f.size/1024).toFixed(0)} KB</span>
         <button onclick="removeFile(${i})" class="text-slate-500 hover:text-red-400">✕</button>
       </div>
@@ -384,9 +424,16 @@
   }
 
   // ═══════════════ FORM VALIDATION ═══════════════
+  // Require all PROPERTY_FIELDS to be non-empty before allowing submit;
+  // an empty property_name or units crashes the backend prompts that
+  // build property context from these values.
   function validateForm() {
     const btn = document.getElementById('analyze-btn');
-    btn.disabled = !(state.apiKey && state.files.length > 0);
+    const allFieldsFilled = PROPERTY_FIELDS.every(id => {
+      const v = (document.getElementById(id).value || '').trim();
+      return v.length > 0;
+    });
+    btn.disabled = !(state.apiKey && state.files.length > 0 && allFieldsFilled);
   }
 
   // (Property field listeners are installed in INIT above to also persist values)
@@ -413,6 +460,8 @@
     fd.append('poh_count', document.getElementById('poh_count').value || '0');
     fd.append('asking_price', document.getElementById('asking_price').value);
     fd.append('flood_zone',   document.getElementById('flood_zone').value);
+    fd.append('county',           document.getElementById('county').value);
+    fd.append('county_tax_rate',  document.getElementById('county_tax_rate').value);
     fd.append('deep_search', document.getElementById('deep_search').checked ? 'on' : 'off');
     state.files.forEach(f => fd.append('files', f));
 
@@ -512,12 +561,14 @@
       ${kpiCard('Occupancy', ((rr.occupancyRate || 0) * 100).toFixed(1) + '%')}
     `;
 
-    // Flags
+    // Flags — escape every LLM-sourced string before pasting into HTML
+    // so a malicious item/issue string can't execute as markup.
     document.getElementById('flags-list').innerHTML = (f.flags || []).slice(0, 5).map(fl => {
-      const color = fl.severity === 'high' ? 'red' : fl.severity === 'medium' ? 'amber' : 'green';
+      const sev = (fl.severity || '').toLowerCase();
+      const color = sev === 'high' ? 'red' : sev === 'medium' ? 'amber' : 'green';
       return `<div class="flex gap-2">
-        <span class="text-${color}-400 text-xs font-bold uppercase mt-0.5">${fl.severity}</span>
-        <span class="text-slate-300 flex-1">${fl.item}: ${fl.issue}</span>
+        <span class="text-${color}-400 text-xs font-bold uppercase mt-0.5">${escHtml(fl.severity)}</span>
+        <span class="text-slate-300 flex-1">${escHtml(fl.item)}: ${escHtml(fl.issue)}</span>
       </div>`;
     }).join('') || '<span class="text-slate-500 text-xs">None flagged.</span>';
 
