@@ -1253,10 +1253,26 @@ def encode_file_for_claude(file_storage):
         try:
             from openpyxl.utils import get_column_letter
             wb = load_workbook(BytesIO(data), data_only=True)
-            PER_SHEET_CAP = 200_000
+            # Per-sheet cap. Default 200K chars is enough for typical
+            # P&Ls (12 columns × 60 rows × ~30 chars/cell ≈ 22K). But
+            # rent-roll-shaped sheets can be 1000 rows × 12 cols × 30
+            # chars ≈ 360K and were silently getting cut to ~266 rows,
+            # leaving the LLM unable to count vacant units past row 266.
+            # Detect rent-roll sheets by name and raise to 1M, which is
+            # enough for any realistic MH/RV park (largest GGC asset ≈
+            # 500 units; even a 2,000-row commercial rent roll fits).
+            DEFAULT_SHEET_CAP = 200_000
+            RENT_ROLL_SHEET_CAP = 1_500_000
             sheet_blocks = [f"[Spreadsheet: {filename}]"]
             for sheet_name in wb.sheetnames:
                 ws = wb[sheet_name]
+                # Heuristic: any sheet whose name hints "rent roll" gets
+                # the larger budget. False positives are harmless.
+                _name_lower = (sheet_name or "").lower()
+                is_rent_roll = any(k in _name_lower for k in
+                                    ("rent roll", "rentroll", "rent_roll",
+                                     "rr ", "rr_", "tenant"))
+                PER_SHEET_CAP = RENT_ROLL_SHEET_CAP if is_rent_roll else DEFAULT_SHEET_CAP
                 max_row, max_col = ws.max_row or 0, ws.max_column or 0
                 max_col_letter = get_column_letter(max_col) if max_col else "A"
                 header = (
@@ -2084,7 +2100,10 @@ def verify_methodology(financials):
         "TOH MH Site":        "Gross Potential Rent",
         "POH-Infilled units": "Home Rent Income",
         "Long term RV Site":  "RV Site Rental Income",
-        "Retail/Commercial":  "Retail Income",
+        # Note: enum was renamed "Retail Income" -> "Retail" to match
+        # CorrectOutput's SUMIFS criterion. The parity check has to use
+        # the new name or it fails every deal with retail units.
+        "Retail/Commercial":  "Retail",
     }
     unit_groups = rr.get("unitGroups") or []
     rows = rr.get("rentRollRows") or []

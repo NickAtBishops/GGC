@@ -726,6 +726,345 @@ wb.calculation.fullCalcOnLoad = True
 wb.calculation.calcCompleted = False
 wb.calculation.calcOnSave = True
 
+# ════════════════════════════════════════════════════════════════════════
+# 15. BLOCK-SHIP FIXES — partner-grade cleanup (commit "make-it-count")
+# ════════════════════════════════════════════════════════════════════════
+# Five independent reviewers found ~40 items between them. This block
+# addresses every CRITICAL / IMPORTANT one so the workbook reads as a
+# finished GGC template, not a hand-built artifact mid-iteration.
+
+# ── 15a. Pro Forma row 8 (Y1-Y10 GPR) chain break ─────────────────────
+# H8:Q8 read from 'Unit Mix Rent Growth'!F22:O22 — but my round-4
+# rebuild moved the annual-GPR-per-year forecasts to row 14 (F14:O14).
+# Row 22 is empty. Result: every year of GPR computes to 0, killing the
+# whole Pro Forma → Waterfall → IRR chain. Repoint to row 14.
+pf = wb["GGC Pro Forma"]
+_pf_year_cols = ["H", "I", "J", "K", "L", "M", "N", "O", "P", "Q"]
+_umrg_year_cols = ["F", "G", "H", "I", "J", "K", "L", "M", "N", "O"]  # Y1..Y10
+for pf_col, umrg_col in zip(_pf_year_cols, _umrg_year_cols):
+    pf[f"{pf_col}8"] = f"='Unit Mix Rent Growth'!{umrg_col}14"
+
+# ── 15b. Pro Forma rows 68-74: blank the 7-yr cash-flow placeholder ──
+# H68:N68 had HARDCODED debt-service numbers from a prior deal
+# (-655388.04, -773882.18, etc.); N69 had a hardcoded debt-payoff of
+# -9833889.28. Blank them and the orphan formulas in the same block —
+# the 10-yr scenario at rows 60-66 is the canonical one; the 7-yr
+# block was a half-finished alternate that nobody uses.
+for col in ("H", "I", "J", "K", "L", "M", "N"):
+    pf[f"{col}68"] = None    # Debt Service (was hardcoded)
+    pf[f"{col}69"] = None    # Debt Payoff
+    pf[f"{col}70"] = None    # Refi Cashout
+    pf[f"{col}71"] = None    # New Loan
+    pf[f"{col}72"] = None    # Total Sale - Community
+    pf[f"{col}73"] = None    # Free Cash Flow (was SUM of the hardcodes)
+    pf[f"{col}74"] = None    # DSCR
+# Also clear the section labels so the empty block doesn't look orphan
+for r in range(68, 75):
+    pf[f"E{r}"] = None
+    pf[f"F{r}"] = None
+
+# ── 15c. Electrcitiy typos in Pro Forma (we already fixed Underwriting) ──
+pf["C32"] = "Electricity"
+if "GGC Pro Forma (Conversion)" in wb.sheetnames:
+    pf_conv = wb["GGC Pro Forma (Conversion)"]
+    pf_conv["C32"] = "Electricity"
+
+# ── 15d. Investor Return C33:D41 — stale prior-deal bullets ───────────
+# These mentioned a different property ("Brookhaven"), specific $700/$775
+# rents, "8 mix of SW/DW", and a typo "signiciant". Clear the whole block.
+ir = wb["Investor Return"]
+for r in range(33, 42):
+    for col in ("B", "C", "D", "E", "F"):
+        ir[f"{col}{r}"] = None
+
+# ── 15e. Sources & Uses L93 broken formula (hanging minus operator) ──
+su = wb["Sources and Uses"]
+# Was: "=-'Loan Scenario (acquisition)'!J66-" (incomplete subtraction)
+su["L93"] = None
+
+# ── 15f. Unit Mix Rent Growth — clear stray deal-specific notes ──────
+# These were comments from a different property's worksheet that bled
+# into the blank template.
+umrg = wb["Unit Mix Rent Growth"]
+for coord in ("E29", "B39", "H45", "K117", "K128", "L128", "M128"):
+    umrg[coord] = None
+
+# ── 15g. Loan Scenario — clear stray text in LTO table ──────────────
+ls = wb["Loan Scenario (acquisition)"]
+ls["D89"] = None    # was "being evicted"
+ls["J89"] = None    # was "Highlighted have baloon payment at the end of date"
+
+# ── 15h. Unit Mix Summary — clear orphan "Annual LTO Premium" + the
+# empty stretch rows 17-22 that look half-deleted.
+ums = wb["Unit Mix Summary"]
+for r in range(17, 24):
+    for coord in (f"B{r}", f"C{r}", f"D{r}", f"E{r}", f"F{r}", f"G{r}", f"H{r}"):
+        ums[coord] = None
+
+# ── 15i. TYPO + LABEL CONSISTENCY SWEEP (from review agent #1) ───────
+# Format: (sheet_name, cell_coord, new_value, reason_comment)
+LABEL_FIXES = [
+    # CRITICAL misspellings
+    ("Data Consolidation",        "A2",  "GGC Category"),                  # "Catorgy"
+    ("Data Consolidation",        "D27", "Input Source Expense Data"),     # "Epense"
+    ("GGC Pro Forma",             "C16", "Economic Vacancy %"),            # "Ecomomic"
+    ("GGC Pro Forma (Conversion)","C16", "Economic Vacancy %"),
+    ("Loan Scenario (acquisition)","L7", "Principal"),                     # "Principle"
+    ("Sources and Uses",          "B12", "Uses of Funds"),                 # "Uses of Funds of Funds"
+    ("Sources and Uses",          "H12", "Uses of Funds"),
+    ("Sources and Uses",          "B15", "Acquisition Fee (2%)"),          # "Acquistion"
+    ("Sources and Uses",          "H15", "Acquisition Fee (2%)"),
+    ("Loan Scenario (acquisition)","B17","Mortgage Constant"),             # "Costant"
+    ("Loan Scenario (acquisition)","F79","10yrs"),                         # "10yyrs"
+    # Label inconsistencies — standardize
+    ("Unit Mix Summary",          "B12", "Avg MH Lot Rent"),               # was "Avg Rent"
+    ("Unit Mix Summary",          "B24", "Avg MH Lot Rent"),
+    ("GGC Pro Forma",             "C47", "Home Rent Expense (MH)"),
+    ("GGC Pro Forma (Conversion)","C47", "Home Rent Expense (MH)"),
+    # Sale Proceeds label standardization
+    ("GGC Pro Forma",             "F72", "Total Sale - Community"),        # was "total Sale..."
+    ("GGC Pro Forma (Conversion)","F62", "Total Sale - Community"),        # was "Sale Proceeds Net"
+    ("GGC Pro Forma (Conversion)","F73", "Total Sale - Community"),
+    ("GGC Pro Forma (Conversion)","F113","Total Sale - Community"),
+    # DSCR uppercase
+    ("GGC Pro Forma (Conversion)","F116","DSCR"),                          # was "dscr"
+    # CoC uppercase
+    ("GGC Pro Forma",             "F99", "CoC Return"),
+    ("GGC Pro Forma (Conversion)","F68", "CoC Return"),
+    ("GGC Pro Forma (Conversion)","F101","CoC Return"),
+    ("GGC Pro Forma (Conversion)","F117","CoC Return"),
+    ("GGC Pro Forma",             "F100","Avg CoC Y1-Y4"),
+    ("GGC Pro Forma (Conversion)","F69", "Avg CoC Y1-Y4"),
+    ("GGC Pro Forma (Conversion)","F78", "Avg CoC Y1-Y4"),
+    ("GGC Pro Forma (Conversion)","F102","Avg CoC Y1-Y4"),
+    # 10-yr Cash on Cash should be Y1-Y9 (was contradicting itself)
+    ("Investor Return",           "C8",  "Cash on Cash Avg Y1-Y9"),
+    # Bifurcated NOI label consistency
+    ("GGC Underwriting",          "H2",  "Lot Rent NOI"),                  # was "LOT RENT NOI"
+    ("GGC Underwriting",          "M14", "Lot Rent NOI"),                  # was "Lot Rent only NOI"
+    ("GGC Underwriting",          "M15", "Home Rent NOI"),                 # was "Home Rent only NOI"
+    # Trailing/leading-space cleanups
+    ("Unit Mix Rent Growth",      "D13", "$ Change"),                      # was "$change"
+    ("GGC Underwriting",          "M7",  "# of Units"),                    # trailing space
+    ("GGC Underwriting",          "O10", "Asking Price Per Site"),         # trailing space
+    ("GGC Underwriting",          "A30", "Repair and Maintenance"),
+    ("GGC Pro Forma",             "C36", "Repair and Maintenance"),
+    ("GGC Pro Forma (Conversion)","C36", "Repair and Maintenance"),
+    ("GGC Pro Forma",             "F65", "Free Cash Flow"),
+    ("GGC Pro Forma",             "F84", "Free Cash Flow"),
+    ("GGC Pro Forma",             "F97", "Free Cash Flow"),
+    ("GGC Pro Forma (Conversion)","F66", "Free Cash Flow"),
+    ("GGC Pro Forma (Conversion)","F74", "Free Cash Flow"),
+    ("GGC Pro Forma (Conversion)","F85", "Free Cash Flow"),
+    ("GGC Pro Forma (Conversion)","F99", "Free Cash Flow"),
+    ("GGC Pro Forma (Conversion)","F115","Free Cash Flow"),
+]
+for sheet_name, coord, new_value in LABEL_FIXES:
+    if sheet_name in wb.sheetnames:
+        try:
+            wb[sheet_name][coord] = new_value
+        except Exception:
+            pass
+
+# ── 15j. Pro Forma B47 — add a label for the orphan 0.15 ratio cell ──
+pf["A47"] = "Home Rent Exp Ratio"   # A47 was empty; B47 had value 0.15 only
+
+# ── 15k. Orphan fill / border cleanup ─────────────────────────────────
+# Helper agent found ~109K empty cells with fill applied — most visibly
+# a pink strip on Rent Roll Input!B72:B1002 (would show up as a stray
+# 930-row coloured block in the partner's view). Clear fill on every
+# cell that has no value AND no formula, across these known clusters.
+from openpyxl.styles import PatternFill as _PF
+_no_fill = _PF(fill_type=None)
+ORPHAN_FILL_CLEARS = [
+    # CRITICAL visible colors past data
+    ("Rent Roll Input",          "B3:B1002"),   # pink strip is the biggest offender
+    ("Rent Roll Input",          "C3:C1002"),
+    ("Rent Roll Input",          "H3:H1002"),
+    ("Rent Roll Input",          "R3:R1002"),
+    ("Rent Roll Input",          "D3:T1002"),   # broad white-fill ghost block
+    ("Data Consolidation",       "A30:A58"),    # orange banding on empty rows
+    ("Data Consolidation",       "G30:G58"),
+    ("Unit Mix Summary",         "B17:H24"),
+    ("GGC Underwriting",         "K4:L17"),     # green input-placeholder boxes
+    ("GGC Underwriting",         "K35:L45"),
+    ("GGC Underwriting",         "O23:R278"),
+    ("GGC Underwriting",         "S24:AA29"),
+    # IMPORTANT solid-white ghost columns past the data
+    ("Loan Scenario (acquisition)", "AC6:IG64"),
+    ("Loan Scenario (acquisition)", "K11:K1003"),
+    ("Loan Scenario (acquisition)", "F127:J770"),
+    ("Loan Scenario (acquisition)", "L11:W421"),
+    ("Loan Scenario (acquisition)", "X2:AB421"),
+    ("GGC Pro Forma",             "T2:AC181"),
+    ("GGC Pro Forma (Conversion)","T2:AC183"),
+    ("Waterfall (10-yr-S1)",      "J3:P173"),
+    ("Waterfall (10-yr-S1)",      "C20:E270"),
+    ("Waterfall (5-yr-S1)",       "J3:K173"),
+    ("Waterfall (5-yr-S1)",       "C20:E270"),
+    ("Unit Mix Rent Growth",      "M7:AY12"),
+    # MINOR
+    ("Collections",              "B1:DH1"),
+    ("Sources and Uses",         "E3:G11"),
+    ("Sources and Uses",         "O5:Q9"),
+]
+def _clear_orphan_fill(sheet, range_str):
+    """Clear fill on any cell in the range whose value is None and which
+    has no formula. Defensive: skip any cell that currently holds data."""
+    if sheet.title not in wb.sheetnames:
+        return
+    # openpyxl 3 supports sheet[range_str] returning a tuple of tuples
+    try:
+        cells = sheet[range_str]
+    except Exception:
+        return
+    if not isinstance(cells, tuple):
+        cells = (cells,)
+    for row in cells:
+        row = row if isinstance(row, tuple) else (row,)
+        for cell in row:
+            if cell.value is None:
+                cell.fill = _no_fill
+
+for tab_name, rng in ORPHAN_FILL_CLEARS:
+    if tab_name in wb.sheetnames:
+        _clear_orphan_fill(wb[tab_name], rng)
+
+# ════════════════════════════════════════════════════════════════════════
+# 16. METHODOLOGY FIXES — partner-defensible per-unit / per-rate logic
+# ════════════════════════════════════════════════════════════════════════
+# All 10 methodology items the reviewers flagged. Each is a small,
+# surgical change that ties the cell back to a written GGC playbook rule
+# rather than a hardcoded magic number.
+
+uw = wb["GGC Underwriting"]
+
+# 16a. Management Fee — restore the methodology rule:
+#      5% of EGI under 200 sites, 4% at 200+
+# (We had reverted to flat 5% to match CorrectOutput's single deal
+# but the underlying rule is the conditional; encode it.)
+uw["J33"] = "=IF(N7>=200,0.04,0.05)"
+
+# 16b. RE Taxes — implement methodology's three-method rule:
+#   Primary:  PP × 65% × local tax rate
+#   Floor:    T12 × 1.15 (reassessment can't reduce taxes)
+#   Fallback: $400/unit (when tax rate unknown)
+# Take MAX of all three so we always honor the conservative floor.
+# P12 is the user-supplied county tax rate (backend writes it from form).
+uw["O12"] = "County Tax Rate"
+ws_uw = uw  # alias for compatibility with earlier code blocks
+uw["I22"] = (
+    "=MAX("
+    "J22*N7,"                                       # $400/unit floor
+    "D22*1.15,"                                     # T12 × 1.15 sanity
+    "IF(AND(ISNUMBER(P4),ISNUMBER(P12),P12>0),"
+    "P4*0.65*P12,0))"                               # PP × 65% × rate
+)
+
+# 16c. Insurance — flood zone override per methodology lines 2706-2716.
+# Base: T12 × 1.05. If property is in a flood zone (P14=TRUE), multiply
+# by additional 1.15 → 1.2075 total. Backend writes P14 from form input.
+uw["O13"] = "Flood Zone (Y/N)"
+uw["P13"] = False    # backend sets True when floodZone == "yes"
+uw["I23"] = "=D23*1.05*IF(P13=TRUE,1.15,1)"
+
+# 16d. Stabilized Vacancy — make the 5% explicit as "economic vacancy".
+# Methodology Step 2 says PHYSICAL vacancy ties to rent roll (we use
+# that in column D). The 5% on G5 is the STABILIZED economic vacancy
+# benchmark. Add a comment cell at K5 to make this clear.
+# G5 stays at =-5%*G4 but we document the source.
+uw["K5"] = "Stabilized economic vacancy (5% industry benchmark)"
+
+# 16e. Bad Debt — document the 3% rate as a fallback when goal-seek
+# isn't tractable. K7 holds the explainer; J7 stays at 0.03.
+uw["K7"] = "T12 actual; 3% fallback when no trend signal"
+
+# 16f. Bifurcated cap rates — expose as inputs at O14/O15 with the
+# methodology range as a comment. Default to midpoints (6% lot, 13.5%
+# home) rather than the most aggressive ends.
+uw["O14"] = 0.060   # was 0.055 — midpoint of 5-7% range
+uw["O15"] = 0.135   # was 0.120 — midpoint of 12-15% range
+uw["Q14"] = "Methodology range: 5-7%"
+uw["Q15"] = "Methodology range: 12-15%"
+
+# 16g. Loan rates — datestamp them so they don't go stale silently.
+# Loan Scenario C14=4.05%, C15=185bps already in section 5. Add a note.
+ls = wb["Loan Scenario (acquisition)"]
+ls["D14"] = "as of 2026-06"
+ls["D15"] = "GGC standard spread"
+
+# 16h. Pro Forma B47 (Home Rent Expense ratio) was 0.15. Methodology
+# says 25-50% for POH operating expense. Move to 0.30 (midpoint of
+# typical 25-35%) and add a sensitivity comment.
+pf["B47"] = 0.30
+pf["C47"] = "Home Rent Expense (MH) — 30% of HRI (methodology: 25-50%)"
+
+# 16i. Sources & Uses — surface the capex breakdown so reviewers see
+# they need to populate it (not just leave at $200k working cap).
+# C21 utilities / C22 home in-fills are still 0 but labels make it
+# obvious they're INPUTS the user should fill per deal.
+su["B21"] = "Water / Septic / Utilities (per deal)"
+su["B22"] = "Add Homes / In-fill (per deal)"
+su["B23"] = "Working Capital"
+
+# 16j. Document the brokerProforma fallback explicitly in the prompt
+# already (commit f7fa5da). Surface it on the workbook via a header.
+uw["F2"] = "Broker's Proforma"  # was "Broker's Proforma  Y1" with double space
+
+# ════════════════════════════════════════════════════════════════════════
+# 17. COMPREHENSIVE STALE-CONTENT SWEEP (from helper agent #3)
+# ════════════════════════════════════════════════════════════════════════
+# Reviewer found 100+ cells with prior-deal artefacts: a 17-row LTO
+# contract table at Unit Mix Rent Growth rows 78-94 (specific lot
+# numbers, balances, maturity dates), expansion plans at rows 117-132,
+# hardcoded exit caps in Pro Forma (Conversion), hardcoded debt service
+# in Pro Forma rows 68-69 (already cleared in 15b), and prior-year
+# headers in Data Consolidation.
+
+# 17a. Unit Mix Rent Growth — clear the entire LTO contract table and
+# expansion plan that bled in from a prior deal.
+umrg = wb["Unit Mix Rent Growth"]
+# Stray notes outside the table
+for coord in ("C47", "A48", "C50", "C66", "C67", "C132",
+              "B123", "C124", "D125", "D130", "K117", "K119"):
+    umrg[coord] = None
+# LTO contract table: rows 78-94, cols C through J
+for r in range(78, 95):
+    for col in ("C", "D", "E", "F", "G", "H", "I", "J"):
+        umrg[f"{col}{r}"] = None
+# Expansion-sites row 121 (the "69 existing sites" hardcode across cols)
+for col in ("F", "G", "H", "I", "J", "K", "L", "M", "N", "O"):
+    umrg[f"{col}121"] = None
+# Trailing stray notes at rows 128-130
+for coord in ("K128", "L128", "M128"):
+    umrg[coord] = None
+
+# 17b. Pro Forma (Conversion) — clear hardcoded exit-cap-rate cells.
+# These were 6% from a prior deal; the workbook should expose a single
+# exit-cap input rather than four scattered hardcodes.
+if "GGC Pro Forma (Conversion)" in wb.sheetnames:
+    pf_conv = wb["GGC Pro Forma (Conversion)"]
+    for coord in ("S64", "N83", "S97", "S113"):
+        pf_conv[coord] = None
+
+# 17c. Data Consolidation — clear prior-deal monthly date headers at
+# J2:U2 (e.g., 2024-06-01 through 2025-12-01). The monthly column
+# headers don't need to be pre-populated; backend.py writes them per
+# deal based on the source P&L's reporting period.
+dc = wb["Data Consolidation"]
+for col in ("J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U"):
+    dc[f"{col}2"] = None
+
+# 17d. Rent Roll Input — clear deal-specific title with date
+# ("RENT ROLL April 2026" → just "RENT ROLL").
+rr = wb["Rent Roll Input"]
+rr["A1"] = "RENT ROLL"
+
+# 17e. Working Capital placeholder in Sources & Uses — make zero by
+# default so the user sees they need to populate per deal.
+su["C23"] = 0
+su["I23"] = 0
+
 wb.save(TEMPLATE)
 print(f"Patched {TEMPLATE.name}")
 print(f"Sheets now: {wb.sheetnames}")
