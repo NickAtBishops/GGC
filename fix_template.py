@@ -248,6 +248,18 @@ for col in range(1, 12):  # A-K
     cell.font = _clear_font
     cell.border = _clear_border
 
+# Row 1003 is a legacy "totals" row from the original template: A1003:D1003
+# carry a black theme-1 fill (renders as a large black box in the bottom-right
+# of the rent roll) and E1003:N1003 hold =SUM(E3:E1002) totals. Nothing reads
+# from this row anymore — Unit Mix Summary's COUNTIFS/SUMIFS already aggregate
+# rows 3:1002, and Underwriting G13 sums J3:J1002 directly. Strip it.
+for col in range(1, 129):  # A-DX, full data width
+    cell = rr.cell(row=1003, column=col)
+    cell.value = None
+    cell.fill = _clear_fill
+    cell.font = _clear_font
+    cell.border = _clear_border
+
 # ════════════════════════════════════════════════════════════════════════
 # 4. UNIT MIX RENT GROWTH — match CorrectOutput cell-for-cell
 # ════════════════════════════════════════════════════════════════════════
@@ -267,7 +279,9 @@ umrg["B3"] = None
 
 # Clear the entire body (rows 5-28) so no orphan content from the old
 # 6-type template survives. We rewrite from scratch below.
-for row in umrg.iter_rows(min_row=5, max_row=28, max_col=12):
+# max_col=15 covers columns A:O — the projection grid extends to O for
+# Year 10. Earlier max_col=12 (A:L) left stale Y8-Y10 cells untouched.
+for row in umrg.iter_rows(min_row=5, max_row=28, max_col=15):
     for cell in row:
         cell.value = None
 
@@ -294,7 +308,7 @@ umrg["E8"] = "Lot Rent"
 umrg["C9"] = "Unit Mix"
 umrg["D9"] = "# of Units"
 umrg["E9"] = "Avg Monthly Rent"
-projection_cols = ["F", "G", "H", "I", "J", "K", "L"]
+projection_cols = ["F", "G", "H", "I", "J", "K", "L", "M", "N", "O"]
 for i, col in enumerate(projection_cols, start=1):
     umrg[f"{col}9"] = f"Year {i}"
 
@@ -310,6 +324,9 @@ umrg["I10"] = "=H10*(100%+E$5)"
 umrg["J10"] = "=I10*(100%+F$5)"
 umrg["K10"] = "=J10*(100%+G$5)"
 umrg["L10"] = "=K10*(100%+H$5)"
+umrg["M10"] = "=L10*(100%+I$5)"
+umrg["N10"] = "=M10*(100%+J$5)"
+umrg["O10"] = "=N10*(100%+K$5)"
 
 # ── Row 11: POH-Infilled projection ──
 umrg["B11"] = "=IFERROR(D11/$D$12,0)"
@@ -323,24 +340,30 @@ umrg["I11"] = "=H11*(100%+E$6)"
 umrg["J11"] = "=I11*(100%+F$6)"
 umrg["K11"] = "=J11*(100%+G$6)"
 umrg["L11"] = "=K11*(100%+H$6)"
+umrg["M11"] = "=L11*(100%+I$6)"
+umrg["N11"] = "=M11*(100%+J$6)"
+umrg["O11"] = "=N11*(100%+K$6)"
 
 # ── Row 12: weighted-average roll-up ──
 umrg["B12"] = "=SUM(B10:B11)"
 umrg["C12"] = "Total Weighted Average"
 umrg["D12"] = "=SUM(D10:D11)"
-for col in ("E", "F", "G", "H", "I", "J", "K", "L"):
+for col in ("E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O"):
     umrg[f"{col}12"] = f"=SUMPRODUCT($B$10:$B$11,{col}10:{col}11)"
 
 # ── Row 13: $ change vs prior year ──
 umrg["D13"] = "$change"
 for prev, curr in (("E", "F"), ("F", "G"), ("G", "H"), ("H", "I"),
-                   ("I", "J"), ("J", "K"), ("K", "L")):
+                   ("I", "J"), ("J", "K"), ("K", "L"),
+                   ("L", "M"), ("M", "N"), ("N", "O")):
     umrg[f"{curr}13"] = f"={curr}12-{prev}12"
 
 # ── Row 14: annual GPR per year (weighted-avg × total units × 12) ──
 # Underwriting!G4 reads H14 here as the stabilized (Year 3) GPR.
+# Pro Forma row 8 (Y1-Y10 GPR) reads F14:O14 via section 15a, so this
+# range must span all 10 projection years — earlier E:L stopped at Y7.
 umrg["D14"] = "GPR"
-for col in ("E", "F", "G", "H", "I", "J", "K", "L"):
+for col in ("E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O"):
     umrg[f"{col}14"] = f"={col}12*$D$12*12"
 
 # ── Rows 15-17: vacancy schedule (mirrors CorrectOutput) ──
@@ -353,7 +376,7 @@ umrg["C16"] = 0
 umrg["E16"] = "='Unit Mix Summary'!D5"
 umrg["F16"] = "=E16-$C$16"
 umrg["D17"] = "Vacancy"
-for col in ("E", "F", "G", "H", "I", "J", "K", "L"):
+for col in ("E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O"):
     umrg[f"{col}17"] = f"=SUM({col}15:{col}16)/$D$12"
 
 # Wire stabilized GPR on Underwriting to Unit Mix Rent Growth H14 (Year
@@ -488,9 +511,12 @@ for coord in ("O2", "O3", "O4", "O5", "O6", "O7", "O8", "O9", "O10"):
 
 # 12b. I13 (Home Rent Income stabilized) was ='Rent Roll Input'!F1005*95%
 # in the original blank. Col F is now Tenant Name after the Rent Roll
-# restructure, so multiplying a name by 0.95 produces #VALUE!. Zero out
-# unless / until backend.py decides to populate it from per-row data.
-ws["I13"] = 0
+# restructure, so multiplying a name by 0.95 produces #VALUE!.
+# Mirror G13 (the ALT NOI column's home-rent SUM over J3:J1002 × 12 × 95%)
+# so the Stabilized Total NOI in column I includes POH home-rent revenue.
+# Without this, parks with POH units have their NOI understated and P6
+# (ingoing cap rate = I47/P4) is systematically inflated.
+ws["I13"] = "=G13"
 
 # 12c. P4 (Purchase Price) was =IFERROR(P9,0) which resolves to 0 when
 # P9 is empty. Backend.py writes askingPrice to P9 if provided, but if
@@ -550,6 +576,7 @@ su["I17"] = "=I24"
 # revert those and restore the original formulas + cell labels.
 ws["A26"] = "Electricity"           # row label (was "Electrcitiy" typo)
 ws["I22"] = "=J22*N7"               # was MAX(...) — back to simple per-unit
+ws["I23"] = "=D23*1.05"             # Insurance: T12 × 1.05 (no flood mult)
 ws["J33"] = 0.05                    # was =IF(N7>=200,...) — back to flat 5%
 ws["I33"] = "=J33*I19"              # mgmt fee = % × EGI (stabilized)
 ws["G33"] = "=J33*G19"              # mgmt fee for ALT NOI column
@@ -701,7 +728,7 @@ ws["N13"] = "NOI"
 ws["O13"] = "CAP RATE"
 ws["P13"] = "VALUE"
 ws["M14"] = "Lot Rent only NOI"
-ws["N14"] = "=I47"
+ws["N14"] = "=H47"
 ws["O14"] = 0.055
 ws["P14"] = "=N14/O14"
 ws["M15"] = "Home Rent only NOI"
@@ -883,6 +910,9 @@ ORPHAN_FILL_CLEARS = [
     ("Rent Roll Input",          "H3:H1002"),
     ("Rent Roll Input",          "R3:R1002"),
     ("Rent Roll Input",          "D3:T1002"),   # broad white-fill ghost block
+    ("Rent Roll Input",          "U3:AA1010"),  # columns past T retain template fill
+    ("Rent Roll Input",          "A1003:DX1010"),# legacy totals-row dark fill at row 1003 A:D + far-right ghost (the "black box")
+    ("Rent Roll Input",          "AB1:DX2"),    # row 1 header strip — empty cells past col AA retain black theme-1 fill
     ("Data Consolidation",       "A30:A58"),    # orange banding on empty rows
     ("Data Consolidation",       "G30:G58"),
     ("Unit Mix Summary",         "B17:H24"),
@@ -945,28 +975,28 @@ uw = wb["GGC Underwriting"]
 # but the underlying rule is the conditional; encode it.)
 uw["J33"] = "=IF(N7>=200,0.04,0.05)"
 
-# 16b. RE Taxes — implement methodology's three-method rule:
-#   Primary:  PP × 65% × local tax rate
-#   Floor:    T12 × 1.15 (reassessment can't reduce taxes)
-#   Fallback: $400/unit (when tax rate unknown)
-# Take MAX of all three so we always honor the conservative floor.
-# P12 is the user-supplied county tax rate (backend writes it from form).
-uw["O12"] = "County Tax Rate"
+# 16b/16c. RE Taxes and Insurance are intentionally simple per partner
+# direction: the County Tax Rate (P12) and Flood Zone (P17) inputs and
+# their MAX-with-methodology formulas were removed from the underwriting
+# section. I22 / I23 keep the simple per-unit and T12 × 1.05 formulas
+# already wired in section 13 above. Backend no longer writes P12/P17.
 ws_uw = uw  # alias for compatibility with earlier code blocks
-uw["I22"] = (
-    "=MAX("
-    "J22*N7,"                                       # $400/unit floor
-    "D22*1.15,"                                     # T12 × 1.15 sanity
-    "IF(AND(ISNUMBER(P4),ISNUMBER(P12),P12>0),"
-    "P4*0.65*P12,0))"                               # PP × 65% × rate
-)
 
-# 16c. Insurance — flood zone override per methodology lines 2706-2716.
-# Base: T12 × 1.05. If property is in a flood zone (P14=TRUE), multiply
-# by additional 1.15 → 1.2075 total. Backend writes P14 from form input.
-uw["O13"] = "Flood Zone (Y/N)"
-uw["P13"] = False    # backend sets True when floodZone == "yes"
-uw["I23"] = "=D23*1.05*IF(P13=TRUE,1.15,1)"
+# Also strip the legacy "Tax Analysis Section" block (O19:Q22: Assessed
+# Value / Levy Rate / Tax = P20*P21) and the orphan "Flood Zone" label at
+# S6 from the GGC Underwriting tab. Partner direction is to keep the UW
+# tab free of flood/tax inputs entirely; these were leftovers from an
+# earlier template version that the per-unit / T12×1.05 rewrite never
+# cleaned up. Nothing downstream reads from this block.
+for coord in ("O19", "O20", "O21", "O22",
+              "P19", "P20", "P21", "P22",
+              "Q19", "Q20", "Q21", "Q22",
+              "S6"):
+    cell = uw[coord]
+    cell.value = None
+    cell.fill = _clear_fill
+    cell.font = _clear_font
+    cell.border = _clear_border
 
 # 16d. Stabilized Vacancy — make the 5% explicit as "economic vacancy".
 # Methodology Step 2 says PHYSICAL vacancy ties to rent roll (we use
