@@ -112,8 +112,12 @@ for row in ums.iter_rows(min_row=3, max_row=22, max_col=10):
     for cell in row:
         cell.value = None
 
-# Headers (row 3)
-ums["B2"] = "MH/RV Rent Roll"
+# Headers (row 3). Clear any stray text in row 2 cells C-K — the original
+# blank template had a "Next Increase in MAY 1 2026 — see RR" note at C2
+# left over from a hand-built workbook, which showed up next to our title.
+for col in range(3, 12):
+    ums.cell(row=2, column=col).value = None
+ums["B2"] = "MH/RV Rent Roll "  # trailing space matches CorrectOutput
 ums["C3"] = "# of Occupied Units"
 ums["D3"] = "# of Vacant Units"
 ums["E3"] = "Total Units"
@@ -128,6 +132,10 @@ CATEGORIES = [
     ("TOH MH Site",        4),
     ("POH-Infilled units", 5),
     ("Long term RV Site",  6),
+    # CorrectOutput has a typo here ("Retail/Comemrcial"). We use the
+    # correctly spelled version so a future user search won't fail; the
+    # COUNTIFS doesn't reference column B so the typo is purely
+    # cosmetic in correct.
     ("Retail/Commercial",  7),
 ]
 for label, r in CATEGORIES:
@@ -154,7 +162,7 @@ ums["B8"]  = "Total Units"
 ums["C8"]  = "=SUM(C4:C7)"
 ums["D8"]  = "=SUM(D4:D7)"
 ums["E8"]  = "=SUM(E4:E7)"
-ums["B9"]  = "Total MH Sites (TOH + POH)"
+ums["B9"]  = "Total MH Sites"   # match CorrectOutput (no parenthetical)
 ums["C9"]  = "=SUM(C4:C5)"
 ums["D9"]  = "=SUM(D4:D5)"
 ums["E9"]  = "=SUM(E4:E5)"
@@ -165,13 +173,18 @@ ums["B10"] = "Total POH"
 ums["C10"] = "=C5"
 ums["D10"] = "=D5"
 ums["E10"] = "=E5"
-ums["B11"] = "Annual GPR (MH Lot Rent)"
+# Labels match CorrectOutput exactly. IFERROR wrappers stay — Correct
+# trusts its inputs but our LLM-generated rent rolls can produce zero
+# counts for a missing unit type, which would propagate #DIV/0! into
+# every downstream per-unit formula. The wrapper preserves the math
+# under correct's labels while staying robust.
+ums["B11"] = "Annual GPR(MH Lot Rent)"   # no space — matches Correct
 ums["C11"] = "=H9*12"
-ums["B12"] = "Avg MH Lot Rent"
+ums["B12"] = "Avg Rent"                  # was "Avg MH Lot Rent"
 ums["C12"] = "=IFERROR(H4/E4,0)"
-ums["B13"] = "Occupancy %"
+ums["B13"] = "Occupancy%"                # no space
 ums["C13"] = "=IFERROR(C8/E8,0)"
-ums["B14"] = "POH %"
+ums["B14"] = "POH%"                      # no space
 ums["C14"] = "=IFERROR(E10/E9,0)"
 ums["B15"] = "Annual Long term RV"
 ums["C15"] = "=H6*12"
@@ -236,51 +249,116 @@ for col in range(1, 12):  # A-K
     cell.border = _clear_border
 
 # ════════════════════════════════════════════════════════════════════════
-# 4. UNIT MIX RENT GROWTH — replace 6 #REF! rows with 2 real rows
+# 4. UNIT MIX RENT GROWTH — match CorrectOutput cell-for-cell
 # ════════════════════════════════════════════════════════════════════════
+# The blank template ships with stray content from a prior hand-built
+# workbook: leftover notes at B2/B3, non-flat year-by-year rent growth
+# rates at rows 5-8 (specific to a different deal), orphan vacancy-
+# schedule rows at 23-25 referencing a $D$20 cell that no longer exists,
+# and only 6 of 7 years of forward rent projection populated. Replace
+# the whole block with CorrectOutput's structure so the tab visually
+# matches the gold standard.
+
 umrg = wb["Unit Mix Rent Growth"]
 
-# Clear the broken block (rows 13-22) before rewriting
-for row in umrg.iter_rows(min_row=13, max_row=22, max_col=12):
+# Clear stray notes at B2/B3 from the blank template
+umrg["B2"] = None
+umrg["B3"] = None
+
+# Clear the entire body (rows 5-28) so no orphan content from the old
+# 6-type template survives. We rewrite from scratch below.
+for row in umrg.iter_rows(min_row=5, max_row=28, max_col=12):
     for cell in row:
         cell.value = None
 
-umrg["B13"] = "Unit Type"
-umrg["C13"] = "# of Units"
-umrg["D13"] = "Avg Monthly Rent"
-umrg["E13"] = "Year 1"
-umrg["F13"] = "Year 2"
-umrg["G13"] = "Year 3"
-umrg["H13"] = "Year 4"
-umrg["I13"] = "Year 5"
+# ── Header row 4: "Key Assumptions" + Year 1..Year 10 ──
+umrg["A4"] = "Key Assumptions"
+year_cols = ["B", "C", "D", "E", "F", "G", "H", "I", "J", "K"]
+for i, col in enumerate(year_cols, start=1):
+    umrg[f"{col}4"] = f"Year {i}"
 
-# Row 14: MH Lot Rent (pulls TOH MH counts/rent from Unit Mix Summary)
-umrg["B14"] = "MH Lot Rent (TOH)"
-umrg["C14"] = "='Unit Mix Summary'!E4"
-umrg["D14"] = "='Unit Mix Summary'!C12"
-umrg["E14"] = "=D14*(1+B$5)"
-umrg["F14"] = "=E14*(1+C$5)"
-umrg["G14"] = "=F14*(1+D$5)"
-umrg["H14"] = "=G14*(1+E$5)"
-umrg["I14"] = "=H14*(1+F$5)"
+# ── Rows 5-6: Per-type growth rates (flat 5% across all years) ──
+# Correct uses 0.05 flat for both MH (row 5) and POH (row 6) across
+# Year 1..Year 10. The label cells point back at Unit Mix Summary
+# so they show "TOH MH Site" / "POH-Infilled units" automatically.
+umrg["A5"] = "=C10"
+umrg["A6"] = "=C11"
+for col in year_cols:
+    umrg[f"{col}5"] = 0.05
+    umrg[f"{col}6"] = 0.05
 
-# Row 15: RV Lot Rent
-umrg["B15"] = "Long Term RV Rent"
-umrg["C15"] = "='Unit Mix Summary'!E6"
-umrg["D15"] = "='Unit Mix Summary'!C16"
-umrg["E15"] = "=D15*(1+B$6)"
-umrg["F15"] = "=E15*(1+C$6)"
-umrg["G15"] = "=F15*(1+D$6)"
-umrg["H15"] = "=G15*(1+E$6)"
-umrg["I15"] = "=H15*(1+F$6)"
+# ── Row 8: section header for the rent projection block ──
+umrg["E8"] = "Lot Rent"
 
-# Weighted-average roll-up (used as stabilized GPR if desired)
-umrg["B16"] = "Annual Stabilized GPR"
-umrg["C16"] = "=C14+C15"
-umrg["G16"] = "=(G14*C14+G15*C15)*12"  # Year 3 stabilized total
+# ── Row 9: column headers for the per-year rent grid ──
+umrg["C9"] = "Unit Mix"
+umrg["D9"] = "# of Units"
+umrg["E9"] = "Avg Monthly Rent"
+projection_cols = ["F", "G", "H", "I", "J", "K", "L"]
+for i, col in enumerate(projection_cols, start=1):
+    umrg[f"{col}9"] = f"Year {i}"
 
-# Wire stabilized GPR on Underwriting to this cell
-ws["G4"] = "='Unit Mix Rent Growth'!G16"
+# ── Row 10: TOH MH Site projection (B-weighted to total units) ──
+umrg["B10"] = "=IFERROR(D10/$D$12,0)"
+umrg["C10"] = "='Unit Mix Summary'!B4"
+umrg["D10"] = "='Unit Mix Summary'!E4"
+umrg["E10"] = "=IFERROR('Unit Mix Summary'!H4/'Unit Mix Summary'!E4,0)"
+umrg["F10"] = "=E10*(100%+B$5)"
+umrg["G10"] = "=F10*(100%+C$5)"
+umrg["H10"] = "=G10*(100%+D$5)"
+umrg["I10"] = "=H10*(100%+E$5)"
+umrg["J10"] = "=I10*(100%+F$5)"
+umrg["K10"] = "=J10*(100%+G$5)"
+umrg["L10"] = "=K10*(100%+H$5)"
+
+# ── Row 11: POH-Infilled projection ──
+umrg["B11"] = "=IFERROR(D11/$D$12,0)"
+umrg["C11"] = "='Unit Mix Summary'!B5"
+umrg["D11"] = "='Unit Mix Summary'!E5"
+umrg["E11"] = "=IFERROR('Unit Mix Summary'!H5/'Unit Mix Summary'!E5,0)"
+umrg["F11"] = "=E11*(100%+B$6)"
+umrg["G11"] = "=F11*(100%+C$6)"
+umrg["H11"] = "=G11*(100%+D$6)"
+umrg["I11"] = "=H11*(100%+E$6)"
+umrg["J11"] = "=I11*(100%+F$6)"
+umrg["K11"] = "=J11*(100%+G$6)"
+umrg["L11"] = "=K11*(100%+H$6)"
+
+# ── Row 12: weighted-average roll-up ──
+umrg["B12"] = "=SUM(B10:B11)"
+umrg["C12"] = "Total Weighted Average"
+umrg["D12"] = "=SUM(D10:D11)"
+for col in ("E", "F", "G", "H", "I", "J", "K", "L"):
+    umrg[f"{col}12"] = f"=SUMPRODUCT($B$10:$B$11,{col}10:{col}11)"
+
+# ── Row 13: $ change vs prior year ──
+umrg["D13"] = "$change"
+for prev, curr in (("E", "F"), ("F", "G"), ("G", "H"), ("H", "I"),
+                   ("I", "J"), ("J", "K"), ("K", "L")):
+    umrg[f"{curr}13"] = f"={curr}12-{prev}12"
+
+# ── Row 14: annual GPR per year (weighted-avg × total units × 12) ──
+# Underwriting!G4 reads H14 here as the stabilized (Year 3) GPR.
+umrg["D14"] = "GPR"
+for col in ("E", "F", "G", "H", "I", "J", "K", "L"):
+    umrg[f"{col}14"] = f"={col}12*$D$12*12"
+
+# ── Rows 15-17: vacancy schedule (mirrors CorrectOutput) ──
+umrg["D15"] = "Vacant Lots"
+umrg["C15"] = 0   # stabilization step (manually adjustable per deal)
+umrg["E15"] = "='Unit Mix Summary'!D4"
+umrg["F15"] = "=E15-C15"
+umrg["D16"] = "Vacant Homes"
+umrg["C16"] = 0
+umrg["E16"] = "='Unit Mix Summary'!D5"
+umrg["F16"] = "=E16-$C$16"
+umrg["D17"] = "Vacancy"
+for col in ("E", "F", "G", "H", "I", "J", "K", "L"):
+    umrg[f"{col}17"] = f"=SUM({col}15:{col}16)/$D$12"
+
+# Wire stabilized GPR on Underwriting to Unit Mix Rent Growth H14 (Year
+# 3 GPR), matching CorrectOutput's reference.
+ws["G4"] = "='Unit Mix Rent Growth'!H14"
 
 # ════════════════════════════════════════════════════════════════════════
 # 5. LOAN SCENARIO (acquisition) — populate non-zero rates
@@ -389,40 +467,9 @@ for r, cell_path in [
     if ir[coord].value is not None:
         ir[coord] = formula
 
-# 11e. Unit Mix Rent Growth row 22 was the year-by-year GPR projection
-# but only M22:O22 (Y8-Y10) were set. Fill in F22:L22 (Y1-Y7) as a
-# product of unit counts x year-N monthly rent x 12, and fix the
-# weighted-average roll-up.
-umrg = wb["Unit Mix Rent Growth"]
-# Annual GPR per year = (MH count * MH year-N rent + RV count * RV year-N rent) * 12
-gpr_year_formulas = {
-    "F22": "=(E14*C14+E15*C15)*12",  # Y1
-    "G22": "=(F14*C14+F15*C15)*12",  # Y2
-    "H22": "=(G14*C14+G15*C15)*12",  # Y3 (mirrors G16)
-    "I22": "=(H14*C14+H15*C15)*12",  # Y4
-    "J22": "=(I14*C14+I15*C15)*12",  # Y5
-    "K22": "=(J14*C14+J15*C15)*12",  # Y6
-    "L22": "=(J14*(1+G$5)*C14+J15*(1+G$6)*C15)*12",  # Y7
-    "M22": "=(J14*(1+G$5)*(1+H$5)*C14+J15*(1+G$6)*(1+H$6)*C15)*12",      # Y8
-    "N22": "=(J14*(1+G$5)*(1+H$5)*(1+I$5)*C14+J15*(1+G$6)*(1+H$6)*(1+I$6)*C15)*12",  # Y9
-    "O22": "=(J14*(1+G$5)*(1+H$5)*(1+I$5)*(1+J$5)*C14+J15*(1+G$6)*(1+H$6)*(1+I$6)*(1+J$6)*C15)*12",  # Y10
-}
-umrg["B22"] = "Annual GPR (lots only, by year)"
-for coord, formula in gpr_year_formulas.items():
-    umrg[coord] = formula
-
-# 11f. Zero out the broken SUMPRODUCT placeholders at M20:O20 (they
-# referenced B14:B19 which are text labels). Without these, downstream
-# Pro Forma cells get clean year-by-year inputs from row 22 instead.
-for coord in ("M20", "N20", "O20"):
-    if isinstance(umrg[coord].value, str) and "SUMPRODUCT" in (umrg[coord].value or "").upper():
-        umrg[coord] = 0
-
-# 11g. Clean orphan label refs at A5:A10 (pointed at numeric formula
-# cells C14:C19). Replace with the static unit-type labels.
-for r, label in [(5, "MH Lot Rent (TOH)"), (6, "Long Term RV Rent"),
-                 (7, ""), (8, ""), (9, ""), (10, "")]:
-    umrg[f"A{r}"] = label or None
+# 11e/f/g — Unit Mix Rent Growth row-22 / M20-O20 / A5-A10 fixes from
+# round 3 are now obsolete. The canonical rebuild earlier in this script
+# (section 4) handles all of that already in the new layout. Removed.
 
 # ════════════════════════════════════════════════════════════════════════
 # 12. ROUND 4 — REGRESSION FIXES from full cross-check vs CorrectOutput
@@ -490,71 +537,9 @@ su["I23"] = 200000
 su["I24"] = "=SUM(I21:I23)"
 su["I17"] = "=I24"
 
-# 12g. Rebuild Unit Mix Rent Growth rows 10-17 to mirror CorrectOutput
-# EXACTLY. The correct layout drives Underwriting!G4 (stabilized GPR)
-# which reads H14 = monthly weighted rent (Year 3) × total units × 12.
-# Earlier rebuild used a different schema; replace it.
-
-# Clear rows 9-22 first so the previous attempt's cells don't shadow.
-for row in umrg.iter_rows(min_row=9, max_row=22, max_col=12):
-    for cell in row:
-        cell.value = None
-
-# Per-type rent growth rows (10 = TOH MH, 11 = POH-Infilled).
-# Columns: B=weight, C=unit-type label, D=units, E=current monthly rent,
-# F-K = years 1-6 of compounded rent growth.
-umrg["B10"] = "=IFERROR(D10/$D$12,0)"
-umrg["C10"] = "='Unit Mix Summary'!B4"
-umrg["D10"] = "='Unit Mix Summary'!E4"
-umrg["E10"] = "=IFERROR('Unit Mix Summary'!H4/'Unit Mix Summary'!E4,0)"
-umrg["F10"] = "=E10*(100%+B$5)"
-umrg["G10"] = "=F10*(100%+C$5)"
-umrg["H10"] = "=G10*(100%+D$5)"
-umrg["I10"] = "=H10*(100%+E$5)"
-umrg["J10"] = "=I10*(100%+F$5)"
-umrg["K10"] = "=J10*(100%+G$5)"
-
-umrg["B11"] = "=IFERROR(D11/$D$12,0)"
-umrg["C11"] = "='Unit Mix Summary'!B5"
-umrg["D11"] = "='Unit Mix Summary'!E5"
-umrg["E11"] = "=IFERROR('Unit Mix Summary'!H5/'Unit Mix Summary'!E5,0)"
-umrg["F11"] = "=E11*(100%+B$6)"
-umrg["G11"] = "=F11*(100%+C$6)"
-umrg["H11"] = "=G11*(100%+D$6)"
-umrg["I11"] = "=H11*(100%+E$6)"
-umrg["J11"] = "=I11*(100%+F$6)"
-umrg["K11"] = "=J11*(100%+G$6)"
-
-# Row 12 = weighted-average roll-up
-umrg["B12"] = "=SUM(B10:B11)"
-umrg["C12"] = "Total Weighted Average"
-umrg["D12"] = "=SUM(D10:D11)"
-for col in ("E", "F", "G", "H", "I", "J", "K"):
-    umrg[f"{col}12"] = f"=SUMPRODUCT($B$10:$B$11,{col}10:{col}11)"
-
-# Row 13 = $ change vs prior year
-umrg["D13"] = "$change"
-for prev, curr in (("E", "F"), ("F", "G"), ("G", "H"), ("H", "I"), ("I", "J"), ("J", "K")):
-    umrg[f"{curr}13"] = f"={curr}12-{prev}12"
-
-# Row 14 = annual GPR per year = weighted-avg monthly × total units × 12
-# This is the cell Underwriting!G4 references for stabilized GPR.
-umrg["D14"] = "GPR"
-for col in ("E", "F", "G", "H", "I", "J", "K"):
-    umrg[f"{col}14"] = f"={col}12*$D$12*12"
-
-# Vacancy schedule (rows 15-17)
-umrg["D15"] = "Vacant Lots"
-umrg["E15"] = "='Unit Mix Summary'!D4"
-umrg["C15"] = 0  # stabilization step target (0 by default)
-umrg["F15"] = "=E15-C15"
-umrg["D16"] = "Vacant Homes"
-umrg["E16"] = "='Unit Mix Summary'!D5"
-umrg["C16"] = 0
-umrg["F16"] = "=E16-$C$16"
-umrg["D17"] = "Vacancy"
-for col in ("E", "F", "G", "H", "I", "J", "K"):
-    umrg[f"{col}17"] = f"=SUM({col}15:{col}16)/$D$12"
+# 12g — Unit Mix Rent Growth rebuild from round 4 is obsolete; the
+# canonical rebuild in section 4 above already produces this layout
+# (and extends Year 7 to column L which round 4 was missing).
 
 # ════════════════════════════════════════════════════════════════════════
 # 13. EXACT-MATCH ALIGNMENT WITH CORRECTOUTPUT.XLSX (Underwriting tab)
@@ -730,7 +715,15 @@ ws["P16"] = "=SUM(P14:P15)"
 # ════════════════════════════════════════════════════════════════════════
 # 14. FORCE FULL RECALC ON OPEN
 # ════════════════════════════════════════════════════════════════════════
+# Force Excel to recalculate everything on open. The blank template may
+# ship with calcMode="manual" or a stale full-calc flag, which would
+# leave openpyxl-written formulas displayed as blank cells until the
+# user manually presses F9. Setting both auto-mode AND fullCalcOnLoad
+# covers the cases where Excel ignores one or the other.
+wb.calculation.calcMode = "auto"
 wb.calculation.fullCalcOnLoad = True
+wb.calculation.calcCompleted = False
+wb.calculation.calcOnSave = True
 
 wb.save(TEMPLATE)
 print(f"Patched {TEMPLATE.name}")
