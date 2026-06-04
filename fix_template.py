@@ -1065,6 +1065,69 @@ rr["A1"] = "RENT ROLL"
 su["C23"] = 0
 su["I23"] = 0
 
+# ════════════════════════════════════════════════════════════════════════
+# 18. PARTNER-WALKTHROUGH FIXES (from Verifier 3 simulation)
+# ════════════════════════════════════════════════════════════════════════
+# Three bugs that no other reviewer caught — found by simulating the
+# actual partner walking through every tab. Each is a math error or
+# wrong-cell reference that a sharp partner would catch in 30 seconds.
+
+# ── 18a. Rent Roll Input M column — double-counts Lot Rent ─────────────
+# M2 header was "Combined" (duplicating K2), and M3:M1002 contained
+# `=K3+L3+I3` where K3 already equals I3+J3. So M effectively computed
+# (Lot+Home) + L + Lot = double-counting Lot Rent across 1,000 rows.
+# Column L is empty. Just clear the entire M column — it's redundant
+# with K, which already gives Combined = Lot + Home correctly.
+rr = wb["Rent Roll Input"]
+rr["M2"] = None
+for r in range(3, 1003):
+    rr[f"M{r}"] = None
+
+# ── 18b. Investor Return — fix wrong row references ───────────────────
+# Row 8 was =AVERAGE('Waterfall (10-yr-S1)'!G31:O31) — but row 31 is
+# the LP EQUITY MULTIPLE row, not cash-on-cash. Same bug in rows 27/29
+# of the duplicate block (which we also clean up below).
+ir = wb["Investor Return"]
+# True CoC = average annual net LP cash flow / total LP equity invested.
+# Waterfall row 30 (G30:O30) holds per-year net LP cash flow.
+# Waterfall F28 (sign-flipped) holds total LP equity contributed.
+# Use ABS so the divide stays positive regardless of contribution sign.
+ir["F8"] = ("=IFERROR(AVERAGE('Waterfall (10-yr-S1)'!G30:O30)"
+            "/ABS('Waterfall (10-yr-S1)'!F28),0)")
+ir["F21"] = ("=IFERROR(AVERAGE('Waterfall (5-yr-S1)'!G30:J30)"
+              "/ABS('Waterfall (5-yr-S1)'!F28),0)")
+
+# Rows 25-32 were a DUPLICATE 10-year summary block (note the double-
+# space in "10  Year Return Summary" at C25 vs single space at C4).
+# Row 27 in particular had F27 = AVERAGE(G31:O31) which mislabels an
+# equity-multiple average as an IRR. Clear the duplicate block entirely.
+for r in range(25, 33):
+    for col in ("B", "C", "D", "E", "F", "G"):
+        ir[f"{col}{r}"] = None
+
+# ── 18c. Pro Forma (Conversion) — 5-yr IRR/MOIC pulled 10-yr ranges ──
+# G79 IRR and G87 MOIC referenced row 66 (the 10-yr Free Cash Flow
+# row) instead of row 85 (the 5-yr Free Cash Flow row). They also used
+# the full G:Q range (11 cells = Y0-Y10) when the 5-yr scenario only
+# spans G:L (6 cells = Y0-Y5).
+if "GGC Pro Forma (Conversion)" in wb.sheetnames:
+    pfc = wb["GGC Pro Forma (Conversion)"]
+    pfc["G79"] = "=IRR(G85:L85)"        # was =IRR(G66:Q66) — 10-yr range
+    pfc["G87"] = "=SUM(H85:L85)/-G85"   # was =SUM(H66:Q66)/-G66
+
+# ── 18d. Pro Forma J67 DSCR typo (caught as bonus by Verifier 3) ─────
+# Was =-J53/I60 (uses Year 2 debt service as Year 3 divisor). Fix to
+# the same-year reference.
+pf["J67"] = "=-J53/J60"
+
+# ── 18e. Loan Scenario P8 off-by-one in interest year sum ────────────
+# Was P8 = SUM(H42:H53), which shifts the interest window by one
+# month into year 5. Should be SUM(H43:H54). Same shift on T8/U8.
+lsq = wb["Loan Scenario (acquisition)"]
+lsq["P8"] = "=SUM(H43:H54)"
+lsq["T8"] = "=SUM(H91:H102)"
+lsq["U8"] = "=SUM(H103:H114)"
+
 wb.save(TEMPLATE)
 print(f"Patched {TEMPLATE.name}")
 print(f"Sheets now: {wb.sheetnames}")
