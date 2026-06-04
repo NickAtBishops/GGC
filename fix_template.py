@@ -488,7 +488,47 @@ umrg["B17"] = "Physical Vacancy %"
 umrg["C17"] = "=IFERROR((C15+C16)/(C10+C11+C15+C16),0)"
 
 # ════════════════════════════════════════════════════════════════════════
-# 13. FORCE FULL RECALC ON OPEN
+# 13. METHODOLOGY OVERRIDES — RE Taxes and Management Fee
+# ════════════════════════════════════════════════════════════════════════
+# The methodology rules for these two line items have specific math the
+# LLM doesn't always apply correctly. Encode them in the template so the
+# result is deterministic regardless of what the LLM put in the
+# extracted/methodology JSON.
+#
+# RE TAXES (methodology lines 2218-2232):
+#   - Primary:  PP × 65% × local tax rate    (post-sale reassessment)
+#   - Fallback: T12 × 1.15                   (when tax rate unknown)
+#   - Sanity:   reassessment never reduces taxes -> floor at T12 × 1.15
+#
+#   The template knows PP (P4), T12 (D22), and a new input cell P12
+#   (county tax rate, written by backend from property_info.countyTaxRate).
+#   The override formula = MAX of the three methods so we always honor
+#   the sanity rule.
+ws["O12"] = "County Tax Rate"
+ws["P12"] = 0  # backend.py writes the user-provided decimal here
+ws["I22"] = (
+    "=MAX("
+    "J22*N7,"                                  # per-unit floor ($400/unit)
+    "D22*1.15,"                                # T12 + 15% sanity floor
+    "IF(AND(ISNUMBER(P4),ISNUMBER(P12),P12>0),"
+        "P4*0.65*P12,"                         # PP × 65% × tax rate (preferred)
+        "0)"
+    ")"
+)
+
+# MANAGEMENT FEE (methodology lines 2249-2258):
+#   - 5% of EGI if total units < 200
+#   - 4% of EGI if total units >= 200
+#   - GGC fee is synthetic — overrides whatever the seller booked.
+#   J33 already carries the conditional formula from round 1 but make it
+#   explicit here so it doesn't silently revert if a future patch lands.
+ws["J33"] = "=IF(N7>=200,0.04,0.05)"
+ws["I33"] = "=J33*I19"   # mgmt fee = % × EGI (stabilized column)
+ws["G33"] = "=J33*G19"   # mgmt fee for ALT NOI column
+ws["H33"] = "=J33*H19"   # mgmt fee for lot-rent-only NOI
+
+# ════════════════════════════════════════════════════════════════════════
+# 14. FORCE FULL RECALC ON OPEN
 # ════════════════════════════════════════════════════════════════════════
 wb.calculation.fullCalcOnLoad = True
 

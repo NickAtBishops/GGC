@@ -3446,6 +3446,15 @@ def fill_template(financials, market, output_path):
     if prop.get("county"):
         underw["N10"] = prop.get("county")
 
+    # Pass the user-supplied county tax rate into P12. The patched
+    # template's I22 (RE Taxes stabilized) uses it as the preferred
+    # reassessment method when present; otherwise the formula falls
+    # back to T12 × 1.15. Accepts a decimal (0.0125) or a percent
+    # string ("1.25%").
+    rate = to_decimal_pct(prop.get("countyTaxRate"))
+    if rate is not None:
+        underw["P12"] = rate
+
     # Atomic save: write to a sibling temp file, then rename. A mid-save
     # crash would otherwise leave the destination half-written, and
     # /api/download would happily ship the corrupt bytes.
@@ -4346,6 +4355,13 @@ def run_analysis_job(job_id, api_key, file_blocks, property_info):
             n_warn = sum(1 for c in checks if c["status"] == "warn")
             print(f"[Verify] {len(checks)} checks: {n_fail} fail, {n_warn} warn")
             financials = call_parse_financials(api_key, extracted, property_info)
+            # Carry the user-provided county tax rate through into
+            # financials.propertyInfo so fill_template can stamp it into
+            # the Underwriting tab (P12) — the RE Taxes override formula
+            # uses it as the preferred reassessment method.
+            if property_info.get("countyTaxRate"):
+                financials.setdefault("propertyInfo", {})["countyTaxRate"] = \
+                    property_info.get("countyTaxRate")
             # Methodology-side checks run AFTER categorization because they
             # need both the income.ggcCategory tags and the rent roll's
             # canonical unit types. This is where the lot-rent / RV-rent
