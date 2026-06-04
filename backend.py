@@ -23,6 +23,7 @@ import statistics
 import traceback
 import re
 from pathlib import Path
+import threading
 from threading import Thread
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import Counter
@@ -95,6 +96,72 @@ MAX_PARSE_RETRIES = int(os.environ.get("MAX_PARSE_RETRIES", "2"))
 # N parallel extraction runs to field-merge when deep_search=on (Wang et al.
 # self-consistency). 1 disables it. Costs ~N× extraction tokens.
 FINANCIAL_PARSE_RUNS_DEEP = int(os.environ.get("FINANCIAL_PARSE_RUNS_DEEP", "3"))
+
+# ── Per-job token & cost accounting ──────────────────────────────────────
+# Each run_analysis_job spawns its own Thread, so a thread-local accumulator
+# attributes every call_claude usage block to the right job without
+# threading job_id through every call site. Reset at the start of a job
+# (reset_usage_tracking) and snapshot at the end (get_usage_summary).
+#
+# Prices are per 1M tokens, sourced from anthropic.com/pricing. Cached-read
+# input is billed at ~10% of the normal input rate. Cache-write costs the
+# same as a normal input token (no premium).
+MODEL_PRICING = {
+    # model_id_prefix : (input, output, cached_read) per 1M tokens
+    "claude-sonnet-4": (3.00, 15.00, 0.30),
+    "claude-opus-4":   (15.00, 75.00, 1.50),
+    "claude-haiku-4":  (1.00,  5.00,  0.10),
+}
+_USAGE_LOCAL = threading.local()
+
+def _pricing_for(model_id):
+    for prefix, prices in MODEL_PRICING.items():
+        if model_id and model_id.startswith(prefix):
+            return prices
+    return (15.00, 75.00, 1.50)  # default to Opus pricing — overstate, not under
+
+def reset_usage_tracking():
+    _USAGE_LOCAL.calls = []
+
+def record_usage(model_id, usage):
+    """Append one call's usage block to the current thread's accumulator."""
+    calls = getattr(_USAGE_LOCAL, "calls", None)
+    if calls is None:
+        return  # tracking not enabled for this thread; ignore
+    calls.append({
+        "model":             model_id or "",
+        "input_tokens":      int(usage.get("input_tokens", 0) or 0),
+        "output_tokens":     int(usage.get("output_tokens", 0) or 0),
+        "cache_read_input_tokens":
+            int(usage.get("cache_read_input_tokens", 0) or 0),
+        "cache_creation_input_tokens":
+            int(usage.get("cache_creation_input_tokens", 0) or 0),
+    })
+
+def get_usage_summary():
+    """Return aggregated tokens + estimated $ cost for the current thread."""
+    calls = getattr(_USAGE_LOCAL, "calls", None) or []
+    totals = {"input_tokens": 0, "output_tokens": 0,
+              "cache_read_input_tokens": 0,
+              "cache_creation_input_tokens": 0, "cost_usd": 0.0}
+    per_model = {}
+    for c in calls:
+        in_price, out_price, cached_price = _pricing_for(c["model"])
+        cost = (
+            (c["input_tokens"]                  / 1_000_000) * in_price +
+            (c["cache_creation_input_tokens"]   / 1_000_000) * in_price +
+            (c["cache_read_input_tokens"]       / 1_000_000) * cached_price +
+            (c["output_tokens"]                 / 1_000_000) * out_price
+        )
+        totals["input_tokens"]                += c["input_tokens"]
+        totals["output_tokens"]               += c["output_tokens"]
+        totals["cache_read_input_tokens"]     += c["cache_read_input_tokens"]
+        totals["cache_creation_input_tokens"] += c["cache_creation_input_tokens"]
+        totals["cost_usd"]                    += cost
+        pm = per_model.setdefault(c["model"], {"calls": 0, "cost_usd": 0.0})
+        pm["calls"] += 1
+        pm["cost_usd"] += cost
+    return {"calls": len(calls), "totals": totals, "per_model": per_model}
 
 # Versioned extraction cache: (file content + property_info + config) hash →
 # the full financial_pipeline output. A hit returns the exact same numbers
@@ -186,9 +253,7 @@ CANONICAL_UNIT_TYPES = [
     "Retail/Commercial",   # Storefronts, commercial space, storage
 ]
 
-import re
 import secrets
-import threading
 from collections import OrderedDict
 
 # Job state. Mutated from the request thread (insert) and the worker
@@ -1039,7 +1104,9 @@ def call_claude(api_key, system_prompt, user_content, tools=None,
                 raise RuntimeError(f"Claude API error {resp.status_code}: {resp.text[:500]}")
 
             # Parse the SSE stream and reassemble the message
-            return _parse_stream(resp)
+            parsed = _parse_stream(resp)
+            record_usage(body.get("model"), parsed.get("usage") or {})
+            return parsed
 
         except requests.exceptions.Timeout:
             print(f"[Claude] Request timeout — retrying...")
@@ -4302,6 +4369,10 @@ def run_analysis_job(job_id, api_key, file_blocks, property_info):
     if job is None:
         return
     try:
+        # Begin per-job token accounting. Every call_claude in this thread
+        # appends its usage to the thread-local accumulator. Snapshot at the
+        # end of the job so we can attach total $ cost to the result.
+        reset_usage_tracking()
         _set_job(job_id, status="running", progress="Starting analysis...")
 
         deep_search = property_info.get("deepSearch", "off") == "on"
@@ -4387,6 +4458,7 @@ def run_analysis_job(job_id, api_key, file_blocks, property_info):
         output_path = JOBS_DIR / f"{job_id}.xlsx"
         fill_template(results["financials"], results["market"], output_path)
 
+        usage_summary = get_usage_summary()
         _set_job(job_id,
                  status="complete",
                  progress="Done.",
@@ -4394,7 +4466,11 @@ def run_analysis_job(job_id, api_key, file_blocks, property_info):
                      "financials": results["financials"],
                      "market": results["market"],
                      "download_url": f"/api/download/{job_id}",
+                     "usage": usage_summary,
                  })
+        print(f"[{job_id}] Job cost: ${usage_summary['totals']['cost_usd']:.2f} "
+              f"across {usage_summary['calls']} Claude calls "
+              f"(deep_search={deep_search})")
     except Exception as e:
         # Log full traceback server-side; the /api/status response is
         # sanitized so the client never sees internal error text.

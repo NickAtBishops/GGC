@@ -554,11 +554,23 @@
     const capRate = ask ? (ggcNoi / ask) : 0;
     const pricePerUnit = pi.totalUnits ? (ask / pi.totalUnits) : 0;
 
+    // API cost — surfaced so Michael can see per-deal spend (he flagged it
+    // in the walkthrough, especially for the 3× reconcile mode). Falls back
+    // to an empty string when the result predates usage tracking.
+    const usage = result.usage || {};
+    const cost = usage.totals ? usage.totals.cost_usd : null;
+    const costCard = cost == null ? '' : kpiCard(
+      'API Cost',
+      '$' + cost.toFixed(2),
+      `${usage.calls} Claude calls`
+    );
+
     document.getElementById('results-summary').innerHTML = `
       ${kpiCard('GGC NOI', '$' + Math.round(ggcNoi).toLocaleString())}
       ${kpiCard('Cap Rate', (capRate * 100).toFixed(2) + '%')}
       ${kpiCard('$ / Unit', '$' + Math.round(pricePerUnit).toLocaleString())}
       ${kpiCard('Occupancy', ((rr.occupancyRate || 0) * 100).toFixed(1) + '%')}
+      ${costCard}
     `;
 
     // Flags — escape every LLM-sourced string before pasting into HTML
@@ -589,10 +601,14 @@
     document.getElementById('analyze-btn').disabled = false;
   }
 
-  function kpiCard(label, value) {
+  function kpiCard(label, value, subtitle) {
+    const sub = subtitle
+      ? `<div class="text-[10px] text-slate-500 mt-1">${escHtml(subtitle)}</div>`
+      : '';
     return `<div class="bg-slate-900/50 rounded-lg p-3 border border-slate-700/50">
       <div class="text-xs text-slate-500 uppercase mb-1">${label}</div>
       <div class="text-xl font-bold text-slate-100">${value}</div>
+      ${sub}
     </div>`;
   }
 
