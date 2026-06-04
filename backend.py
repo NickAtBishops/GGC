@@ -2697,7 +2697,31 @@ Apply the GGC methodology and return the structured JSON."""
     elapsed = time.time() - t0
     print(f"[Claude] Methodology returned in {elapsed:.1f}s "
           f"(stop_reason: {response.get('stop_reason', '?')})")
-    return extract_json(response)
+    parsed = extract_json(response)
+
+    # Activate the methodology-line validators. They reject any income
+    # row whose ggcCategory isn't in GGC_INCOME_CATEGORIES (likewise for
+    # expenses) — the SUMIFS in the Underwriting template will silently
+    # zero out anything misspelled, so we want to fail loud here.
+    validation_errors = []
+    for i, item in enumerate(parsed.get("income") or []):
+        try:
+            MethodologyIncomeItem.model_validate(item)
+        except ValidationError as e:
+            validation_errors.append(f"income[{i}]: {e.errors()[0].get('msg', str(e))}")
+    for i, item in enumerate(parsed.get("expenses") or []):
+        try:
+            MethodologyExpenseItem.model_validate(item)
+        except ValidationError as e:
+            validation_errors.append(f"expenses[{i}]: {e.errors()[0].get('msg', str(e))}")
+    if validation_errors:
+        # Capture so the Extraction Check tab can render the failures.
+        # Don't raise — the rest of the run may still be usable, and the
+        # tab is where the reviewer expects to see categorization issues.
+        parsed.setdefault("_methodologyValidation", []).extend(validation_errors)
+        print(f"[Methodology] {len(validation_errors)} validation warnings "
+              f"(see Extraction Check tab)")
+    return parsed
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -3169,6 +3193,29 @@ def fill_template(financials, market, output_path):
     if "Extraction Check" in wb.sheetnames:
         del wb["Extraction Check"]
     add_extraction_check_tab(wb, financials)
+
+    # ── Subject property cells the template formulas key on ───────────────
+    # The patched template puts the Subject pricing block at columns O-P
+    # of GGC Underwriting. The P4 (Purchase Price) cell is wired to
+    # =IFERROR(IF(ISNUMBER(P9),P9,0),0), so it reads from P9 (Asking
+    # Price). Without this write, P4 stays at 0 and the entire Sources
+    # and Uses / Loan Scenario / Pro Forma Y0 chain collapses.
+    underw = wb["GGC Underwriting"]
+    prop = financials.get("propertyInfo") or {}
+    try:
+        ask = float(prop.get("askingPrice") or 0)
+    except (TypeError, ValueError):
+        ask = 0
+    if ask > 0:
+        underw["P9"] = ask
+    # Also expose the property name / address / county / acreage cells
+    # so the M-N subject block renders something meaningful at runtime.
+    if prop.get("name"):
+        underw["N5"] = prop.get("name")
+    if prop.get("address"):
+        underw["N6"] = prop.get("address")
+    if prop.get("county"):
+        underw["N10"] = prop.get("county")
 
     wb.save(output_path)
     return output_path
