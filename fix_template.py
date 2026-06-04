@@ -486,10 +486,10 @@ for row in umrg.iter_rows(min_row=9, max_row=22, max_col=12):
 # Per-type rent growth rows (10 = TOH MH, 11 = POH-Infilled).
 # Columns: B=weight, C=unit-type label, D=units, E=current monthly rent,
 # F-K = years 1-6 of compounded rent growth.
-umrg["B10"] = "=D10/$D$12"
+umrg["B10"] = "=IFERROR(D10/$D$12,0)"
 umrg["C10"] = "='Unit Mix Summary'!B4"
 umrg["D10"] = "='Unit Mix Summary'!E4"
-umrg["E10"] = "='Unit Mix Summary'!H4/'Unit Mix Summary'!E4"
+umrg["E10"] = "=IFERROR('Unit Mix Summary'!H4/'Unit Mix Summary'!E4,0)"
 umrg["F10"] = "=E10*(100%+B$5)"
 umrg["G10"] = "=F10*(100%+C$5)"
 umrg["H10"] = "=G10*(100%+D$5)"
@@ -497,10 +497,10 @@ umrg["I10"] = "=H10*(100%+E$5)"
 umrg["J10"] = "=I10*(100%+F$5)"
 umrg["K10"] = "=J10*(100%+G$5)"
 
-umrg["B11"] = "=D11/$D$12"
+umrg["B11"] = "=IFERROR(D11/$D$12,0)"
 umrg["C11"] = "='Unit Mix Summary'!B5"
 umrg["D11"] = "='Unit Mix Summary'!E5"
-umrg["E11"] = "='Unit Mix Summary'!H5/'Unit Mix Summary'!E5"
+umrg["E11"] = "=IFERROR('Unit Mix Summary'!H5/'Unit Mix Summary'!E5,0)"
 umrg["F11"] = "=E11*(100%+B$6)"
 umrg["G11"] = "=F11*(100%+C$6)"
 umrg["H11"] = "=G11*(100%+D$6)"

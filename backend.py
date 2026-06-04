@@ -152,7 +152,11 @@ EXTRACTION_CACHE_DIR.mkdir(exist_ok=True)
 GGC_INCOME_CATEGORIES = [
     "Gross Potential Rent", "Less: Vacancy", "Less: Concessions", "Less: Bad Debt",
     "Utility Reimbursement", "Home Rent Income", "RV Site Rental Income",
-    "Storage Income", "Retail Income", "Other Income", "Employee Allowance",
+    # NOTE: "Parking Income" (storage units) and "Retail" (commercial space)
+    # match the SUMIFS criteria in the Underwriting tab — these are the gold-
+    # standard label strings CorrectOutput uses. Keep them spelled exactly
+    # like this or the row-15/row-16 SUMIFS return zero.
+    "Parking Income", "Retail", "Other Income", "Employee Allowance",
     "Model Units",
 ]
 
@@ -1466,11 +1470,17 @@ METHODOLOGY_OUTPUT_SCHEMA = {
         "income":   {"type": "array", "items": _methodology_line_schema(GGC_INCOME_CATEGORIES)},
         "expenses": {"type": "array", "items": _methodology_line_schema(GGC_EXPENSE_CATEGORIES)},
         "rentRoll": {
+            # Simplified schema: dropped rentRollRows + unitMixSummary
+            # (both optional and redundant with unitGroups), dropped enum
+            # constraint on unitGroups.unitType (we map post-hoc in Python),
+            # dropped additionalProperties:false on nested objects. The
+            # methodology schema otherwise compiled into a grammar too
+            # large for Anthropic's structured outputs to accept, which
+            # silently downgraded every call to prompt-only enforcement.
             "type": "object",
-            "additionalProperties": False,
             "required": ["totalUnits", "occupiedUnits", "vacantUnits",
                          "occupancyRate", "avgLotRent", "parkOwnedHomes",
-                         "pohPercent", "unitGroups", "unitMixSummary"],
+                         "pohPercent", "unitGroups"],
             "properties": {
                 "totalUnits":     {"type": "integer"},
                 "occupiedUnits":  {"type": "integer"},
@@ -1483,54 +1493,16 @@ METHODOLOGY_OUTPUT_SCHEMA = {
                     "type": "array",
                     "items": {
                         "type": "object",
-                        "additionalProperties": False,
                         "required": ["unitType", "occupiedCount", "vacantCount",
-                                     "lotRent", "pohRent", "ltoPremium",
-                                     "tenantNamePattern"],
+                                     "lotRent", "pohRent"],
                         "properties": {
-                            "unitType":          {"type": "string", "enum": CANONICAL_UNIT_TYPES},
-                            "occupiedCount":     {"type": "integer"},
-                            "vacantCount":       {"type": "integer"},
-                            "lotRent":           {"type": "number"},
-                            "pohRent":           {"type": "number"},
-                            "ltoPremium":        {"type": "number"},
+                            "unitType":      {"type": "string"},
+                            "occupiedCount": {"type": "integer"},
+                            "vacantCount":   {"type": "integer"},
+                            "lotRent":       {"type": "number"},
+                            "pohRent":       {"type": "number"},
                             "tenantNamePattern": {"type": "string"},
                             "sellerUnitLabel":   {"type": "string"},
-                        },
-                    },
-                },
-                "rentRollRows": {
-                    "type": "array",
-                    "description": "Per-row extraction (preserves real Unit IDs and tenant names).",
-                    "items": {
-                        "type": "object",
-                        "additionalProperties": False,
-                        "required": ["unitId", "unitType", "status",
-                                     "tenantName", "lotRent", "homeRent"],
-                        "properties": {
-                            "unitId":     {"type": "string"},
-                            "unitType":   {"type": "string", "enum": CANONICAL_UNIT_TYPES},
-                            "status":     {"type": "string", "enum": ["Occupied", "Vacant"]},
-                            "tenantName": {"type": "string"},
-                            "lotRent":    {"type": "number"},
-                            "homeRent":   {"type": "number"},
-                            "sellerUnitLabel": {"type": "string"},
-                        },
-                    },
-                },
-                "unitMixSummary": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "additionalProperties": False,
-                        "required": ["unitType", "count", "occupied",
-                                     "avgRent", "marketRent"],
-                        "properties": {
-                            "unitType":   {"type": "string", "enum": CANONICAL_UNIT_TYPES},
-                            "count":      {"type": "integer"},
-                            "occupied":   {"type": "integer"},
-                            "avgRent":    {"type": "number"},
-                            "marketRent": {"type": "number"},
                         },
                     },
                 },
@@ -2500,8 +2472,8 @@ INCOME:
 |---|---|---|
 | 4101 | Lot Rent / Site Rent / Pad Rent | "Gross Potential Rent" |
 | 4103 | Long Term RV Lot Rent / RV Site | "RV Site Rental Income" |
-| 4108 | Storage Unit Rent / Boat Storage | "Storage Income" |
-| 4110 | Retail Unit Rent / Commercial Space | "Retail Income" |
+| 4108 | Storage Unit Rent / Boat Storage / Parking | "Parking Income" |
+| 4110 | Retail Unit Rent / Commercial Space / Storefront | "Retail" |
 | 4131 / 4132 / "Move-in Specials" / "Concessions" / "Discounts" | Move-in Specials | "Less: Concessions" (NEGATIVE) |
 | 6120 / "Bad Debt" | Bad Debt | "Less: Bad Debt" (NEGATIVE) |
 | 4304 | Damages | "Other Income" |
@@ -2613,6 +2585,25 @@ If a spike is detected:
 ]
 
 This lets the reviewer trace every number back to its source.
+
+### BROKER PROFORMA EXTRACTION (REQUIRED — DO NOT EMIT NULL)
+
+If the seller's P&L contains a column titled "PRO FORMA", "Broker Proforma",
+"Broker's Proforma", "Y1 Proforma", "Forecast Y1", or any similar header,
+you MUST populate `brokerProforma` for EVERY income AND expense line item.
+Copy the value directly from that column. Even when the broker's forecast
+matches the T12 exactly, write the number — do NOT emit `null`.
+
+Rules:
+- If the line item has an explicit value in the Pro Forma column, use it.
+- If the Pro Forma cell is empty for a particular line item but the column
+  exists in the source, use `t12Total` as the fallback value (NOT null).
+- If the P&L genuinely has NO Pro Forma column anywhere, then and only then
+  may you emit `null` for `brokerProforma` on every line.
+- The downstream Excel template uses column F (Broker Proforma) as a
+  side-by-side comparison against T12 and the GGC underwritten figure.
+  When you emit null, that column reads as blank and the reviewer loses
+  the broker-vs-actuals reconciliation entirely.
 
 ### GPR — MULTI-COLUMN SPREADSHEET DISAMBIGUATION (READ CAREFULLY)
 
@@ -3398,12 +3389,30 @@ def fill_template(financials, market, output_path):
     per_row = rr.get("rentRollRows") or []
     unit_groups = rr.get("unitGroups") or []
 
+    # Map any non-canonical unit-type string the LLM emits to the closest
+    # canonical bucket. Required because we dropped the JSON-schema enum
+    # constraint on unitType to keep the structured-outputs grammar
+    # compilable. We still want Unit Mix Summary's COUNTIFS to match.
+    def _canonicalize_unit_type(raw):
+        if not isinstance(raw, str):
+            return "TOH MH Site"
+        s = raw.strip().lower()
+        if not s:
+            return "TOH MH Site"
+        if "poh" in s or "park owned" in s or "park-owned" in s or "infilled" in s:
+            return "POH-Infilled units"
+        if "rv" in s or "annual rv" in s or "long term rv" in s or "long-term rv" in s:
+            return "Long term RV Site"
+        if "retail" in s or "commercial" in s or "storage" in s or "storefront" in s:
+            return "Retail/Commercial"
+        return "TOH MH Site"
+
     individual_units = []
     if per_row:
         for row in per_row:
             individual_units.append({
                 "unitId":    row.get("unitId", "") or "",
-                "unitType":  row.get("unitType", "") or "",
+                "unitType":  _canonicalize_unit_type(row.get("unitType")),
                 "status":    row.get("status", "Occupied") or "Occupied",
                 "tenantName": row.get("tenantName", "") or "",
                 "lotRent":   row.get("lotRent", 0) or 0,
@@ -3411,7 +3420,7 @@ def fill_template(financials, market, output_path):
             })
     else:
         for grp in unit_groups:
-            ut = grp.get("unitType", "Unit")
+            ut = _canonicalize_unit_type(grp.get("unitType"))
             lot_rent = grp.get("lotRent", 0) or 0
             home_rent = grp.get("pohRent", 0) or 0
             name_prefix = grp.get("tenantNamePattern", "Tenant")
