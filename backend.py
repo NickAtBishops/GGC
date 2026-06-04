@@ -3357,7 +3357,21 @@ def fill_template(financials, market, output_path):
     if prop.get("county"):
         underw["N10"] = prop.get("county")
 
-    wb.save(output_path)
+    # Atomic save: write to a sibling temp file, then rename. A mid-save
+    # crash would otherwise leave the destination half-written, and
+    # /api/download would happily ship the corrupt bytes.
+    output_path = Path(output_path)
+    tmp_path = output_path.with_suffix(output_path.suffix + ".tmp")
+    try:
+        wb.save(tmp_path)
+        os.replace(tmp_path, output_path)
+    except Exception:
+        # Don't leave a stale .tmp behind on failure.
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        raise
     return output_path
 
 
