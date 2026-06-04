@@ -51,6 +51,18 @@ ws["A16"] = "Retail Income"
 # resolves to 0. Layout mirrors CorrectOutput: M4 Name, M5 Address, M6
 # Type, M7 Units (the missing M4 label was the reason backend was writing
 # the property name into the Address slot).
+#
+# Header at M3 was a stray "Notes" label sitting on top of the block with
+# no data below it — Michael in the walkthrough read it as the section
+# title for the property info ("Why is it saying all of this? Under
+# notes."). Rename to "Property Information" so the section reads
+# correctly. Also bold every label row so M4:M8 match the existing bold
+# on M9/M10 and on the O-column labels (the unstyled M4:M8 labels looked
+# like loose data rather than field names).
+from openpyxl.styles import Font as _Font
+_label_bold = _Font(bold=True)
+ws["M3"] = "Property Information"
+ws["M3"].font = _label_bold
 ws["M4"] = "Property Name"
 ws["M5"] = "Property Address"
 ws["M6"] = "Property Type"
@@ -60,6 +72,8 @@ ws["M8"] = "Rent Roll Occupancy"
 ws["N8"] = "='Unit Mix Summary'!C13"
 ws["M9"] = "Acreage"
 ws["M10"] = "County"
+for coord in ("M4", "M5", "M6", "M7", "M8", "M9", "M10"):
+    ws[coord].font = _label_bold
 
 # GGC ProForma per-unit assumptions (column J). Values come from GGC's
 # playbook and replace the model's "T12 x 1.03" guess.
