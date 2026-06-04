@@ -175,9 +175,37 @@ CANONICAL_UNIT_TYPES = [
     "Retail/Commercial",   # Storefronts, commercial space, storage
 ]
 
+import re
+import secrets
+import threading
+
+# Job state. Mutated from the request thread (insert) and the worker
+# thread (status / progress / result writes); read from /api/status.
+# CPython dict ops are atomic, but read-modify-write on nested values is
+# not, so all mutations go through JOBS_LOCK.
 JOBS = {}
+JOBS_LOCK = threading.Lock()
+
+# Upload guard rails. Catches obvious abuse before parsing.
+MAX_UPLOAD_BYTES = 150 * 1024 * 1024  # 150 MB total per request
+ALLOWED_UPLOAD_EXTS = {
+    ".pdf", ".xlsx", ".xls", ".csv",
+    ".png", ".jpg", ".jpeg",
+    ".txt", ".md",
+}
+
+# Job IDs are 256-bit random tokens — not enumerable by timestamp.
+# The validation pattern below is also used as a path-traversal guard.
+JOB_ID_RE = re.compile(r"^[A-Za-z0-9_-]{16,64}$")
+
+def _new_job_id():
+    return secrets.token_urlsafe(24)
+
+def _valid_job_id(job_id):
+    return isinstance(job_id, str) and bool(JOB_ID_RE.match(job_id))
 
 app = Flask(__name__, static_folder=".", static_url_path="")
+app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
 CORS(app)
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -3974,11 +4002,20 @@ def add_miscellaneous_tab(wb, financials, market):
 # ═══════════════════════════════════════════════════════════════════════════
 # JOB ORCHESTRATION
 # ═══════════════════════════════════════════════════════════════════════════
+def _set_job(job_id, **fields):
+    """Atomically update a job's mutable fields under JOBS_LOCK."""
+    with JOBS_LOCK:
+        if job_id in JOBS:
+            JOBS[job_id].update(fields)
+
+
 def run_analysis_job(job_id, api_key, file_blocks, property_info):
-    job = JOBS[job_id]
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+    if job is None:
+        return
     try:
-        job["status"] = "running"
-        job["progress"] = "Starting analysis..."
+        _set_job(job_id, status="running", progress="Starting analysis...")
 
         deep_search = property_info.get("deepSearch", "off") == "on"
         market_fn = (lambda *a, **k: call_market_research_merged(*a, **k, n_runs=3)) if deep_search else call_market_research
@@ -4042,27 +4079,30 @@ def run_analysis_job(job_id, api_key, file_blocks, property_info):
             for future in as_completed([future_financials, future_market]):
                 if future is future_financials:
                     results["financials"] = future.result()
-                    job["progress"] = "✓ Financials extracted, verified, and underwritten."
+                    _set_job(job_id, progress="✓ Financials extracted, verified, and underwritten.")
                 else:
                     results["market"] = future.result()
-                    job["progress"] = "✓ Market research complete."
+                    _set_job(job_id, progress="✓ Market research complete.")
 
-        job["progress"] = "Filling GGC template..."
+        _set_job(job_id, progress="Filling GGC template...")
         output_path = JOBS_DIR / f"{job_id}.xlsx"
         fill_template(results["financials"], results["market"], output_path)
 
-        job["status"] = "complete"
-        job["progress"] = "Done."
-        job["result"] = {
-            "financials": results["financials"],
-            "market": results["market"],
-            "download_url": f"/api/download/{job_id}",
-        }
+        _set_job(job_id,
+                 status="complete",
+                 progress="Done.",
+                 result={
+                     "financials": results["financials"],
+                     "market": results["market"],
+                     "download_url": f"/api/download/{job_id}",
+                 })
     except Exception as e:
+        # Log full traceback server-side; the /api/status response is
+        # sanitized so the client never sees internal error text.
         traceback.print_exc()
-        job["status"] = "error"
-        job["error"] = str(e)
-        job["progress"] = f"Error: {e}"
+        _set_job(job_id, status="error",
+                 error=str(e)[:200],
+                 progress="Error: analysis failed — check server logs.")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -4089,7 +4129,7 @@ def config():
 
 @app.route("/api/analyze", methods=["POST"])
 def analyze():
-    api_key = request.form.get("api_key", "").strip()
+    api_key = (request.form.get("api_key") or "").strip() or DEFAULT_ANTHROPIC_KEY
     if not api_key:
         return jsonify({"error": "API key required"}), 400
 
@@ -4097,6 +4137,8 @@ def analyze():
         "name":        request.form.get("property_name", ""),
         "address":     request.form.get("address", ""),
         "city":        request.form.get("city", ""),
+        "county":      request.form.get("county", ""),
+        "countyTaxRate": request.form.get("county_tax_rate", ""),
         "pohCount":    request.form.get("poh_count", "0"),
         "state":       request.form.get("state", ""),
         "units":       request.form.get("units", ""),
@@ -4112,9 +4154,17 @@ def analyze():
     if not files:
         return jsonify({"error": "At least one file required"}), 400
 
+    # Whitelist file extensions; reject anything else before reading bytes.
+    for f in files:
+        ext = (Path(f.filename or "").suffix or "").lower()
+        if ext not in ALLOWED_UPLOAD_EXTS:
+            return jsonify({"error": f"Unsupported file type: {ext or '<none>'}. "
+                                     f"Allowed: {sorted(ALLOWED_UPLOAD_EXTS)}"}), 400
+
     file_blocks = [encode_file_for_claude(f) for f in files]
-    job_id = str(int(time.time() * 1000))
-    JOBS[job_id] = {"status": "queued", "progress": "Queued", "result": None}
+    job_id = _new_job_id()
+    with JOBS_LOCK:
+        JOBS[job_id] = {"status": "queued", "progress": "Queued", "result": None}
 
     Thread(target=run_analysis_job, args=(job_id, api_key, file_blocks, property_info),
            daemon=True).start()
@@ -4124,18 +4174,43 @@ def analyze():
 
 @app.route("/api/status/<job_id>")
 def status(job_id):
-    job = JOBS.get(job_id)
-    if not job:
-        return jsonify({"error": "Job not found"}), 404
-    return jsonify(job)
+    # Validate the path component before any dict / filesystem lookup so
+    # /api/status/../../etc/passwd can't even probe state.
+    if not _valid_job_id(job_id):
+        return jsonify({"error": "Invalid job id"}), 400
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+        if not job:
+            return jsonify({"error": "Job not found"}), 404
+        # Return only public fields. Never echo back internal error
+        # tracebacks or partial LLM responses — they may contain prompt
+        # snippets or API-response excerpts that leak credentials.
+        public = {
+            "status":       job.get("status"),
+            "progress":     job.get("progress"),
+            "download_url": job.get("result", {}).get("download_url") if isinstance(job.get("result"), dict) else None,
+        }
+        if job.get("status") == "error":
+            public["error"] = "Analysis failed — check server logs."
+    return jsonify(public)
 
 
 @app.route("/api/download/<job_id>")
 def download(job_id):
+    if not _valid_job_id(job_id):
+        return jsonify({"error": "Invalid job id"}), 400
     file_path = JOBS_DIR / f"{job_id}.xlsx"
-    if not file_path.exists():
+    # Defense in depth: even with the regex guard, resolve and verify the
+    # final path stays inside JOBS_DIR before serving.
+    try:
+        resolved = file_path.resolve(strict=True)
+        if JOBS_DIR.resolve() not in resolved.parents:
+            return jsonify({"error": "Invalid job id"}), 400
+    except FileNotFoundError:
         return jsonify({"error": "File not ready"}), 404
-    name = JOBS.get(job_id, {}).get("result", {}).get("financials", {}).get("propertyInfo", {}).get("name", "Property")
+    with JOBS_LOCK:
+        name = (JOBS.get(job_id, {}).get("result", {}) or {}) \
+            .get("financials", {}).get("propertyInfo", {}).get("name", "Property")
     safe = re.sub(r"[^A-Za-z0-9_-]", "_", name)[:40] or "Property"
     return send_file(file_path, as_attachment=True, download_name=f"GGC_UW_{safe}.xlsx")
 
