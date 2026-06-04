@@ -191,6 +191,19 @@ ums["C15"] = "=H6*12"
 ums["B16"] = "Long term RV avg rent"
 ums["C16"] = "=IFERROR(H6/E6,0)"
 
+# Number formatting for the derived-metrics block. Michael flagged in the
+# walkthrough that the Annual cells were rendering as raw integers ("let's
+# fix the formatting on the annual to be an actual currency number, no
+# decimals"). While we're here, fix the % cells too — without a 0.0%
+# format they show 0.95 instead of 95%, which the same reviewer would
+# also flag. C16 already has $#,##0 from a prior pass.
+ums["C11"].number_format = '"$"#,##0'   # Annual GPR (MH Lot Rent)
+ums["C12"].number_format = '"$"#,##0'   # Avg Rent (monthly)
+ums["C13"].number_format = "0.0%"       # Occupancy %
+ums["C14"].number_format = "0.0%"       # POH %
+ums["C15"].number_format = '"$"#,##0'   # Annual Long-term RV
+ums["C16"].number_format = '"$"#,##0'   # Long term RV avg rent
+
 # ════════════════════════════════════════════════════════════════════════
 # 3. RENT ROLL INPUT — switch to correct column layout
 # ════════════════════════════════════════════════════════════════════════
