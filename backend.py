@@ -4511,13 +4511,16 @@ def status(job_id):
         job = JOBS.get(job_id)
         if not job:
             return jsonify({"error": "Job not found"}), 404
-        # Return only public fields. Never echo back internal error
-        # tracebacks or partial LLM responses — they may contain prompt
-        # snippets or API-response excerpts that leak credentials.
+        # Return progress fields + the full analysis result (financials,
+        # market, download_url) — the frontend's showResults() reads
+        # result.financials / result.market to populate the KPI cards.
+        # Internal error strings are still scrubbed: a server-side
+        # exception text may include prompt snippets or API-response
+        # excerpts and isn't useful to the client anyway.
         public = {
-            "status":       job.get("status"),
-            "progress":     job.get("progress"),
-            "download_url": job.get("result", {}).get("download_url") if isinstance(job.get("result"), dict) else None,
+            "status":   job.get("status"),
+            "progress": job.get("progress"),
+            "result":   job.get("result") if isinstance(job.get("result"), dict) else None,
         }
         if job.get("status") == "error":
             public["error"] = "Analysis failed — check server logs."
