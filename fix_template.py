@@ -548,6 +548,7 @@ su["I17"] = "=I24"
 # conditional mgmt fee on J33, County Tax Rate cell at P12) that diverge
 # from the gold-standard CorrectOutput layout. User wants exact match —
 # revert those and restore the original formulas + cell labels.
+ws["A26"] = "Electricity"           # row label (was "Electrcitiy" typo)
 ws["I22"] = "=J22*N7"               # was MAX(...) — back to simple per-unit
 ws["J33"] = 0.05                    # was =IF(N7>=200,...) — back to flat 5%
 ws["I33"] = "=J33*I19"              # mgmt fee = % × EGI (stabilized)

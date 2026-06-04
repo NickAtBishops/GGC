@@ -161,7 +161,14 @@ GGC_INCOME_CATEGORIES = [
 ]
 
 GGC_EXPENSE_CATEGORIES = [
-    "RE Taxes", "Insurance", "Gas/Fuel", "Electrcitiy",  # GGC's spelling
+    # NOTE on "Electricity": an earlier GGC convention spelled it
+    # "Electrcitiy" (typo intentional). CorrectOutput.xlsx — the gold
+    # standard — actually uses the correctly-spelled "Electricity" in
+    # both the Data Consolidation source rows AND the Underwriting
+    # SUMIFS criteria. Match the gold standard, not the legacy typo,
+    # or every electricity row silently zeros out (~$93k/year hit on
+    # a typical MHC, big NOI overstatement).
+    "RE Taxes", "Insurance", "Gas/Fuel", "Electricity",
     "Water and Sewer", "Trash Removal", "Repair and Maintenance",
     "Ground Maintenance", "Recreational Amenities", "Management Fee",
     "Payroll", "General and Administrative", "Professional Fees",
@@ -2450,7 +2457,7 @@ CRITICAL OUTPUT RULES:
 ## GGC Income Categories (use EXACTLY these strings, including punctuation and capitalization — schema validation rejects deviations):
 {json.dumps(GGC_INCOME_CATEGORIES)}
 
-## GGC Expense Categories (use EXACTLY these strings — note 'Electrcitiy' typo is intentional, GGC uses it in their model. Also exact: 'Home Rent Expense (MH)' with parenthetical, 'Cap-Ex Reserve' with hyphen):
+## GGC Expense Categories (use EXACTLY these strings, including punctuation. 'Home Rent Expense (MH)' has the parenthetical, 'Cap-Ex Reserve' has the hyphen):
 {json.dumps(GGC_EXPENSE_CATEGORIES)}
 
 ## Canonical Unit-Type Taxonomy (use EXACTLY these strings — Unit Mix Summary COUNTIFS keys on these exact labels):
@@ -2502,7 +2509,7 @@ EXPENSE BUCKETING:
 | 5301 Property Tax | "RE Taxes" |
 | 5050 / 5053 Liability Insurance / 5051 Car Insurance | "Insurance" |
 | 5402 Water & Sewer / 5403 Water Testing | "Water and Sewer" |
-| 5404 Electric | "Electrcitiy" (sic) |
+| 5404 Electric | "Electricity" |
 | 5405 Garbage / Trash | "Trash Removal" |
 | 5406 Gas / Propane / 5401 Fuel for Vehicles | "Gas/Fuel" |
 | 5102 Tree / 5104 Grounds / 5103 Pest | "Ground Maintenance" |
