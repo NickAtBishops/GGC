@@ -210,13 +210,30 @@ for r in range(3, 1003):
     for col in (5, 6, 7, 8):
         rr.cell(row=r, column=col).value = None
 
-# Total rows at row 151 — Underwriting!G13 (Stabilized Home Rent Income)
-# reads J151 × 12 × 95% as the stabilized monthly POH rent total. Without
-# this SUM the Home Rent Income line resolves to zero.
-rr["B151"] = "Totals"
-rr["I151"] = "=SUM(I3:I150)"     # Total monthly Lot Rent across active rows
-rr["J151"] = "=SUM(J3:J150)"     # Total monthly Home Rent
-rr["K151"] = "=SUM(K3:K150)"     # Total monthly Combined
+# NOTE: Earlier patches placed a "Totals" row at row 151 (with B151="Totals"
+# and SUM formulas at I151/J151/K151) so Underwriting!G13 could read the
+# home-rent monthly total. That produced an orphaned highlighted row 25+
+# rows below the actual data — looked like a stray black square in empty
+# space on every output. Removed here. Underwriting!G13 now reads a SUM
+# across the entire rent-roll range directly (set below in the
+# Underwriting tab section), no fixed totals row needed.
+#
+# The original blank template ALSO had row 151 styled with a dark fill
+# (left over from a hand-built totals row in an earlier version of the
+# workbook). That fill survives even after we clear the cell values, so
+# we explicitly null the fill and font on row 151 across columns A-K
+# to match the empty rows above it.
+from openpyxl.styles import PatternFill, Font, Border, Side
+_clear_fill = PatternFill(fill_type=None)
+_clear_font = Font()
+_clear_border = Border(left=Side(border_style=None), right=Side(border_style=None),
+                       top=Side(border_style=None), bottom=Side(border_style=None))
+for col in range(1, 12):  # A-K
+    cell = rr.cell(row=151, column=col)
+    cell.value = None
+    cell.fill = _clear_fill
+    cell.font = _clear_font
+    cell.border = _clear_border
 
 # ════════════════════════════════════════════════════════════════════════
 # 4. UNIT MIX RENT GROWTH — replace 6 #REF! rows with 2 real rows
@@ -589,9 +606,12 @@ ws["J7"] = 0.03
 # Total NOI col), not 75% of the water/sewer line.
 ws["G12"] = "=I12"
 
-# G13 (Stabilized Home Rent Income) — correct pulls from the rent roll
-# summary row at J151 with a 5% vacancy haircut.
-ws["G13"] = "='Rent Roll Input'!J151*12*95%"
+# G13 (Stabilized Home Rent Income) — SUM the entire Home Rent column
+# (J3:J1002) directly rather than reading from a fixed J151 "Totals" row.
+# The Totals row produced an orphaned highlighted cell sitting 25+ rows
+# below the actual data on every output. Range SUM produces the same
+# number with no visual side effect.
+ws["G13"] = "=SUM('Rent Roll Input'!J3:J1002)*12*95%"
 
 # Lot-Rent-Only NOI column (H): correct ZEROES OUT home rent stream so
 # the H47 cell yields lot-rent NOI only. H13 = 0; H14:H16 mirror I col.
