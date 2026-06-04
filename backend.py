@@ -1337,10 +1337,13 @@ def _extracted_line_schema(section_values):
             # monthly: 12-element array OR null. Anthropic schema accepts the
             # type-array form for nullables.
             "monthly": {
+                # Anthropic structured outputs only accept minItems 0 or 1;
+                # 12-element constraint is enforced by the Pydantic validator
+                # downstream (monthly_ties_to_total skips items where the
+                # array isn't exactly 12, so a sloppy LLM response gets
+                # caught there rather than refused by the API).
                 "type": ["array", "null"],
-                "items":    {"type": "number"},
-                "minItems": 12,
-                "maxItems": 12,
+                "items": {"type": "number"},
             },
             "section":    {"type": "string", "enum": section_values},
             "isSubtotal": {"type": "boolean"},
@@ -1424,8 +1427,7 @@ def _methodology_line_schema(category_enum):
             "fyCurrent":       {"type": "number"},
             "brokerProforma":  {"type": "number"},
             "t12Total":        {"type": "number"},
-            "monthly":         {"type": "array", "items": {"type": "number"},
-                                "minItems": 12, "maxItems": 12},
+            "monthly":         {"type": "array", "items": {"type": "number"}},
             "ggcUnderwritten": {"type": "number"},
             "confidence":      {"type": "string", "enum": CONFIDENCE_LEVELS},
             "notes":           {"type": "string"},
