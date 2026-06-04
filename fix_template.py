@@ -1100,13 +1100,22 @@ if "GGC Pro Forma (Conversion)" in wb.sheetnames:
     for coord in ("S64", "N83", "S97", "S113"):
         pf_conv[coord] = None
 
-# 17c. Data Consolidation — clear prior-deal monthly date headers at
-# J2:U2 (e.g., 2024-06-01 through 2025-12-01). The monthly column
-# headers don't need to be pre-populated; backend.py writes them per
-# deal based on the source P&L's reporting period.
+# 17c. Data Consolidation — replace prior-deal monthly date headers at
+# J2:U2 (e.g., 2024-06-01 through 2025-12-01) with generic month names.
+# The Collections tab reads these via formula (B5='Data Consolidation'!J2
+# down through B16='...!U2'), so when J2:U2 are blank the Collections tab
+# shows empty month labels — Michael flagged this in the walkthrough
+# ("it would be nice if we can put, you gotta put the months here"). The
+# previous code cleared these and left it to backend to refill per deal,
+# but backend never wrote them, so every output shipped with blank
+# Collections months. Pin Jan-Dec as a deterministic default; backend
+# can still overwrite per row with a specific anchored period if needed.
 dc = wb["Data Consolidation"]
-for col in ("J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U"):
-    dc[f"{col}2"] = None
+_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
+           "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+for col, name in zip(("J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U"),
+                     _MONTHS):
+    dc[f"{col}2"] = name
 
 # 17d. Rent Roll Input — clear deal-specific title with date
 # ("RENT ROLL April 2026" → just "RENT ROLL").
