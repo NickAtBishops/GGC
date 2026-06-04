@@ -178,13 +178,36 @@ CANONICAL_UNIT_TYPES = [
 import re
 import secrets
 import threading
+from collections import OrderedDict
 
 # Job state. Mutated from the request thread (insert) and the worker
 # thread (status / progress / result writes); read from /api/status.
 # CPython dict ops are atomic, but read-modify-write on nested values is
-# not, so all mutations go through JOBS_LOCK.
-JOBS = {}
+# not, so all mutations go through JOBS_LOCK. OrderedDict + LRU
+# eviction keeps memory and disk bounded.
+JOBS = OrderedDict()
 JOBS_LOCK = threading.Lock()
+JOBS_MAX = 50  # cap concurrent + recent finished jobs in memory
+
+def _evict_old_jobs():
+    """Remove the oldest completed/errored jobs (and their .xlsx files)
+    once we exceed JOBS_MAX. Running/queued jobs are skipped — we never
+    evict work in flight. Caller MUST already hold JOBS_LOCK."""
+    if len(JOBS) <= JOBS_MAX:
+        return
+    overflow = len(JOBS) - JOBS_MAX
+    victims = []
+    for jid, job in JOBS.items():
+        if job.get("status") in ("complete", "error"):
+            victims.append(jid)
+            if len(victims) >= overflow:
+                break
+    for jid in victims:
+        JOBS.pop(jid, None)
+        try:
+            (JOBS_DIR / f"{jid}.xlsx").unlink(missing_ok=True)
+        except Exception:
+            pass
 
 # Upload guard rails. Catches obvious abuse before parsing.
 MAX_UPLOAD_BYTES = 150 * 1024 * 1024  # 150 MB total per request
@@ -4334,6 +4357,7 @@ def analyze():
     job_id = _new_job_id()
     with JOBS_LOCK:
         JOBS[job_id] = {"status": "queued", "progress": "Queued", "result": None}
+        _evict_old_jobs()
 
     Thread(target=run_analysis_job, args=(job_id, api_key, file_blocks, property_info),
            daemon=True).start()
