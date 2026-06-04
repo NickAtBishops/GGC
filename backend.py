@@ -2204,6 +2204,67 @@ def _median_of(vs):
     return statistics.median(nums) if nums else None
 
 
+# Confidence-weighted-median helpers. The LLM emits a confidence enum
+# {high, medium, low} per line item but the original merge step
+# discarded it — so a high-confidence outlier counted the same as two
+# low-confidence inliers (and vice versa). Re-introducing the weight
+# pushes the merged value toward whichever runs the model was most
+# certain about.
+_CONF_WEIGHT = {"high": 3, "medium": 2, "low": 1}
+
+def _weighted_median(values_with_weights):
+    """Weighted median: lowest-key value v where cumulative weight
+    crosses 50% of total. Falls back to plain median when all weights
+    are equal or missing. values_with_weights is an iterable of
+    (value, weight) — values that are None are skipped."""
+    pairs = [(float(v), max(int(w or 0), 0))
+             for v, w in values_with_weights
+             if isinstance(v, (int, float))]
+    pairs = [(v, w) for v, w in pairs if w > 0]
+    if not pairs:
+        return None
+    pairs.sort(key=lambda p: p[0])
+    total = sum(w for _, w in pairs)
+    half = total / 2
+    running = 0
+    for v, w in pairs:
+        running += w
+        if running >= half:
+            return v
+    return pairs[-1][0]
+
+
+def _median_with_confidence(items, value_field, confidence_field="confidence"):
+    """Confidence-weighted median across a list of dicts. Each item
+    contributes its value_field weighted by _CONF_WEIGHT[confidence_field].
+    Items missing both weight and confidence default to medium."""
+    pairs = []
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        v = it.get(value_field)
+        conf = (it.get(confidence_field) or "medium").lower()
+        w = _CONF_WEIGHT.get(conf, _CONF_WEIGHT["medium"])
+        pairs.append((v, w))
+    return _weighted_median(pairs)
+
+
+def _mode_with_confidence(items, value_field, confidence_field="confidence"):
+    """Mode of a categorical field, weighted by confidence so a
+    high-confidence run can outvote two low-confidence runs that agree."""
+    weighted = Counter()
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        v = it.get(value_field)
+        if v in (None, ""):
+            continue
+        conf = (it.get(confidence_field) or "medium").lower()
+        w = _CONF_WEIGHT.get(conf, _CONF_WEIGHT["medium"])
+        weighted[v] += w
+    return weighted.most_common(1)[0][0] if weighted else ""
+
+
 def _mode_of(vs):
     nons = [v for v in vs if v not in (None, "")]
     return Counter(nons).most_common(1)[0][0] if nons else ""
@@ -2239,7 +2300,11 @@ def _merge_extraction(runs):
         merged = []
         disagreements = []
         for key, items in by_label.items():
-            annual = _median_of([i.get("annualTotal") for i in items])
+            # Confidence-weighted median: a high-confidence run pulls the
+            # merged value toward its number; two low-confidence runs that
+            # agree on a wrong figure no longer outvote one high-confidence
+            # correct figure.
+            annual = _median_with_confidence(items, "annualTotal")
             # detect run-to-run disagreement on this line
             non_null_annuals = [i.get("annualTotal") for i in items
                                 if isinstance(i.get("annualTotal"), (int, float))]
@@ -2253,11 +2318,34 @@ def _merge_extraction(runs):
                         "spread": spread,
                     })
 
-            # monthly: median per index across runs that returned 12 values
-            monthly_runs = [i.get("monthly") for i in items
-                            if isinstance(i.get("monthly"), list) and len(i.get("monthly")) == 12]
-            monthly = ([_median_of([m[k] for m in monthly_runs])
-                       for k in range(12)] if monthly_runs else None)
+            # monthly: confidence-weighted median per index across runs that
+            # returned 12 values. Each contributing run carries its own
+            # confidence weight at every monthly position.
+            monthly_with_weights = [
+                (i.get("monthly"),
+                 _CONF_WEIGHT.get((i.get("confidence") or "medium").lower(),
+                                   _CONF_WEIGHT["medium"]))
+                for i in items
+                if isinstance(i.get("monthly"), list) and len(i.get("monthly")) == 12
+            ]
+            if monthly_with_weights:
+                monthly = [
+                    _weighted_median([(m[k], w) for m, w in monthly_with_weights])
+                    for k in range(12)
+                ]
+            else:
+                monthly = None
+
+            # Surface the merged confidence so the methodology stage knows
+            # how much to trust each line. Use the minimum: if any
+            # contributing run was "low", the merged item is at best "low".
+            confidences = [(i.get("confidence") or "").lower() for i in items]
+            confidences = [c for c in confidences if c in _CONF_WEIGHT]
+            if confidences:
+                merged_conf = min(confidences,
+                                  key=lambda c: _CONF_WEIGHT.get(c, 0))
+            else:
+                merged_conf = "medium"
 
             merged.append({
                 "sellerLabel": items[0].get("sellerLabel", key),
@@ -2265,6 +2353,7 @@ def _merge_extraction(runs):
                 "monthly":     monthly,
                 "section":     section_value,
                 "isSubtotal":  any(i.get("isSubtotal") for i in items),
+                "confidence":  merged_conf,
             })
         return merged, disagreements
 
