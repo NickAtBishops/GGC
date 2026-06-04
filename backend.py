@@ -111,7 +111,7 @@ EXTRACTION_CACHE_ENABLED = os.environ.get("EXTRACTION_CACHE_ENABLED", "1") == "1
 PARSER_BACKEND = os.environ.get("PARSER_BACKEND", "docai").lower()
 PARSER_VERSION = "v1"  # bump when changing parser configuration
 
-GOOGLE_MAPS_API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY", "***REMOVED_GOOGLE_MAPS_KEY***")
+GOOGLE_MAPS_API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY", "")
 GOOGLE_STATIC_MAPS_URL       = "https://maps.googleapis.com/maps/api/staticmap"
 GOOGLE_STATIC_STREETVIEW_URL = "https://maps.googleapis.com/maps/api/streetview"
 
@@ -151,8 +151,9 @@ EXTRACTION_CACHE_DIR.mkdir(exist_ok=True)
 # (these feed the SUMIFS in the GGC Underwriting tab)
 GGC_INCOME_CATEGORIES = [
     "Gross Potential Rent", "Less: Vacancy", "Less: Concessions", "Less: Bad Debt",
-    "Utility Reimbursement", "Home Rent Income", "LTO income", "SFH",
-    "Laundry Income", "Other Income", "Employee Allowance", "Model Units",
+    "Utility Reimbursement", "Home Rent Income", "RV Site Rental Income",
+    "Storage Income", "Retail Income", "Other Income", "Employee Allowance",
+    "Model Units",
 ]
 
 GGC_EXPENSE_CATEGORIES = [
@@ -161,6 +162,17 @@ GGC_EXPENSE_CATEGORIES = [
     "Ground Maintenance", "Recreational Amenities", "Management Fee",
     "Payroll", "General and Administrative", "Professional Fees",
     "Advertising", "Home Rent Expense (MH)", "Other", "Cap-Ex Reserve",
+]
+
+# Canonical unit-type taxonomy. Unit Mix Summary COUNTIFS/SUMIFS in the
+# template key on these exact strings — any drift breaks unit counts,
+# which cascades to # of Units (Underwriting!N7) and every per-unit
+# expense formula downstream.
+CANONICAL_UNIT_TYPES = [
+    "TOH MH Site",         # Tenant-owned manufactured-home lots
+    "POH-Infilled units",  # Park-owned home rentals
+    "Long term RV Site",   # Annual RV lots
+    "Retail/Commercial",   # Storefronts, commercial space, storage
 ]
 
 JOBS = {}
@@ -323,6 +335,31 @@ def embed_image_in_cell(ws, image_path, anchor_cell, width_px=400, height_px=280
     except Exception as e:
         print(f"[Excel] Image embed failed: {e}")
         return False
+
+
+def to_decimal_pct(value):
+    """Coerce a percentage-ish value to its DECIMAL form for Excel cells
+    formatted as ``0.00%``. The LLM is inconsistent: it may return 7.5 to
+    mean 7.5% (percent form) or 0.075 (decimal form). Excel's percent format
+    multiplies by 100, so a percent-form 7.5 would render as 750%.
+
+    Heuristic: anything with abs(v) < 1.5 is already decimal (0.075 → 0.075).
+    Anything larger is presumed percent form and divided by 100 (7.5 → 0.075).
+    Returns None if the value can't be parsed.
+    """
+    if value is None or value == "":
+        return None
+    if isinstance(value, str):
+        s = value.strip().rstrip("%").strip()
+        try:
+            value = float(s)
+        except (TypeError, ValueError):
+            return None
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return None
+    return v if abs(v) < 1.5 else v / 100
 
 
 def safe_pct(value):
@@ -865,9 +902,24 @@ def call_claude(api_key, system_prompt, user_content, tools=None,
     """
     headers = {"x-api-key": api_key, "anthropic-version": API_VERSION,
                "content-type": "application/json"}
+    # Wrap the system prompt in Anthropic's prompt-cache marker. The
+    # FINANCIAL_PARSE_PROMPT is ~50K tokens of static methodology that
+    # changes only when the codebase is redeployed; cached input is billed
+    # at ~10% of the normal rate after the first hit (5-minute TTL). This
+    # cuts the dominant Opus call's input cost ~80-90% on cache hits.
+    # Strings shorter than the cache-eligibility floor are passed through
+    # in their normal form to avoid wasting a cache slot.
+    CACHE_MIN_TOKENS = 1024  # Anthropic's ephemeral cache floor
+    if isinstance(system_prompt, str) and len(system_prompt) >= CACHE_MIN_TOKENS * 4:
+        # ~4 chars/token heuristic — only cache prompts long enough to amortize.
+        system_field = [{"type": "text", "text": system_prompt,
+                         "cache_control": {"type": "ephemeral"}}]
+    else:
+        system_field = system_prompt
+
     body = {"model": model or MODEL_MARKET,
             "max_tokens": max_tokens or MAX_TOKENS,
-            "system": system_prompt,
+            "system": system_field,
             "messages": [{"role": "user", "content": user_content}],
             "stream": True,}
     if use_thinking:
@@ -1130,16 +1182,66 @@ def encode_file_for_claude(file_storage):
         return {"type": "image",
                 "source": {"type": "base64", "media_type": media_type, "data": b64}}
     elif ext in (".xlsx", ".xls"):
+        # Preserve column letters, row numbers, and merged-cell ranges so
+        # the LLM can reason about the geometry of the seller's workbook
+        # ("the monthly columns are C-N, the total is O, the broker
+        # proforma is Q"). The old flatten-to-tabs approach lost all of
+        # that and was the root cause of the categorization mismatch on
+        # multi-column P&Ls.
         try:
+            from openpyxl.utils import get_column_letter
             wb = load_workbook(BytesIO(data), data_only=True)
-            text_parts = [f"[Spreadsheet: {filename}]"]
+            PER_SHEET_CAP = 200_000
+            sheet_blocks = [f"[Spreadsheet: {filename}]"]
             for sheet_name in wb.sheetnames:
                 ws = wb[sheet_name]
-                text_parts.append(f"\n## Sheet: {sheet_name}")
-                for row in ws.iter_rows(values_only=True):
-                    if any(c is not None for c in row):
-                        text_parts.append("\t".join(str(c) if c is not None else "" for c in row))
-            return {"type": "text", "text": "\n".join(text_parts)[:200000]}
+                max_row, max_col = ws.max_row or 0, ws.max_column or 0
+                max_col_letter = get_column_letter(max_col) if max_col else "A"
+                header = (
+                    f"\n## Sheet: {sheet_name}  "
+                    f"(rows 1-{max_row}, cols A-{max_col_letter})\n"
+                    f"Format: <ColLetter><RowNum>: <value>  |  blanks shown as '·'  "
+                    f"|  merged ranges expanded (same value repeated in every cell)"
+                )
+                # Map every cell inside a merged range to the top-left value.
+                merged_map = {}
+                merged_anchors = set()
+                for mr in ws.merged_cells.ranges:
+                    top_left = ws.cell(mr.min_row, mr.min_col).value
+                    merged_anchors.add((mr.min_row, mr.min_col, mr.coord))
+                    for r in range(mr.min_row, mr.max_row + 1):
+                        for c in range(mr.min_col, mr.max_col + 1):
+                            merged_map[(r, c)] = top_left
+                anchor_lookup = {(r, c): coord for (r, c, coord) in merged_anchors}
+                lines, used = [header], len(header)
+                truncated = False
+                for r in range(1, max_row + 1):
+                    row_cells, row_has_value = [], False
+                    for c in range(1, max_col + 1):
+                        if (r, c) in merged_map:
+                            v = merged_map[(r, c)]
+                            suffix = (f"[merged {anchor_lookup[(r, c)]}]"
+                                      if (r, c) in anchor_lookup else "")
+                        else:
+                            v, suffix = ws.cell(r, c).value, ""
+                        if v is None:
+                            token = "·"
+                        else:
+                            token = str(v).replace("\n", " ").replace("\t", " ").strip() or "·"
+                            row_has_value = True
+                        row_cells.append(f"{get_column_letter(c)}{r}: {token}{suffix}")
+                    if row_has_value:
+                        line = "  |  ".join(row_cells)
+                        if used + len(line) + 1 > PER_SHEET_CAP:
+                            truncated = True
+                            break
+                        lines.append(line)
+                        used += len(line) + 1
+                if truncated:
+                    lines.append(f"... [TRUNCATED at {PER_SHEET_CAP} chars; "
+                                 f"sheet has {max_row} rows total]")
+                sheet_blocks.append("\n".join(lines))
+            return {"type": "text", "text": "\n".join(sheet_blocks)}
         except Exception as e:
             return {"type": "text", "text": f"[Could not parse {filename}: {e}]"}
     elif ext in (".txt", ".csv", ".md"):
@@ -1333,13 +1435,33 @@ METHODOLOGY_OUTPUT_SCHEMA = {
                                      "lotRent", "pohRent", "ltoPremium",
                                      "tenantNamePattern"],
                         "properties": {
-                            "unitType":          {"type": "string"},
+                            "unitType":          {"type": "string", "enum": CANONICAL_UNIT_TYPES},
                             "occupiedCount":     {"type": "integer"},
                             "vacantCount":       {"type": "integer"},
                             "lotRent":           {"type": "number"},
                             "pohRent":           {"type": "number"},
                             "ltoPremium":        {"type": "number"},
                             "tenantNamePattern": {"type": "string"},
+                            "sellerUnitLabel":   {"type": "string"},
+                        },
+                    },
+                },
+                "rentRollRows": {
+                    "type": "array",
+                    "description": "Per-row extraction (preserves real Unit IDs and tenant names).",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": ["unitId", "unitType", "status",
+                                     "tenantName", "lotRent", "homeRent"],
+                        "properties": {
+                            "unitId":     {"type": "string"},
+                            "unitType":   {"type": "string", "enum": CANONICAL_UNIT_TYPES},
+                            "status":     {"type": "string", "enum": ["Occupied", "Vacant"]},
+                            "tenantName": {"type": "string"},
+                            "lotRent":    {"type": "number"},
+                            "homeRent":   {"type": "number"},
+                            "sellerUnitLabel": {"type": "string"},
                         },
                     },
                 },
@@ -1351,7 +1473,7 @@ METHODOLOGY_OUTPUT_SCHEMA = {
                         "required": ["unitType", "count", "occupied",
                                      "avgRent", "marketRent"],
                         "properties": {
-                            "unitType":   {"type": "string"},
+                            "unitType":   {"type": "string", "enum": CANONICAL_UNIT_TYPES},
                             "count":      {"type": "integer"},
                             "occupied":   {"type": "integer"},
                             "avgRent":    {"type": "number"},
@@ -2066,11 +2188,75 @@ CRITICAL OUTPUT RULES:
 - If the user-provided property info has typos or inconsistencies, use your best interpretation silently — DO NOT explain corrections in the output
 - Notes should go in the "notes" field of each line item, NEVER as freestanding text
 
-## GGC Income Categories (use EXACTLY these strings):
+## GGC Income Categories (use EXACTLY these strings, including punctuation and capitalization — schema validation rejects deviations):
 {json.dumps(GGC_INCOME_CATEGORIES)}
 
-## GGC Expense Categories (use EXACTLY these strings — note 'Electrcitiy' typo is intentional, GGC uses it in their model):
+## GGC Expense Categories (use EXACTLY these strings — note 'Electrcitiy' typo is intentional, GGC uses it in their model. Also exact: 'Home Rent Expense (MH)' with parenthetical, 'Cap-Ex Reserve' with hyphen):
 {json.dumps(GGC_EXPENSE_CATEGORIES)}
+
+## Canonical Unit-Type Taxonomy (use EXACTLY these strings — Unit Mix Summary COUNTIFS keys on these exact labels):
+{json.dumps(CANONICAL_UNIT_TYPES)}
+
+Map seller's unit-type labels to one of the four canonical buckets:
+- Lot Rent / Site Rent / TOH (tenant-owned home) lots / Pad rent → "TOH MH Site"
+- POH Rent / Park-owned Home / Rental Home / Infilled Home → "POH-Infilled units"
+- RV Lot / RV Site / Annual RV / Long-Term RV → "Long term RV Site"
+- Storage / Retail / Commercial Space / Storefront → "Retail/Commercial"
+Preserve the raw seller label in `sellerUnitLabel` for audit traceability.
+
+## Income Categorization — GL Account Mapping (CRITICAL: emit ONE ROW per seller GL account)
+
+Sellers' charts of accounts vary, but the GGC bucketing follows account-number prefixes consistently. Use this mapping. EMIT ONE ROW PER SELLER GL ACCOUNT — do NOT aggregate multiple GL accounts that share a GGC category into a single row. Combining 4101 + 4103 destroys the bifurcated lot/RV NOI the Underwriting tab depends on.
+
+INCOME:
+| Seller GL prefix | Example label | GGC ggcCategory |
+|---|---|---|
+| 4101 | Lot Rent / Site Rent / Pad Rent | "Gross Potential Rent" |
+| 4103 | Long Term RV Lot Rent / RV Site | "RV Site Rental Income" |
+| 4108 | Storage Unit Rent / Boat Storage | "Storage Income" |
+| 4110 | Retail Unit Rent / Commercial Space | "Retail Income" |
+| 4131 / 4132 / "Move-in Specials" / "Concessions" / "Discounts" | Move-in Specials | "Less: Concessions" (NEGATIVE) |
+| 6120 / "Bad Debt" | Bad Debt | "Less: Bad Debt" (NEGATIVE) |
+| 4304 | Damages | "Other Income" |
+| 4402 (NEGATIVE: water/sewer non-recurring recovery) | Water & Sewer refund | "Other Income" with flag (NOT Utility Reimbursement — it's a contra) |
+| 4403 / 4404 | Electric / Garbage tenant pass-through | "Utility Reimbursement" |
+| 4905 | Recovered Legal Fees | "Other Income" |
+| 4908 | Payment Processing Fee | "Other Income" |
+| 4909 | Cable Revenue Sharing | "Other Income" |
+| 4910 | Rental Pool Revenue Sharing | "Other Income" |
+| 4913 | Application Fees | "Other Income" |
+| 4914 | Late Fees | "Other Income" |
+| 4915 | NSF Fees | "Other Income" |
+| 4131 / Pet Fees / Damage Fees / Misc Fees | Various | "Other Income" |
+| Home Rent / POH Rent / Lease-to-Own income | Home Rent | "Home Rent Income" |
+
+DECISION RULES:
+- "Utility Reimbursement" = tenant pass-through of metered/billed utility consumption (water, sewer, electric, gas, trash). If the line item represents a CONSUMPTION pass-through to a tenant, it's Utility Reimbursement.
+- "Other Income" = revenue-sharing arrangements (cable, internet, laundry, vending), application/late/NSF/pet fees, damages, legal recoveries. If the line is a fee, fine, or revenue share rather than a utility pass-through, it's Other Income.
+- NEGATIVE income amounts: if a line in the income block is negative AND under ~$5k absolute, treat as "Other Income" with a `notes` flag explaining the contra. If material negative, flag and route to "Other Income" with a question.
+- 5407 Tenant Cable TV: if a recurring tenant charge in the income block → "Utility Reimbursement"; if a vendor revenue share → "Other Income"; if appearing in the expense block → leave as G&A.
+- Concessions: any GL labeled "specials", "move-in", "concessions", "discounts" → "Less: Concessions" (always negative number).
+
+EXPENSE BUCKETING:
+| Seller GL | GGC ggcCategory |
+|---|---|
+| 5301 Property Tax | "RE Taxes" |
+| 5050 / 5053 Liability Insurance / 5051 Car Insurance | "Insurance" |
+| 5402 Water & Sewer / 5403 Water Testing | "Water and Sewer" |
+| 5404 Electric | "Electrcitiy" (sic) |
+| 5405 Garbage / Trash | "Trash Removal" |
+| 5406 Gas / Propane / 5401 Fuel for Vehicles | "Gas/Fuel" |
+| 5102 Tree / 5104 Grounds / 5103 Pest | "Ground Maintenance" |
+| 5107 Septic / 5108 Plumbing / 5109 Misc / 5110 Equipment / 5111 Electrical / 5200 Supplies | "Repair and Maintenance" |
+| 5000 Management Fees | "Management Fee" (will be OVERRIDDEN by GGC's % of EGI) |
+| 5700-5716 (wages, casual labour, taxes, benefits, workers comp) | "Payroll" |
+| 5070 Licenses & Permits / 5072 Dues / 5601-5650 Office / 5407 Cable | "General and Administrative" |
+| 5061 / 5062 / 5066 Professional | "Professional Fees" |
+| 5001 Advertising | "Advertising" |
+| 5113 Home Repairs / POH Maintenance / "Home" labels | "Home Rent Expense (MH)" |
+| 5300 Cap-Ex | "Cap-Ex Reserve" |
+
+REJECT any deviation from the exact category strings above. The downstream Excel SUMIFS keys on these exact strings; even a trailing space or different capitalization will silently zero out the line.
 
 ## GGC Underwriting Methodology
 
@@ -2398,22 +2584,33 @@ POH percentage cross-check: If POH > 20% and you see no Home Rent Expense in the
     }}
   ],
   "expenses": [{{ same shape as income }}],
+
   "rentRoll": {{
     "totalUnits": integer, "occupiedUnits": integer, "vacantUnits": integer,
     "occupancyRate": number, "avgLotRent": number, "parkOwnedHomes": integer,
     "pohPercent": number,
+    "rentRollRows": [
+      {{"unitId": "string (lot number, e.g. 'A05', 'B07', 'EL02A')",
+        "unitType": "MUST be one of [TOH MH Site, POH-Infilled units, Long term RV Site, Retail/Commercial]",
+        "status": "Occupied | Vacant",
+        "tenantName": "string (real tenant name from rent roll, or '' for vacant)",
+        "lotRent": number,
+        "homeRent": number (0 if no POH rent),
+        "sellerUnitLabel": "string (raw seller label, e.g. 'WHA Lot', 'Storage') — for audit trail"}}
+    ],
     "unitGroups": [
-      {{"unitType": "string (e.g. Standard Lot, Premium Lot, POH, RV Annual)",
+      {{"unitType": "MUST be one of [TOH MH Site, POH-Infilled units, Long term RV Site, Retail/Commercial]",
         "occupiedCount": integer,
         "vacantCount": integer,
         "lotRent": number,
         "pohRent": number (0 if TOH),
-        "ltoPremium": number (0 if not LTO),
-        "tenantNamePattern": "string (e.g. 'Tenant', use this prefix + sequential number for each occupied unit)"}}
+        "ltoPremium": number,
+        "tenantNamePattern": "string",
+        "sellerUnitLabel": "string (raw seller label, for audit)"}}
     ],
     "unitMixSummary": [
-      {{"unitType": "string", "count": integer, "occupied": integer,
-        "avgRent": number, "marketRent": number}}
+      {{"unitType": "one of [TOH MH Site, POH-Infilled units, Long term RV Site, Retail/Commercial]",
+        "count": integer, "occupied": integer, "avgRent": number, "marketRent": number}}
     ]
   }},
   "flags": [{{"item", "issue", "severity", "recommendation"}}],
@@ -2432,7 +2629,10 @@ POH percentage cross-check: If POH > 20% and you see no Home Rent Expense in the
     "t12Period": "string", "missingData": ["string"]}}
 }}
 
-CRITICAL: For "unitGroups", aggregate by unit type. Do NOT list every unit individually — group them. Example: instead of listing 150 separate "Standard Lot" entries, return one entry with occupiedCount=140, vacantCount=10. The backend will expand groups into individual rows automatically."""
+RENT ROLL OUTPUT GUIDANCE:
+- ALWAYS emit `rentRollRows` with one entry per actual rent roll row (preserves real tenant names and Unit IDs). This is required for audit and downstream delinquency analysis.
+- ALSO emit `unitGroups` as the aggregated 4-category summary. The backend reads `rentRollRows` first, falling back to `unitGroups` only if missing.
+- For `unitGroups`, aggregate ONLY by the 4 canonical categories above — never by raw seller labels like "WHA Lot" or "Storage". A property with 100 WHA Lots + 5 Storage units + 1 Commercial should emit 2-3 `unitGroups`: one "TOH MH Site" with count=100, one "Retail/Commercial" with count=5-6. The COUNTIFS in the Excel template keys on these exact canonical strings."""
 
 
 def call_parse_financials(api_key, extracted, property_info):
@@ -2668,8 +2868,19 @@ def _merge_market_research(runs):
                 continue
             if key not in rent_by_name or _completeness(comp) > _completeness(rent_by_name[key]):
                 rent_by_name[key] = comp
+    # Parse distance strings like "4.2 mi" or "12 miles" into a float so
+    # we sort numerically (lexicographic puts "10.1 mi" before "4.2 mi").
+    def _parse_distance_miles(s):
+        if isinstance(s, (int, float)):
+            return float(s)
+        if not isinstance(s, str):
+            return float("inf")
+        import re
+        m = re.search(r"-?\d+(\.\d+)?", s)
+        return float(m.group(0)) if m else float("inf")
+
     merged_rent_comps = sorted(rent_by_name.values(),
-                                key=lambda c: c.get("distance", "999"))
+                                key=lambda c: _parse_distance_miles(c.get("distance")))
 
     # ── SALE COMPS: dedupe by name+saleDate, same completeness rule ──
     sale_by_key = {}
@@ -2681,8 +2892,29 @@ def _merge_market_research(runs):
                 continue
             if key not in sale_by_key or _completeness(comp) > _completeness(sale_by_key[key]):
                 sale_by_key[key] = comp
+
+    # Parse sale dates ("MM/YY", "MM/YYYY", "YYYY-MM") so we sort
+    # newest-first (most recent transactions are the meaningful cap-rate
+    # signal; lexicographic puts "01/26" before "12/22").
+    def _parse_sale_year(s):
+        if not isinstance(s, str):
+            return -1
+        import re
+        # Capture trailing 2- or 4-digit year, optional month prefix.
+        m = re.search(r"(\d{1,2})[/\-](\d{2,4})$", s.strip())
+        if m:
+            yr = int(m.group(2))
+            yr = 2000 + yr if yr < 100 else yr
+            return yr * 12 + int(m.group(1))
+        # ISO-ish fallback "2024-03"
+        m = re.match(r"(\d{4})-(\d{1,2})", s.strip())
+        if m:
+            return int(m.group(1)) * 12 + int(m.group(2))
+        return -1
+
     merged_sale_comps = sorted(sale_by_key.values(),
-                                key=lambda c: c.get("saleDate") or "")
+                                key=lambda c: _parse_sale_year(c.get("saleDate")),
+                                reverse=True)
 
     # ── LANDMARKS: one entry per landmark type, keep closest ──
     landmark_by_type = {}
@@ -2812,7 +3044,7 @@ def fill_template(financials, market, output_path):
         ws.cell(row=r, column=5, value=item.get("fyCurrent", 0))
         ws.cell(row=r, column=6, value=item.get("brokerProforma", 0))
         ws.cell(row=r, column=7, value=item.get("t12Total", 0))
-        monthly = item.get("monthly", [])
+        monthly = item.get("monthly") or []
         if len(monthly) == 12:
             for m_i, val in enumerate(monthly):
                 ws.cell(row=r, column=10 + m_i, value=val)
@@ -2829,7 +3061,7 @@ def fill_template(financials, market, output_path):
         ws.cell(row=r, column=5, value=item.get("fyCurrent", 0))
         ws.cell(row=r, column=6, value=item.get("brokerProforma", 0))
         ws.cell(row=r, column=7, value=item.get("t12Total", 0))
-        monthly = item.get("monthly", [])
+        monthly = item.get("monthly") or []
         if len(monthly) == 12:
             for m_i, val in enumerate(monthly):
                 ws.cell(row=r, column=10 + m_i, value=val)
@@ -2839,44 +3071,59 @@ def fill_template(financials, market, output_path):
                 ws.cell(row=r, column=10 + m_i, value=even)
 
     # ── Rent Roll Input ────────────────────────────────────────────────────
-    # Cols: A=Count (skip — has formula), B=Unit Type, C=Status, D=Tenant,
-    #       E=Lot Rent, F=POH Rent, G=LTO Premium, H=Combined (formula — skip)
-    # Data rows 3-1002 (1000 unit slots in extended template)
-    # Expand unit groups into individual rows.
+    # Restructured column layout (matches Unit Mix Summary COUNTIFS/SUMIFS):
+    #   A=Count (formula), B=Unit ID, C=Unit Type (canonical), D=Status,
+    #   F=Tenant Name, G=Type detail, H=Type code, I=Lot Rent, J=Home Rent,
+    #   K=Combined (formula). Data rows 3-1002.
+    #
+    # Prefer per-row data from rentRoll.rentRollRows (preserves real tenant
+    # names + unit IDs). Fall back to unitGroups expansion when only the
+    # aggregated form is available.
     ws = wb["Rent Roll Input"]
-    rr = financials.get("rentRoll", {})
-    unit_groups = rr.get("unitGroups", [])
+    rr = financials.get("rentRoll") or {}
+    per_row = rr.get("rentRollRows") or []
+    unit_groups = rr.get("unitGroups") or []
 
     individual_units = []
-    for grp in unit_groups:
-        ut = grp.get("unitType", "Unit")
-        lot_rent = grp.get("lotRent", 0) or 0
-        poh_rent = grp.get("pohRent", 0) or 0
-        lto_premium = grp.get("ltoPremium", 0) or 0
-        name_prefix = grp.get("tenantNamePattern", "Tenant")
-        occ_count = grp.get("occupiedCount", 0) or 0
-        vac_count = grp.get("vacantCount", 0) or 0
-
-        for i in range(occ_count):
+    if per_row:
+        for row in per_row:
             individual_units.append({
-                "unitType": ut, "status": "Occupied",
-                "tenantName": f"{name_prefix} {len(individual_units) + 1}",
-                "lotRent": lot_rent, "pohRent": poh_rent, "ltoPremium": lto_premium,
+                "unitId":    row.get("unitId", "") or "",
+                "unitType":  row.get("unitType", "") or "",
+                "status":    row.get("status", "Occupied") or "Occupied",
+                "tenantName": row.get("tenantName", "") or "",
+                "lotRent":   row.get("lotRent", 0) or 0,
+                "homeRent":  row.get("homeRent", 0) or 0,
             })
-        for _ in range(vac_count):
-            individual_units.append({
-                "unitType": ut, "status": "Vacant",
-                "tenantName": "", "lotRent": 0, "pohRent": 0, "ltoPremium": 0,
-            })
+    else:
+        for grp in unit_groups:
+            ut = grp.get("unitType", "Unit")
+            lot_rent = grp.get("lotRent", 0) or 0
+            home_rent = grp.get("pohRent", 0) or 0
+            name_prefix = grp.get("tenantNamePattern", "Tenant")
+            occ_count = grp.get("occupiedCount", 0) or 0
+            vac_count = grp.get("vacantCount", 0) or 0
+            for i in range(occ_count):
+                individual_units.append({
+                    "unitId": "", "unitType": ut, "status": "Occupied",
+                    "tenantName": f"{name_prefix} {len(individual_units) + 1}",
+                    "lotRent": lot_rent, "homeRent": home_rent,
+                })
+            for _ in range(vac_count):
+                individual_units.append({
+                    "unitId": "", "unitType": ut, "status": "Vacant",
+                    "tenantName": "", "lotRent": 0, "homeRent": 0,
+                })
 
     for i, unit in enumerate(individual_units[:1000]):
         r = 3 + i
-        ws.cell(row=r, column=2, value=unit.get("unitType", ""))
-        ws.cell(row=r, column=3, value=unit.get("status", ""))
-        ws.cell(row=r, column=4, value=unit.get("tenantName", ""))
-        ws.cell(row=r, column=5, value=unit.get("lotRent", 0))
-        ws.cell(row=r, column=6, value=unit.get("pohRent", 0))
-        ws.cell(row=r, column=7, value=unit.get("ltoPremium", 0))
+        ws.cell(row=r, column=2,  value=unit.get("unitId", ""))      # B
+        ws.cell(row=r, column=3,  value=unit.get("unitType", ""))    # C
+        ws.cell(row=r, column=4,  value=unit.get("status", ""))      # D
+        ws.cell(row=r, column=6,  value=unit.get("tenantName", ""))  # F
+        ws.cell(row=r, column=9,  value=unit.get("lotRent", 0))      # I
+        ws.cell(row=r, column=10, value=unit.get("homeRent", 0))     # J
+        # A (Count) and K (Combined) are formulas seeded by fix_template.py
 
     # ── Add Miscellaneous tab ──────────────────────────────────────────────
     if "Miscellaneous" in wb.sheetnames:
@@ -3078,9 +3325,20 @@ def add_comps_analysis_tab(wb, financials, market):
 
     # ── INVESTMENT CRITERIA CHECK (Michael's 200 bps spread rule) ───────────
     prop_info = financials.get("propertyInfo", {}) or {}
-    ingoing_cap = prop_info.get("ingoingCapRate")
-    stab_yoc = prop_info.get("stabilizedYieldOnCost")
+    # Normalize cap-rate-like fields to decimal form (Excel's 0.00% format
+    # multiplies by 100). The LLM is inconsistent — a value like 7.5 could
+    # mean 7.5% (percent form) or 750% (decimal). to_decimal_pct heuristics
+    # divide values >= 1.5 by 100. spread_bps stays in basis points.
+    ingoing_cap = to_decimal_pct(prop_info.get("ingoingCapRate"))
+    stab_yoc = to_decimal_pct(prop_info.get("stabilizedYieldOnCost"))
     spread_bps = prop_info.get("spreadBps")
+    # Recompute spread locally so we don't depend on the LLM's arithmetic
+    # being internally consistent with its rate fields.
+    if isinstance(ingoing_cap, (int, float)) and isinstance(stab_yoc, (int, float)):
+        spread_bps = round((stab_yoc - ingoing_cap) * 10000)
+    meets_criteria_local = (
+        isinstance(spread_bps, (int, float)) and spread_bps >= 200
+    )
     meets_criteria = prop_info.get("meetsInvestmentCriteria")
 
     crit_start = 5
@@ -3109,15 +3367,17 @@ def add_comps_analysis_tab(wb, financials, market):
 
     # Pass / fail / unknown verdict box — spans cols F through L for visual impact
     ws.merge_cells(start_row=val_row, start_column=6, end_row=val_row, end_column=12)
-    if meets_criteria is True:
-        verdict_text = "✓ PASSES INVESTMENT CRITERIA"
-        verdict_bg = "16A34A"   # green
-    elif meets_criteria is False:
-        verdict_text = "✗ DOES NOT MEET INVESTMENT CRITERIA"
-        verdict_bg = "DC2626"   # red
-    else:
+    # Use the locally recomputed verdict so the displayed status always
+    # agrees with the displayed spread, regardless of what the LLM flagged.
+    if not isinstance(spread_bps, (int, float)):
         verdict_text = "— INSUFFICIENT DATA TO EVALUATE"
-        verdict_bg = "6B7280"   # gray
+        verdict_bg = "6B7280"
+    elif meets_criteria_local:
+        verdict_text = "✓ PASSES INVESTMENT CRITERIA"
+        verdict_bg = "16A34A"
+    else:
+        verdict_text = "✗ DOES NOT MEET INVESTMENT CRITERIA"
+        verdict_bg = "DC2626"
     style(ws.cell(row=val_row, column=6), verdict_text, bold=True, color=WHITE,
           size=14, bg=verdict_bg, align="center")
     ws.row_dimensions[val_row].height = 42
@@ -3125,11 +3385,11 @@ def add_comps_analysis_tab(wb, financials, market):
     # Explanatory subtext row
     explain_row = val_row + 1
     ws.merge_cells(start_row=explain_row, start_column=2, end_row=explain_row, end_column=12)
-    if meets_criteria is True and isinstance(spread_bps, (int, float)):
+    if meets_criteria_local and isinstance(spread_bps, (int, float)):
         cushion = spread_bps - 200
         explain_text = (f"Spread is {spread_bps:,} bps — {cushion:+,} bps cushion above the 200 bps hurdle. "
                         f"Deal clears GGC's go/no-go threshold on stabilized yield economics.")
-    elif meets_criteria is False and isinstance(spread_bps, (int, float)):
+    elif (not meets_criteria_local) and isinstance(spread_bps, (int, float)):
         shortfall = 200 - spread_bps
         explain_text = (f"Spread is {spread_bps:,} bps — {shortfall:,} bps short of the 200 bps hurdle. "
                         f"GGC does not pay for value it's creating; this deal would require either a "
@@ -3158,9 +3418,14 @@ def add_comps_analysis_tab(wb, financials, market):
     # Comp set statistics
     rents = [c.get("lotRent") for c in rent_comps if isinstance(c.get("lotRent"), (int, float))]
     units_list = [c.get("units") for c in rent_comps if isinstance(c.get("units"), (int, float))]
-    occ_list = [c.get("occupancy") for c in rent_comps if isinstance(c.get("occupancy"), (int, float))]
+    # Normalize occupancy to decimal (LLM may emit 95 to mean 95%, or 0.95).
+    # Same heuristic as to_decimal_pct: values >= 1.5 are presumed percent
+    # form and divided by 100. Otherwise % cells show 9500%.
+    occ_list = [to_decimal_pct(c.get("occupancy")) for c in rent_comps]
+    occ_list = [v for v in occ_list if isinstance(v, (int, float))]
 
-    sale_caps = [c.get("capRate") for c in sale_comps if isinstance(c.get("capRate"), (int, float))]
+    sale_caps = [to_decimal_pct(c.get("capRate")) for c in sale_comps]
+    sale_caps = [v for v in sale_caps if isinstance(v, (int, float))]
     sale_ppu = [c.get("pricePerUnit") for c in sale_comps if isinstance(c.get("pricePerUnit"), (int, float))]
 
     def safe_min(lst): return min(lst) if lst else None
@@ -3228,10 +3493,10 @@ def add_comps_analysis_tab(wb, financials, market):
             (c.get("distance", ""),     "center", None),
             (c.get("units", 0),         "center", "#,##0"),
             (c.get("lotRent", 0),       "right",  "$#,##0"),
-            (c.get("occupancy"),        "center", "0.0%"),
+            (to_decimal_pct(c.get("occupancy")),  "center", "0.0%"),
             (c.get("yearBuilt", ""),    "center", None),
-            (c.get("pohPercent"),       "center", "0.0%"),
-            (c.get("amenities", "")[:80], "left", None),
+            (to_decimal_pct(c.get("pohPercent")), "center", "0.0%"),
+            ((c.get("amenities") or "")[:80], "left", None),
             (rating_str,                "center", None),
             (c.get("source", ""),       "left",   None),
         ]
@@ -3330,24 +3595,50 @@ def add_comps_analysis_tab(wb, financials, market):
                   color=WHITE, bg=MID_BLUE, align="right")
         ws.row_dimensions[stats_r].height = 20
 
-    # Subject implied valuation row
+    # Subject implied valuation row. Requires at least 3 sale comps before
+    # surfacing a single "market cap rate" — averaging 1-2 comps is just
+    # repackaging one data point as a market signal.
     if sale_caps and subject_units:
         impl_r = sc_start + 4 + len(sale_comps[:30])
         section_header(impl_r, 12, "  IMPLIED VALUATION USING COMP SET")
-        avg_cap = safe_avg(sale_caps)
-        avg_ppu = safe_avg(sale_ppu) if sale_ppu else None
-        labels = [
-            ("Asking Price", asking, "$#,##0"),
-            ("Asking $ / Unit", ppu_ask, "$#,##0"),
-            ("Comp Avg $ / Unit", avg_ppu, "$#,##0"),
-            ("Comp Avg Cap Rate", avg_cap, "0.00%"),
-        ]
-        for i, (label, val, fmt) in enumerate(labels):
-            r = impl_r + 1 + i
-            style(ws.cell(row=r, column=2), label, bold=True, size=10)
-            style(ws.cell(row=r, column=3), val, bg=LIGHT_YEL, color="0000FF",
-                  align="right", fmt=fmt)
-            ws.row_dimensions[r].height = 18
+        if len(sale_caps) < 3:
+            note_r = impl_r + 1
+            ws.merge_cells(start_row=note_r, start_column=2,
+                           end_row=note_r, end_column=12)
+            style(ws.cell(row=note_r, column=2),
+                  f"INSUFFICIENT DATA — only {len(sale_caps)} sale comp(s) "
+                  f"with usable cap rate. GGC requires ≥3 to publish a "
+                  f"market cap rate. Sourcing additional comps is "
+                  f"recommended before valuation.",
+                  bold=True, color="DC2626", bg=LIGHT_YEL, wrap=True, size=10)
+            ws.row_dimensions[note_r].height = 36
+        else:
+            # Trimmed mean: drop the highest and lowest cap rate if N>=5
+            # to reduce single-outlier sensitivity.
+            sorted_caps = sorted(sale_caps)
+            trimmed = sorted_caps[1:-1] if len(sorted_caps) >= 5 else sorted_caps
+            avg_cap = safe_avg(trimmed)
+            med_cap = safe_median(sale_caps)
+            avg_ppu = safe_avg(sale_ppu) if sale_ppu else None
+            try:
+                import statistics
+                std_cap = statistics.pstdev(sale_caps) if len(sale_caps) > 1 else 0
+            except Exception:
+                std_cap = 0
+            labels = [
+                ("Asking Price", asking, "$#,##0"),
+                ("Asking $ / Unit", ppu_ask, "$#,##0"),
+                ("Comp Avg $ / Unit", avg_ppu, "$#,##0"),
+                (f"Comp Cap (trimmed mean, N={len(sale_caps)})", avg_cap, "0.00%"),
+                ("Comp Cap (median)", med_cap, "0.00%"),
+                ("Comp Cap (std dev)", std_cap, "0.00%"),
+            ]
+            for i, (label, val, fmt) in enumerate(labels):
+                r = impl_r + 1 + i
+                style(ws.cell(row=r, column=2), label, bold=True, size=10)
+                style(ws.cell(row=r, column=3), val, bg=LIGHT_YEL, color="0000FF",
+                      align="right", fmt=fmt)
+                ws.row_dimensions[r].height = 18
 
     # ── MARKET CAP RATE CONCLUSION ──────────────────────────────────────────
     cap_concl_r = sc_start + 4 + len(sale_comps[:30]) + (5 if sale_caps else 0)
@@ -3784,9 +4075,14 @@ def root():
 
 @app.route("/api/config")
 def config():
-    """Frontend pulls this on page load to get the default API key (if set in backend.py)."""
+    """Frontend pulls this on page load to learn what optional integrations
+    the server has configured. The server's Anthropic key is NEVER returned
+    over the wire — the frontend either provides its own key per request or
+    falls back to the server key only inside `run_analysis_job`. Returning
+    a key here would let any unauthenticated visitor read GGC's billing
+    credential."""
     return jsonify({
-        "default_api_key": DEFAULT_ANTHROPIC_KEY,
+        "default_api_key_present": bool(DEFAULT_ANTHROPIC_KEY),
         "google_maps_enabled": bool(GOOGLE_MAPS_API_KEY),
     })
 
