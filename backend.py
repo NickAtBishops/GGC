@@ -4202,38 +4202,17 @@ def add_miscellaneous_tab(wb, financials, market):
             ws.merge_cells(start_row=aerial_start+2, start_column=4,
                            end_row=aerial_start+2+IMG_HEIGHT_ROWS-1, end_column=5)
 
-    # STREET VIEW (4 images in 2x2)
-    sv_start = aerial_start + 2 + IMG_HEIGHT_ROWS + 1
-    section_header(sv_start, "E", "  STREET VIEW")
-    for col_l, col_r, label in [("B", "C", "Main Entrance"), ("D", "E", "Interior Road")]:
-        style_cell(ws.cell(row=sv_start+1, column=ord(col_l)-64), label,
-                   bold=True, color=WHITE, size=10, bg=MID_BLUE, align="center")
-        ws.merge_cells(start_row=sv_start+1, start_column=ord(col_l)-64,
-                       end_row=sv_start+1, end_column=ord(col_r)-64)
-    for r in range(sv_start + 2, sv_start + 2 + IMG_HEIGHT_ROWS):
-        ws.row_dimensions[r].height = 20
-    if full_addr:
-        for heading, anchor in [(0, f"B{sv_start+2}"), (90, f"D{sv_start+2}")]:
-            sv = fetch_google_streetview(full_addr, heading=heading)
-            if sv:
-                embed_image_in_cell(ws, sv, anchor)
-
-    sv2_start = sv_start + 2 + IMG_HEIGHT_ROWS + 1
-    for col_l, col_r, label in [("B", "C", "Example Home #1"), ("D", "E", "Example Home #2")]:
-        style_cell(ws.cell(row=sv2_start, column=ord(col_l)-64), label,
-                   bold=True, color=WHITE, size=10, bg=MID_BLUE, align="center")
-        ws.merge_cells(start_row=sv2_start, start_column=ord(col_l)-64,
-                       end_row=sv2_start, end_column=ord(col_r)-64)
-    for r in range(sv2_start + 1, sv2_start + 1 + IMG_HEIGHT_ROWS):
-        ws.row_dimensions[r].height = 20
-    if full_addr:
-        for heading, anchor in [(180, f"B{sv2_start+1}"), (270, f"D{sv2_start+1}")]:
-            sv = fetch_google_streetview(full_addr, heading=heading)
-            if sv:
-                embed_image_in_cell(ws, sv, anchor)
+    # Street View intentionally removed. Google's Street View cars only
+    # cover public roadways, so for MH/RV parks (private roads inside the
+    # property) the nearest panorama is almost always 100m+ away on the
+    # public road outside. The "Main Entrance" and "Interior Road" images
+    # were both rotations of that same external panorama — misleading,
+    # not informative. Aerial/satellite is the right tool for property
+    # context; reviewers can pop the Street View URL link below if they
+    # want to spot-check approach quality.
 
     # CLICKABLE URLs
-    url_start = sv2_start + 1 + IMG_HEIGHT_ROWS + 1
+    url_start = aerial_start + 2 + IMG_HEIGHT_ROWS + 1
     section_header(url_start, "E", "  CLICKABLE URLs")
     visuals = market.get("visuals", {}) or {}
     fb_aerial = f"https://www.google.com/maps/search/?api=1&query={addr_encoded}&t=k" if addr_encoded else ""
@@ -4242,10 +4221,7 @@ def add_miscellaneous_tab(wb, financials, market):
     url_rows = [
         ("Aerial / Satellite", visuals.get("aerialView") or fb_aerial),
         ("Roadmap", fb_aerial.replace("&t=k", "") if fb_aerial else ""),
-        ("Street View — Main Entrance", visuals.get("streetViewEntrance") or fb_street),
-        ("Street View — Interior Road", visuals.get("streetViewInterior") or fb_street),
-        ("Street View — Example Home #1", visuals.get("exampleHome1") or fb_street),
-        ("Street View — Example Home #2", visuals.get("exampleHome2") or fb_street),
+        ("Street View (Google Maps)", fb_street),
         ("Driving Directions", visuals.get("directions") or fb_dir),
     ]
     for i, (label, url) in enumerate(url_rows):
