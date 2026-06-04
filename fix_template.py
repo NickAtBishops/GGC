@@ -260,6 +260,29 @@ for col in range(1, 129):  # A-DX, full data width
     cell.font = _clear_font
     cell.border = _clear_border
 
+# ── Data validations: scrub stale "Type 1/Type 2/Type 3..." dropdowns ──
+# The blank template carried six different DV ranges on column B (Unit ID)
+# with stray "Type 1, Type 2, Type 3", "...Type 4", "...Type 6", "...Type 7"
+# patterns — leftovers from when B held Unit Type before the column
+# restructure. Column C ("Unit Type") also inherited an "Occupied, Vacant"
+# list that belongs on column D ("Occupied or Vacant"). Michael flagged
+# the C dropdown in the partner walkthrough ("It's a drop down. I don't
+# know why."). Nuke them all and re-add only the correct two:
+#   D3:D1002  → Occupied / Vacant
+#   S3:S1002  → NNN / Gross (Commercial Lease Type)
+# Range stretches to row 1002 to match the full rent-roll capacity (the
+# blank template only validated through row 72, so most pasted rows had
+# no dropdown). Excel list formulas wrap the comma-separated items in
+# double quotes; openpyxl needs them escaped as "...".
+from openpyxl.worksheet.datavalidation import DataValidation
+rr.data_validations.dataValidation = []
+_dv_status = DataValidation(type="list", formula1='"Occupied,Vacant"', allow_blank=True)
+_dv_status.add("D3:D1002")
+rr.add_data_validation(_dv_status)
+_dv_lease = DataValidation(type="list", formula1='"NNN,Gross"', allow_blank=True)
+_dv_lease.add("S3:S1002")
+rr.add_data_validation(_dv_lease)
+
 # ════════════════════════════════════════════════════════════════════════
 # 4. UNIT MIX RENT GROWTH — match CorrectOutput cell-for-cell
 # ════════════════════════════════════════════════════════════════════════
