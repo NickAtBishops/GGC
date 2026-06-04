@@ -463,69 +463,239 @@ su["I23"] = 200000
 su["I24"] = "=SUM(I21:I23)"
 su["I17"] = "=I24"
 
-# 12g. The verification agent flagged Unit Mix Rent Growth lacks the
-# canonical rows 9-17 (weighted-average + vacancy schedule). Build them.
-# These feed Pro Forma's vacancy + GPR projections.
-umrg["B9"] = "Rent Growth Vector (annual)"
-umrg["B10"] = "MH Lot Rent (TOH)"
-umrg["C10"] = "='Unit Mix Summary'!E4"  # unit count
-umrg["B11"] = "Long Term RV Rent"
-umrg["C11"] = "='Unit Mix Summary'!E6"
-umrg["B12"] = "Weighted Avg Monthly Rent"
-umrg["C12"] = ("=IFERROR((C10*'Unit Mix Summary'!C12 + "
-               "C11*'Unit Mix Summary'!C16)/(C10+C11),0)")
-umrg["B13"] = "Monthly $ Rent Change"
-umrg["C13"] = "=C12-'Unit Mix Summary'!C12"
-umrg["B14"] = "Annual GPR (combined lots)"
-for col_idx, year_letter in enumerate(["E", "F", "G", "H", "I", "J"], start=1):
-    # Year 1-6 GPR per year from row 22 (already populated above)
-    umrg[f"{year_letter}14"] = f"={year_letter}22"
-umrg["B15"] = "Vacant MH Lots"
-umrg["C15"] = "='Unit Mix Summary'!D4"
-umrg["B16"] = "Vacant RV / Other"
-umrg["C16"] = "='Unit Mix Summary'!D6+'Unit Mix Summary'!D7"
-umrg["B17"] = "Physical Vacancy %"
-umrg["C17"] = "=IFERROR((C15+C16)/(C10+C11+C15+C16),0)"
+# 12g. Rebuild Unit Mix Rent Growth rows 10-17 to mirror CorrectOutput
+# EXACTLY. The correct layout drives Underwriting!G4 (stabilized GPR)
+# which reads H14 = monthly weighted rent (Year 3) × total units × 12.
+# Earlier rebuild used a different schema; replace it.
+
+# Clear rows 9-22 first so the previous attempt's cells don't shadow.
+for row in umrg.iter_rows(min_row=9, max_row=22, max_col=12):
+    for cell in row:
+        cell.value = None
+
+# Per-type rent growth rows (10 = TOH MH, 11 = POH-Infilled).
+# Columns: B=weight, C=unit-type label, D=units, E=current monthly rent,
+# F-K = years 1-6 of compounded rent growth.
+umrg["B10"] = "=D10/$D$12"
+umrg["C10"] = "='Unit Mix Summary'!B4"
+umrg["D10"] = "='Unit Mix Summary'!E4"
+umrg["E10"] = "='Unit Mix Summary'!H4/'Unit Mix Summary'!E4"
+umrg["F10"] = "=E10*(100%+B$5)"
+umrg["G10"] = "=F10*(100%+C$5)"
+umrg["H10"] = "=G10*(100%+D$5)"
+umrg["I10"] = "=H10*(100%+E$5)"
+umrg["J10"] = "=I10*(100%+F$5)"
+umrg["K10"] = "=J10*(100%+G$5)"
+
+umrg["B11"] = "=D11/$D$12"
+umrg["C11"] = "='Unit Mix Summary'!B5"
+umrg["D11"] = "='Unit Mix Summary'!E5"
+umrg["E11"] = "='Unit Mix Summary'!H5/'Unit Mix Summary'!E5"
+umrg["F11"] = "=E11*(100%+B$6)"
+umrg["G11"] = "=F11*(100%+C$6)"
+umrg["H11"] = "=G11*(100%+D$6)"
+umrg["I11"] = "=H11*(100%+E$6)"
+umrg["J11"] = "=I11*(100%+F$6)"
+umrg["K11"] = "=J11*(100%+G$6)"
+
+# Row 12 = weighted-average roll-up
+umrg["B12"] = "=SUM(B10:B11)"
+umrg["C12"] = "Total Weighted Average"
+umrg["D12"] = "=SUM(D10:D11)"
+for col in ("E", "F", "G", "H", "I", "J", "K"):
+    umrg[f"{col}12"] = f"=SUMPRODUCT($B$10:$B$11,{col}10:{col}11)"
+
+# Row 13 = $ change vs prior year
+umrg["D13"] = "$change"
+for prev, curr in (("E", "F"), ("F", "G"), ("G", "H"), ("H", "I"), ("I", "J"), ("J", "K")):
+    umrg[f"{curr}13"] = f"={curr}12-{prev}12"
+
+# Row 14 = annual GPR per year = weighted-avg monthly × total units × 12
+# This is the cell Underwriting!G4 references for stabilized GPR.
+umrg["D14"] = "GPR"
+for col in ("E", "F", "G", "H", "I", "J", "K"):
+    umrg[f"{col}14"] = f"={col}12*$D$12*12"
+
+# Vacancy schedule (rows 15-17)
+umrg["D15"] = "Vacant Lots"
+umrg["E15"] = "='Unit Mix Summary'!D4"
+umrg["C15"] = 0  # stabilization step target (0 by default)
+umrg["F15"] = "=E15-C15"
+umrg["D16"] = "Vacant Homes"
+umrg["E16"] = "='Unit Mix Summary'!D5"
+umrg["C16"] = 0
+umrg["F16"] = "=E16-$C$16"
+umrg["D17"] = "Vacancy"
+for col in ("E", "F", "G", "H", "I", "J", "K"):
+    umrg[f"{col}17"] = f"=SUM({col}15:{col}16)/$D$12"
 
 # ════════════════════════════════════════════════════════════════════════
-# 13. METHODOLOGY OVERRIDES — RE Taxes and Management Fee
+# 13. EXACT-MATCH ALIGNMENT WITH CORRECTOUTPUT.XLSX (Underwriting tab)
 # ════════════════════════════════════════════════════════════════════════
-# The methodology rules for these two line items have specific math the
-# LLM doesn't always apply correctly. Encode them in the template so the
-# result is deterministic regardless of what the LLM put in the
-# extracted/methodology JSON.
-#
-# RE TAXES (methodology lines 2218-2232):
-#   - Primary:  PP × 65% × local tax rate    (post-sale reassessment)
-#   - Fallback: T12 × 1.15                   (when tax rate unknown)
-#   - Sanity:   reassessment never reduces taxes -> floor at T12 × 1.15
-#
-#   The template knows PP (P4), T12 (D22), and a new input cell P12
-#   (county tax rate, written by backend from property_info.countyTaxRate).
-#   The override formula = MAX of the three methods so we always honor
-#   the sanity rule.
-ws["O12"] = "County Tax Rate"
-ws["P12"] = 0  # backend.py writes the user-provided decimal here
-ws["I22"] = (
-    "=MAX("
-    "J22*N7,"                                  # per-unit floor ($400/unit)
-    "D22*1.15,"                                # T12 + 15% sanity floor
-    "IF(AND(ISNUMBER(P4),ISNUMBER(P12),P12>0),"
-        "P4*0.65*P12,"                         # PP × 65% × tax rate (preferred)
-        "0)"
-    ")"
-)
+# Earlier rounds added "improvements" (MAX-with-reassessment on I22,
+# conditional mgmt fee on J33, County Tax Rate cell at P12) that diverge
+# from the gold-standard CorrectOutput layout. User wants exact match —
+# revert those and restore the original formulas + cell labels.
+ws["I22"] = "=J22*N7"               # was MAX(...) — back to simple per-unit
+ws["J33"] = 0.05                    # was =IF(N7>=200,...) — back to flat 5%
+ws["I33"] = "=J33*I19"              # mgmt fee = % × EGI (stabilized)
+ws["G33"] = "=J33*G19"              # mgmt fee for ALT NOI column
+ws["H33"] = "=J33*H19"              # mgmt fee for lot-rent-only NOI
+ws["I35"] = "=J35*N7"               # match correct (no $ anchor on N7)
 
-# MANAGEMENT FEE (methodology lines 2249-2258):
-#   - 5% of EGI if total units < 200
-#   - 4% of EGI if total units >= 200
-#   - GGC fee is synthetic — overrides whatever the seller booked.
-#   J33 already carries the conditional formula from round 1 but make it
-#   explicit here so it doesn't silently revert if a future patch lands.
-ws["J33"] = "=IF(N7>=200,0.04,0.05)"
-ws["I33"] = "=J33*I19"   # mgmt fee = % × EGI (stabilized column)
-ws["G33"] = "=J33*G19"   # mgmt fee for ALT NOI column
-ws["H33"] = "=J33*H19"   # mgmt fee for lot-rent-only NOI
+# Restore the O/P pricing block labels EXACTLY as CorrectOutput has them.
+# O4/P4 = Purchase/Offer Price (P4 is a numeric input written by backend).
+# O5/P5 = $/site (P5 = P4/N7).  O6/P6 = Underwritten Cap (NOI/PP).
+# O7/P7 = Stabilized YOC.  O9/P9 = Asking Price.  O10/P10 = Asking $/site.
+ws["O4"] = "Purchase/Offer Price"
+ws["O5"] = "Purchase Price Per Site"
+ws["O6"] = "Underwritten CAP rate"
+ws["O7"] = "Stabilized YOC"
+ws["O9"] = "Asking Price by Seller"
+ws["O10"] = "Asking Price Per Site "
+ws["O12"] = "Brookings Multifamily cap rate at 6%-7.5%"
+ws["P12"] = None                    # remove the County Tax Rate cell
+
+# Match cosmetics
+ws["M7"] = "# of Units "            # trailing space — matches correct
+ws["P5"] = "=P4/N7"                 # purchase price per site
+ws["P6"] = "=I47/P4"                # underwritten cap rate = NOI / PP
+ws["P7"] = "=G47/'Sources and Uses'!C18"  # stabilized YOC
+ws["P10"] = "=P9/N7"                # asking $ per site
+
+# G4 (Stabilized GPR) — correct points at Unit Mix Rent Growth!H14, which
+# is annual GPR for Year 3 in the canonical layout we rebuild next.
+ws["G4"] = "='Unit Mix Rent Growth'!H14"
+
+# I4 (Stabilized total units anchor) — Unit Mix Summary!C11 in correct's
+# layout = total MH lot count.
+ws["I4"] = "='Unit Mix Summary'!C11"
+
+# J7 (Bad Debt assumption) — correct uses a hardcoded 3% rate, not a
+# back-computed ratio.
+ws["J7"] = 0.03
+
+# G12 (Stabilized Utility Reimbursement) — correct uses =I12 (mirror of
+# Total NOI col), not 75% of the water/sewer line.
+ws["G12"] = "=I12"
+
+# G13 (Stabilized Home Rent Income) — correct pulls from the rent roll
+# summary row at J151 with a 5% vacancy haircut.
+ws["G13"] = "='Rent Roll Input'!J151*12*95%"
+
+# Lot-Rent-Only NOI column (H): correct ZEROES OUT home rent stream so
+# the H47 cell yields lot-rent NOI only. H13 = 0; H14:H16 mirror I col.
+ws["H13"] = 0
+
+# I17 (Other Income stabilized) — average of 2024 + T12 (cols C, D), not
+# 2022 + 2024 (cols B, C).
+ws["I17"] = "=AVERAGE(C17,D17)"
+
+# H25-H28 (Lot-Rent-Only utility stream) — correct does NOT scale by 80%,
+# it mirrors I25-I28 directly.
+for r in (25, 26, 27, 28):
+    ws[f"H{r}"] = f"=I{r}"
+
+# SUMIFS range sweep — the original template's SUMIFS only covered
+# rows 3:21 (income) and 28:58 (expenses). Correct's Data Consolidation
+# is wider: 3:36 income, 43:102 expense. Update every SUMIFS in the
+# Underwriting tab to match.
+_RANGE_SWAPS = [
+    # Income block
+    ("$D$3:$D$21", "$D$3:$D$36"),
+    ("$E$3:$E$21", "$E$3:$E$36"),
+    ("$F$3:$F$21", "$F$3:$F$36"),
+    ("$G$3:$G$21", "$G$3:$G$36"),
+    ("$H$3:$H$21", "$H$3:$H$36"),
+    ("$A$3:$A$21", "$A$3:$A$36"),
+    # Expense block
+    ("$D$28:$D$58", "$D$43:$D$102"),
+    ("$E$28:$E$58", "$E$43:$E$102"),
+    ("$F$28:$F$58", "$F$43:$F$102"),
+    ("$G$28:$G$58", "$G$43:$G$102"),
+    ("$H$28:$H$58", "$H$43:$H$102"),
+    ("$A$28:$A$58", "$A$43:$A$102"),
+]
+for row in ws.iter_rows():
+    for cell in row:
+        if isinstance(cell.value, str) and "SUMIFS" in cell.value:
+            new_val = cell.value
+            for old, new in _RANGE_SWAPS:
+                new_val = new_val.replace(old, new)
+            if new_val != cell.value:
+                cell.value = new_val
+
+# Row-14/15/16 SUMIFS criteria — the blank template hunts for old labels
+# ("LTO", "SFH", "Laundry Income"). Mirror CorrectOutput's per-column
+# criteria exactly, including the quirky ones (B16 searches "Laundry
+# Income" but C16:F16 search "Retail" — a hand-edit artifact in the
+# gold standard that we replicate so values match cell-for-cell).
+def _swap_criterion(cell, new_criterion):
+    if isinstance(cell.value, str) and "SUMIFS" in cell.value:
+        import re as _re
+        cell.value = _re.sub(r'"[^"]+"\)$', f'"{new_criterion}")', cell.value)
+
+# Row 14: all five history columns search "RV Site Rental Income"
+for col in ("B", "C", "D", "E", "F"):
+    _swap_criterion(ws[f"{col}14"], "RV Site Rental Income")
+
+# Row 15: all five search "Parking Income" (correct's chosen label for
+# the 4108 Storage Unit Rent GL — even though the row is labeled
+# "Storage Income" in A15 for human readability).
+for col in ("B", "C", "D", "E", "F"):
+    _swap_criterion(ws[f"{col}15"], "Parking Income")
+
+# Row 16: B16 searches "Laundry Income" (the 2022 column had no retail);
+# C16:F16 search "Retail". Match correct's exact criteria.
+_swap_criterion(ws["B16"], "Laundry Income")
+for col in ("C", "D", "E", "F"):
+    _swap_criterion(ws[f"{col}16"], "Retail")
+
+# Row 2 column headers — restore CorrectOutput's exact strings.
+ws["G2"] = "ALT NOI"
+ws["H2"] = "Lot Rent only NOI"
+ws["I2"] = None    # correct leaves blank
+ws["J2"] = None    # correct leaves blank
+
+# Per-unit J-column cells correct just leaves blank (J20, J45).
+ws["J20"] = None
+ws["J45"] = None
+# And the $-anchor on N7 for J31/J32 — correct uses bare N7 (no $).
+ws["J31"] = "=I31/N7"
+ws["J32"] = "=I32/N7"
+
+# Cosmetic: (100%+3%) → 1.03 to match correct exactly.
+for r in (39, 40):
+    cell = ws[f"I{r}"]
+    if isinstance(cell.value, str) and "(100%+3%)" in cell.value:
+        cell.value = cell.value.replace("(100%+3%)", "1.03")
+
+# Lot-rent-only NOI column quirks from CorrectOutput:
+#   H13 = 0          (home rent removed, already set above)
+#   H14 = I14        (RV rent included in lot-rent NOI)
+#   H15 = I15        (Storage included)
+#   H16 = None       (Retail removed from lot-rent NOI — correct's choice)
+ws["H14"] = "=I14"
+ws["H16"] = None
+
+# Bifurcated valuation block at M13:P16. This is the GGC methodology
+# split — value the Lot Rent NOI at 5.5% cap, Home Rent NOI at 12% cap.
+ws["M13"] = "Asset"
+ws["N13"] = "NOI"
+ws["O13"] = "CAP RATE"
+ws["P13"] = "VALUE"
+ws["M14"] = "Lot Rent only NOI"
+ws["N14"] = "=I47"
+ws["O14"] = 0.055
+ws["P14"] = "=N14/O14"
+ws["M15"] = "Home Rent only NOI"
+ws["N15"] = "=I47-H47"
+ws["O15"] = 0.12
+ws["P15"] = "=N15/O15"
+ws["M16"] = "Total"
+ws["N16"] = "=SUM(N14:N15)"
+ws["O16"] = "=N16/P16"
+ws["P16"] = "=SUM(P14:P15)"
 
 # ════════════════════════════════════════════════════════════════════════
 # 14. FORCE FULL RECALC ON OPEN

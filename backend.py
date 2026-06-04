@@ -3336,7 +3336,10 @@ def fill_template(financials, market, output_path):
     income_items = financials.get("income", [])
     expense_items = financials.get("expenses", [])
 
-    for i, item in enumerate(income_items[:19]):
+    # Income rows 3-36 (34 slots), Expense rows 43-102 (60 slots). The
+    # patched Underwriting tab's SUMIFS now spans those ranges; writing
+    # past them would land outside the SUMIFS reach and silently get lost.
+    for i, item in enumerate(income_items[:34]):
         r = 3 + i
         ws.cell(row=r, column=1, value=item.get("ggcCategory", ""))
         ws.cell(row=r, column=2, value=item.get("sellerName", ""))
@@ -3353,8 +3356,8 @@ def fill_template(financials, market, output_path):
             for m_i in range(12):
                 ws.cell(row=r, column=10 + m_i, value=even)
 
-    for i, item in enumerate(expense_items[:31]):
-        r = 28 + i
+    for i, item in enumerate(expense_items[:60]):
+        r = 43 + i
         ws.cell(row=r, column=1, value=item.get("ggcCategory", ""))
         ws.cell(row=r, column=2, value=item.get("sellerName", ""))
         ws.cell(row=r, column=4, value=item.get("fyPrior", 0))
@@ -3455,24 +3458,21 @@ def fill_template(financials, market, output_path):
     except (TypeError, ValueError):
         ask = 0
     if ask > 0:
+        # The template uses P4 (Purchase Price) as the basis for Sources &
+        # Uses, Loan Scenario, and ingoing cap rate; P9 is the asking
+        # price for the deal-summary block. Until we expose a separate
+        # "negotiated purchase price" field on the form, default both to
+        # the user's askingPrice and let them override P4 in-cell when
+        # negotiating below ask.
+        underw["P4"] = ask
         underw["P9"] = ask
-    # Also expose the property name / address / county / acreage cells
-    # so the M-N subject block renders something meaningful at runtime.
+    # Property metadata for the M-N subject block.
     if prop.get("name"):
         underw["N5"] = prop.get("name")
     if prop.get("address"):
         underw["N6"] = prop.get("address")
     if prop.get("county"):
         underw["N10"] = prop.get("county")
-
-    # Pass the user-supplied county tax rate into P12. The patched
-    # template's I22 (RE Taxes stabilized) uses it as the preferred
-    # reassessment method when present; otherwise the formula falls
-    # back to T12 × 1.15. Accepts a decimal (0.0125) or a percent
-    # string ("1.25%").
-    rate = to_decimal_pct(prop.get("countyTaxRate"))
-    if rate is not None:
-        underw["P12"] = rate
 
     # Atomic save: write to a sibling temp file, then rename. A mid-save
     # crash would otherwise leave the destination half-written, and
