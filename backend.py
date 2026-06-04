@@ -3499,6 +3499,17 @@ def fill_template(financials, market, output_path):
     if prop.get("county"):
         underw["N10"] = prop.get("county")
 
+    # Force Excel to recalculate every formula when the user opens the
+    # output. Without these flags, openpyxl-written formulas show as
+    # blank cells in Excel until F9 is pressed manually — which the user
+    # observed as "all my Pro Forma and Loan Scenario cells are empty".
+    # Re-asserting here (in addition to fix_template.py) protects against
+    # openpyxl silently resetting calculation properties on save.
+    wb.calculation.calcMode = "auto"
+    wb.calculation.fullCalcOnLoad = True
+    wb.calculation.calcCompleted = False
+    wb.calculation.calcOnSave = True
+
     # Atomic save: write to a sibling temp file, then rename. A mid-save
     # crash would otherwise leave the destination half-written, and
     # /api/download would happily ship the corrupt bytes.
