@@ -2030,6 +2030,123 @@ def verify_extraction(extracted, property_info):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
+# verify_methodology — post-categorization parity checks
+# ═══════════════════════════════════════════════════════════════════════════
+# Runs after call_parse_financials. Compares the rent roll's canonical
+# unit types against the income categories the methodology assigned —
+# if the rent roll has Long-term RV sites but RV Site Rental Income is
+# missing or zero, the LLM almost certainly collapsed it into Gross
+# Potential Rent (the bug that prompted this whole investigation).
+def verify_methodology(financials):
+    checks = []
+    income = financials.get("income") or []
+    expenses = financials.get("expenses") or []
+    rr = financials.get("rentRoll") or {}
+
+    # Index income by category (multiple rows per category aggregate).
+    by_cat = {}
+    for it in income:
+        c = (it.get("ggcCategory") or "").strip()
+        by_cat.setdefault(c, []).append(it)
+
+    def _cat_total(cat):
+        return sum(float(i.get("t12Total") or i.get("ggcUnderwritten") or 0)
+                   for i in by_cat.get(cat, []))
+
+    # Map canonical unit types → required income categories.
+    unit_to_cat = {
+        "TOH MH Site":        "Gross Potential Rent",
+        "POH-Infilled units": "Home Rent Income",
+        "Long term RV Site":  "RV Site Rental Income",
+        "Retail/Commercial":  "Retail Income",
+    }
+    unit_groups = rr.get("unitGroups") or []
+    rows = rr.get("rentRollRows") or []
+    type_counts = {}
+    for g in unit_groups:
+        t = (g.get("unitType") or "").strip()
+        type_counts[t] = type_counts.get(t, 0) + int(g.get("occupiedCount") or 0)
+    for r in rows:
+        if (r.get("status") or "").lower() == "occupied":
+            t = (r.get("unitType") or "").strip()
+            type_counts[t] = type_counts.get(t, 0) + 1
+
+    for unit_type, required_cat in unit_to_cat.items():
+        n = type_counts.get(unit_type, 0)
+        if n == 0:
+            continue
+        cat_total = _cat_total(required_cat)
+        if cat_total == 0:
+            checks.append({
+                "item": f"Rent-roll vs income parity: {unit_type}",
+                "check": f"Expect non-zero '{required_cat}' income",
+                "status": "fail",
+                "detail": (f"Rent roll has {n} occupied {unit_type} unit(s) "
+                           f"but '{required_cat}' income totals $0. The LLM "
+                           f"likely collapsed this revenue into another "
+                           f"category (most often Gross Potential Rent)."),
+            })
+        else:
+            checks.append({
+                "item": f"Rent-roll vs income parity: {unit_type}",
+                "check": f"'{required_cat}' present",
+                "status": "ok",
+                "detail": f"{n} unit(s) → ${cat_total:,.0f} income"
+            })
+
+    # GPR row-count sanity: if rent roll has multiple revenue streams,
+    # GPR (lot rent only) should be ONE row, not a sum of all streams.
+    gpr_rows = by_cat.get("Gross Potential Rent", [])
+    if len(gpr_rows) > 1:
+        checks.append({
+            "item": "Gross Potential Rent line count",
+            "check": "Expect 1 GL line under GPR (lot rent only)",
+            "status": "warn",
+            "detail": (f"GPR has {len(gpr_rows)} line items. Multiple GL "
+                       f"accounts under one GGC category sometimes "
+                       f"indicates duplication — confirm none of these are "
+                       f"actually RV / Storage / Retail."),
+        })
+
+    # NOI sanity — must be positive at the underwritten level.
+    inc_sum = sum(float(i.get("ggcUnderwritten") or 0) for i in income)
+    exp_sum = sum(float(e.get("ggcUnderwritten") or 0) for e in expenses)
+    noi = inc_sum - exp_sum
+    if inc_sum > 0:
+        if noi <= 0:
+            checks.append({
+                "item": "Underwritten NOI",
+                "check": "NOI > 0",
+                "status": "fail",
+                "detail": (f"NOI = ${noi:,.0f} (income ${inc_sum:,.0f} − "
+                           f"expenses ${exp_sum:,.0f}). Deal does not cover "
+                           f"its operating cost."),
+            })
+        else:
+            ratio = exp_sum / inc_sum if inc_sum else 0
+            status = ("warn" if (ratio < 0.20 or ratio > 0.65) else "ok")
+            checks.append({
+                "item": "Expense ratio",
+                "check": "25–55% typical for MHC, 35–50% for hybrid",
+                "status": status,
+                "detail": f"Underwritten expense ratio = {ratio:.1%}",
+            })
+
+    # Surface any methodology Pydantic validation failures captured by
+    # call_parse_financials so the reviewer sees them too.
+    for msg in financials.get("_methodologyValidation") or []:
+        checks.append({
+            "item": "Methodology schema validation",
+            "check": "Strict category enum",
+            "status": "fail",
+            "detail": msg,
+        })
+
+    return checks
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # N=3 EXTRACTION MAJORITY VOTE (Wang et al. self-consistency)
 # Runs extraction in parallel N times and field-merges. Median across runs
 # for numerics, mode for strings, union for nested lists. Surfaces a
@@ -4103,6 +4220,11 @@ def run_analysis_job(job_id, api_key, file_blocks, property_info):
             n_warn = sum(1 for c in checks if c["status"] == "warn")
             print(f"[Verify] {len(checks)} checks: {n_fail} fail, {n_warn} warn")
             financials = call_parse_financials(api_key, extracted, property_info)
+            # Methodology-side checks run AFTER categorization because they
+            # need both the income.ggcCategory tags and the rent roll's
+            # canonical unit types. This is where the lot-rent / RV-rent
+            # collapse bug would surface.
+            checks.extend(verify_methodology(financials))
             # Carry the raw extraction + checks through so they can be rendered
             # on the Extraction Check tab.
             financials["_extraction"] = extracted
