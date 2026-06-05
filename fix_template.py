@@ -264,7 +264,11 @@ for r in range(3, 1003):
 # we explicitly null the fill and font on row 151 across columns A-K
 # to match the empty rows above it.
 from openpyxl.styles import PatternFill, Font, Border, Side
-_clear_fill = PatternFill(fill_type=None)
+# PatternFill(fill_type=None) leaves fgColor defaulting to '00000000' (black)
+# in openpyxl's object model. Some Excel / LibreOffice renderers honor that
+# leftover fgColor and paint the cell black even though patternType is None.
+# Use an explicit solid white fill so the rendered cell is unambiguously white.
+_clear_fill = PatternFill(fill_type="solid", start_color="FFFFFFFF", end_color="FFFFFFFF")
 _clear_font = Font()
 _clear_border = Border(left=Side(border_style=None), right=Side(border_style=None),
                        top=Side(border_style=None), bottom=Side(border_style=None))
@@ -286,6 +290,27 @@ for col in range(1, 129):  # A-DX, full data width
     cell.fill = _clear_fill
     cell.font = _clear_font
     cell.border = _clear_border
+
+# Column I (Lot Rent) data cells carry font.color.theme=0 in the blank
+# template, which resolves to WHITE in the default Office theme — so any
+# Lot Rent values backend.py writes render as invisible white text on a
+# white cell. Clear the font override on I3:I1002 so the cells inherit
+# the default black text.
+for r in range(3, 1003):
+    rr.cell(row=r, column=9).font = _clear_font  # I — Lot Rent
+
+# Row 1 header strip: cells F1:T1 (between the "RENT ROLL" gray label in
+# A1:D1, the "MHC Only" / "Apartments" / "Other Income" / "Commercial Leases"
+# section labels, and the U1:AA1 white strip) carry PatternFill(fill_type=None)
+# with a leftover black fgColor. Renderers paint that as a wide black bar
+# across the top of the sheet. Force them to explicit white. Skip the four
+# section-label columns (E1, I1, N1, Q1) which carry intentional colored
+# fills.
+_label_cols_row1 = {5, 9, 14, 17}  # E, I, N, Q
+for col in range(6, 21):  # F..T
+    if col in _label_cols_row1:
+        continue
+    rr.cell(row=1, column=col).fill = _clear_fill
 
 # ── Data validations: scrub stale "Type 1/Type 2/Type 3..." dropdowns ──
 # The blank template carried six different DV ranges on column B (Unit ID)
@@ -428,6 +453,63 @@ umrg["F16"] = "=E16-$C$16"
 umrg["D17"] = "Vacancy"
 for col in ("E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O"):
     umrg[f"{col}17"] = f"=SUM({col}15:{col}16)/$D$12"
+
+# Number-format scrub. The blank template's UMRG grid carried a
+# leftover '0.0%' format on most of its data cells (it was previously
+# a per-year growth-rate-only grid). After we rewrote the cells to
+# hold dollar rents and unit counts, those percent formats made
+# values render as e.g. "12900.0%" (129 units) and "80002.0%" ($800
+# rent). Reset each cell to a format that matches the value it holds.
+_pct = '0.0%'
+_cur = '"$"#,##0'
+_int = '#,##0'
+_gen = 'General'
+
+# Row 4: "Year N" column headers → text
+for col in year_cols:
+    umrg[f"{col}4"].number_format = _gen
+# Rows 5-6: per-type per-year growth rates → percent
+for col in year_cols:
+    umrg[f"{col}5"].number_format = _pct
+    umrg[f"{col}6"].number_format = _pct
+
+# Row 9: column headers
+for col in ["C", "D", "E"] + projection_cols:
+    umrg[f"{col}9"].number_format = _gen
+
+# Rows 10-11: per-type projection grid
+for r in (10, 11):
+    umrg[f"B{r}"].number_format = _pct          # share of total units
+    umrg[f"C{r}"].number_format = _gen          # unit type name
+    umrg[f"D{r}"].number_format = _int          # # of units
+    for col in ["E"] + projection_cols:         # rent + Y1..Y10
+        umrg[f"{col}{r}"].number_format = _cur
+
+# Row 12: weighted-average roll-up
+umrg["B12"].number_format = _pct                # weights sum
+umrg["C12"].number_format = _gen
+umrg["D12"].number_format = _int
+for col in ("E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O"):
+    umrg[f"{col}12"].number_format = _cur
+
+# Row 13: $ change vs prior year → currency
+for col in ("F", "G", "H", "I", "J", "K", "L", "M", "N", "O"):
+    umrg[f"{col}13"].number_format = _cur
+
+# Row 14: annual GPR is already _cur per the assignment above, but
+# re-assert defensively for any years the template left in General.
+for col in ("E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O"):
+    umrg[f"{col}14"].number_format = _cur
+
+# Rows 15-16: vacant lot/home counts → integer
+umrg["C15"].number_format = _int
+umrg["C16"].number_format = _int
+for col in ("E", "F"):
+    umrg[f"{col}15"].number_format = _int
+    umrg[f"{col}16"].number_format = _int
+# Row 17: vacancy % → percent
+for col in ("E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O"):
+    umrg[f"{col}17"].number_format = _pct
 
 # Wire stabilized GPR on Underwriting to Unit Mix Rent Growth H14 (Year
 # 3 GPR), matching CorrectOutput's reference.
@@ -952,7 +1034,10 @@ pf["A47"] = "Home Rent Exp Ratio"   # A47 was empty; B47 had value 0.15 only
 # 930-row coloured block in the partner's view). Clear fill on every
 # cell that has no value AND no formula, across these known clusters.
 from openpyxl.styles import PatternFill as _PF
-_no_fill = _PF(fill_type=None)
+# Explicit solid white instead of fill_type=None — see comment on
+# _clear_fill above. fill_type=None leaves fgColor='00000000' in
+# openpyxl's serialized output and some renderers paint that as black.
+_no_fill = _PF(fill_type="solid", start_color="FFFFFFFF", end_color="FFFFFFFF")
 ORPHAN_FILL_CLEARS = [
     # CRITICAL visible colors past data
     ("Rent Roll Input",          "B3:B1002"),   # pink strip is the biggest offender
@@ -1216,6 +1301,279 @@ lsq = wb["Loan Scenario (acquisition)"]
 lsq["P8"] = "=SUM(H43:H54)"
 lsq["T8"] = "=SUM(H91:H102)"
 lsq["U8"] = "=SUM(H103:H114)"
+
+# ════════════════════════════════════════════════════════════════════════
+# 19. RIGHT-SIDE PROPERTY INFO BLOCK — match CorrectOutput exactly
+# ════════════════════════════════════════════════════════════════════════
+# DemoOutput5 shipped with three problems in the M:T area:
+#   1. Column widths were wrong: M ballooned to 90 (labels overflowed),
+#      while N was 9.8 (values truncated). Net effect was the property
+#      info table didn't sit inside a coherent grid.
+#   2. A duplicate pricing block was scattered at Q4:R10 and a second
+#      valuation table at Q12:T14 — both broken (#DIV/0 from empty
+#      inputs) and visually disconnected from the main M-P block.
+#   3. CorrectOutput's Q3:R8 utility block (WEBSITE, Year Built, Flood
+#      Zone, Utility Structure, Electricity, Trash) and the entire Tax
+#      Analysis Section at M19:R34 were missing.
+# This section rebuilds the right-side layout to mirror CorrectOutput:
+#   - M2:R2     Underwritten Date row
+#   - M3:R3     Property Information section header + WEBSITE row
+#   - M4:R10    3-column subject block: M-N (property attrs), O-P
+#               (pricing), Q-R (utilities / year / flood)
+#   - M13:P16   Bifurcated valuation table (kept from section 13)
+#   - M19:R22   Tax Analysis Section: header URL, Assessed Value,
+#               Levy Rate, Estimated Tax
+#   - M24       "2024-2025" sub-header
+#   - M25:R33   7-row parcel-level tax table + SUM row
+# Backend.py populates Underwritten Date, property values, website URL,
+# year built, flood zone, utility structure, electricity, trash, and
+# parcel-level tax data when extracted; cells stay blank otherwise.
+
+from openpyxl.styles import Alignment as _Align
+
+uw = wb["GGC Underwriting"]
+
+# ── 19a. Column widths to match CorrectOutput ─────────────────────────
+# Wrong widths were the root cause of "items hanging out of the table"
+# in DemoOutput5: M was 90 (too wide), N was 9.8 (too narrow), so
+# labels overflowed and values truncated. Restore CorrectOutput widths.
+_widths = {"L": 10, "M": 34, "N": 46, "O": 25, "P": 18,
+           "Q": 18, "R": 36, "S": 10, "T": 14}
+for col, w in _widths.items():
+    uw.column_dimensions[col].width = w
+
+# ── 19b. Strip stray cells from the broken duplicate blocks ──────────
+# DemoOutput5 had a second pricing column at Q4:R10 (Purchase/Offer
+# Price duplicated, with R5/R6/R10 formulas referencing nonexistent R4)
+# and a second valuation table at Q12:T14 producing #DIV/0. Both were
+# left over from an abandoned "two-scenario" layout. Clear them.
+_clear_cells = ["P2",                              # orphan date (moves to N2)
+                "S4", "S5",                        # orphan "Homes/Utilities"
+                "Q9", "R9", "Q10", "R10",          # duplicate Asking Price
+                "Q12", "R12", "S12", "T12",        # duplicate valuation hdr
+                "Q13", "R13", "S13", "T13",        # duplicate valuation row
+                "R14", "S14", "T14",               # duplicate valuation row
+                "R15", "S15", "T15",               # duplicate valuation row
+                "R16", "S16", "T16"]               # duplicate valuation row
+for coord in _clear_cells:
+    cell = uw[coord]
+    cell.value = None
+    cell.fill = _clear_fill
+    cell.font = _clear_font
+    cell.border = _clear_border
+# Q4-Q8, R4-R8 get rewritten below (utility block); Q14:Q15 are kept
+# (they hold the "Methodology range: X-Y%" annotations from section 16f).
+
+# ── 19c. Style helpers (theme-0 = default white background) ──────────
+_navy_fill = PatternFill("solid", fgColor="FF002060")
+_white_bold = Font(bold=True, color="FFFFFFFF", name="Calibri")
+_label_bold = Font(bold=True, name="Calibri")
+_thin = Side(border_style="thin", color="FF000000")
+_box = Border(left=_thin, right=_thin, top=_thin, bottom=_thin)
+_align_left = _Align(horizontal="left", vertical="center")
+_align_right = _Align(horizontal="right", vertical="center")
+_align_center = _Align(horizontal="center", vertical="center")
+
+def _label(coord, text):
+    c = uw[coord]
+    c.value = text
+    c.font = _label_bold
+    c.border = _box
+    c.alignment = _align_left
+
+def _value(coord, value, num_format="General", bold=False, align="left"):
+    c = uw[coord]
+    c.value = value
+    c.font = _label_bold if bold else Font(name="Calibri")
+    c.border = _box
+    c.number_format = num_format
+    c.alignment = _align_left if align == "left" else (_align_right if align == "right" else _align_center)
+
+# ── 19d. Underwritten Date row (M2:N2) ────────────────────────────────
+uw["M2"] = "Underwritten Date"
+uw["M2"].font = _label_bold
+uw["M2"].alignment = _align_left
+# N2 left blank for backend to stamp with today's date; format is set
+# so when backend writes a datetime it renders as "Monday, Feb 9, 2026".
+uw["N2"] = None
+uw["N2"].number_format = "[$-F800]dddd\\,\\ mmmm\\ dd\\,\\ yyyy"
+
+# ── 19e. Section header M3:R3 ─────────────────────────────────────────
+# Navy band across M3:R3 with "Property Information" on the left and
+# the WEBSITE label/value on the right (Q3:R3). Matches CorrectOutput's
+# single-row header where the website URL sits inline with the section
+# title rather than as a separate row below.
+for coord in ("M3", "N3", "O3", "P3"):
+    uw[coord].fill = _navy_fill
+    uw[coord].font = _white_bold
+uw["M3"] = "Property Information"
+uw["M3"].alignment = _align_left
+uw["Q3"] = "WEBSITE"
+uw["Q3"].font = _label_bold
+uw["Q3"].alignment = _align_left
+uw["R3"] = None   # backend writes the property listing URL here
+
+# ── 19f. Three-column subject block M4:R10 ────────────────────────────
+# Column M = property attribute label, N = value
+# Column O = pricing label, P = pricing value/formula
+# Column Q = utility/build attribute label, R = value
+_label("M4",  "Property Name")
+_label("M5",  "Property Address")
+_label("M6",  "Property Type")
+_label("M7",  "# of Units ")        # trailing space matches CorrectOutput
+_label("M8",  "Rent Roll Occupancy")
+_label("M9",  "Acreage")
+_label("M10", "County")
+
+# N column values (some are formulas already wired; ensure borders).
+for coord, formula, fmt in (
+    ("N4", None,                         "General"),
+    ("N5", None,                         "General"),
+    ("N6", None,                         "General"),
+    ("N7", "='Unit Mix Summary'!E8",     "0"),
+    ("N8", "='Unit Mix Summary'!C13",    "0.00%"),
+    ("N9", None,                         "General"),
+    ("N10", None,                        "General"),
+):
+    c = uw[coord]
+    if formula is not None:
+        c.value = formula
+    c.font = Font(name="Calibri")
+    c.border = _box
+    c.number_format = fmt
+    c.alignment = _align_left
+
+# Pricing column (O-P)
+_label("O4",  "Purchase/Offer Price")
+_label("O5",  "Purchase Price Per Site")
+_label("O6",  "Underwritten CAP rate")
+_label("O7",  "Stabilized YOC")
+# O8 stays blank (sits next to Rent Roll Occupancy on N8)
+_label("O9",  "Asking Price by Seller")
+_label("O10", "Asking Price Per Site ")  # trailing space matches CorrectOutput
+
+# P column pricing values (formulas set elsewhere; ensure formatting).
+for coord, formula, fmt in (
+    ("P4",  "=IFERROR(IF(ISNUMBER(P9),P9,0),0)",      '"$"#,##0'),
+    ("P5",  "=P4/N7",                                  '"$"#,##0'),
+    ("P6",  "=I47/P4",                                 "0.00%"),
+    ("P7",  "=G47/'Sources and Uses'!C18",             "0.00%"),
+    ("P9",  None,                                       '"$"#,##0'),
+    ("P10", "=P9/N7",                                  '"$"#,##0'),
+):
+    c = uw[coord]
+    if formula is not None and c.value in (None, 0):
+        c.value = formula
+    elif formula is not None and isinstance(c.value, str) and not c.value.startswith("="):
+        c.value = formula
+    c.font = Font(name="Calibri")
+    c.border = _box
+    c.number_format = fmt
+    c.alignment = _align_right
+
+# Utility / build attribute column (Q-R). Q3 already set (WEBSITE).
+_label("Q4", "Year Built")
+_label("Q5", "Flood Zone")
+_label("Q6", "Utility Structure")
+_label("Q7", "Electricity")
+_label("Q8", "Trash")
+# Q9/Q10 stay blank (alignment with Asking Price rows on the O-P side).
+# R4:R8 values written by backend; just set borders + alignment now.
+for coord in ("R4", "R5", "R6", "R7", "R8"):
+    c = uw[coord]
+    c.value = None
+    c.font = Font(name="Calibri")
+    c.border = _box
+    c.alignment = _align_left
+    c.number_format = "General"
+
+# ── 19g. Tax Analysis Section M19:R33 ─────────────────────────────────
+# Three-row summary (Assessed Value / Levy Rate / Estimated Tax) plus
+# a 7-row parcel-level table feeding the levy %. Section is purely
+# informational — does NOT feed into I22 (RE Taxes), which stays on
+# the per-unit J22*N7 formula per partner direction.
+uw["M19"] = "Tax Analysis Section"
+uw["M19"].font = _label_bold
+uw["M19"].alignment = _align_left
+# N19 holds the county tax-assessor URL (backend writes when known).
+uw["N19"] = None
+uw["N19"].font = Font(name="Calibri", color="FF0000FF", underline="single")
+uw["N19"].alignment = _align_left
+
+_label("M20", "Assessed Value ")     # trailing space matches CorrectOutput
+_label("M21", "Levy Rate")
+_label("M22", "Estimated Tax")
+
+# Summary formulas. Default to the CorrectOutput approach: Assessed
+# Value = 75% of Purchase Price scaled by the parcel-table's MV/AV
+# ratio (O34); Levy Rate = parcel-weighted (Q33); Estimated Tax =
+# product of the two. If the parcel table is empty the formulas
+# resolve to 0 — that's the signal to the reviewer to populate it.
+for coord, formula, fmt in (
+    ("N20", "=IFERROR(P4*75%*O34,0)",   '"$"#,##0'),
+    ("N21", "=IFERROR(Q33,0)",          "0.00%"),
+    ("N22", "=N20*N21",                 '"$"#,##0'),
+):
+    c = uw[coord]
+    c.value = formula
+    c.font = _label_bold
+    c.border = _box
+    c.number_format = fmt
+    c.alignment = _align_right
+
+# Date / period sub-header
+uw["M24"] = "2024-2025"
+uw["M24"].font = _label_bold
+uw["M24"].alignment = _align_left
+
+# Parcel table headers (M25:R25). Six columns wide.
+_PARCEL_HEADERS = [
+    ("M25", "Parcel"),       ("N25", "MV"),       ("O25", "Taxable Value"),
+    ("P25", "Taxes"),        ("Q25", "Levy%"),    ("R25", "Acres"),
+]
+for coord, label in _PARCEL_HEADERS:
+    c = uw[coord]
+    c.value = label
+    c.font = _label_bold
+    c.border = _box
+    c.alignment = _align_center
+
+# 7 empty parcel rows (M26:R32). Backend fills if parcel data is
+# extracted; otherwise the reviewer types county-record data in here.
+for r in range(26, 33):
+    for col, fmt in (("M", "General"), ("N", '"$"#,##0'),
+                      ("O", '"$"#,##0'), ("P", '"$"#,##0'),
+                      ("Q", "General"),  ("R", "General")):
+        c = uw[f"{col}{r}"]
+        c.value = None
+        c.font = Font(name="Calibri")
+        c.border = _box
+        c.number_format = fmt
+        c.alignment = _align_right if col != "M" else _align_left
+
+# Sum row at row 33: total MV, total Taxable Value, total Taxes, and
+# implied levy rate (P33/O33). Yellow highlight on P33/Q33 mirrors
+# CorrectOutput's call-out of the two key derived numbers.
+for coord, formula, fmt, highlight in (
+    ("N33", "=SUM(N26:N32)",         '"$"#,##0',  False),
+    ("O33", "=SUM(O26:O32)",         '"$"#,##0',  False),
+    ("P33", "=SUM(P26:P32)",         '"$"#,##0',  True),
+    ("Q33", "=IFERROR(P33/O33,0)",   "0.00%",     True),
+):
+    c = uw[coord]
+    c.value = formula
+    c.font = _label_bold
+    c.border = _box
+    c.number_format = fmt
+    c.alignment = _align_right
+    if highlight:
+        c.fill = PatternFill("solid", fgColor="FFFFFF00")
+
+# Below the SUM row: O34 = MV/AV ratio used by N20's Assessed Value
+# formula above. No border, no fill — sits as a quiet computed input.
+uw["O34"] = "=IFERROR(O33/N33,0)"
+uw["O34"].number_format = "0.00%"
+uw["O34"].font = Font(name="Calibri", italic=True, color="FF6B7280")
 
 wb.save(TEMPLATE)
 print(f"Patched {TEMPLATE.name}")

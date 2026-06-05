@@ -1553,6 +1553,31 @@ METHODOLOGY_OUTPUT_SCHEMA = {
                 "stabilizedYieldOnCost":   {"type": "number"},
                 "spreadBps":               {"type": "integer"},
                 "meetsInvestmentCriteria": {"type": "boolean"},
+                # Optional metadata fields used to populate the Property
+                # Information block on the Underwriting tab. All optional
+                # — the LLM emits them only when the OM/T12/listing
+                # surfaces the value; the cells stay blank otherwise so
+                # the reviewer can fill them in by hand.
+                "yearBuilt":         {"type": ["integer", "null"]},
+                "websiteUrl":        {"type": ["string", "null"]},
+                "acreage":           {"type": ["number", "null"]},
+                "utilityStructure":  {"type": ["string", "null"]},
+                "electricityNotes":  {"type": ["string", "null"]},
+                "trashNotes":        {"type": ["string", "null"]},
+                "taxAssessorUrl":    {"type": ["string", "null"]},
+                "taxParcels": {
+                    "type": ["array", "null"],
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "parcelId":     {"type": ["string", "null"]},
+                            "marketValue":  {"type": ["number", "null"]},
+                            "taxableValue": {"type": ["number", "null"]},
+                            "taxes":        {"type": ["number", "null"]},
+                            "acres":        {"type": ["number", "null"]},
+                        },
+                    },
+                },
             },
         },
         "income":   {"type": "array", "items": _methodology_line_schema(GGC_INCOME_CATEGORIES)},
@@ -2936,6 +2961,20 @@ POH percentage cross-check: If POH > 20% and you see no Home Rent Expense in the
   * Lot Rent NOI: capitalize at market cap rate for the asset class and submarket (typically 5-7%)
   * Home Rent NOI: capitalize at a higher cap rate (typically 12-15%) reflecting the lower quality of that income stream
 
+### PROPERTY INFORMATION BLOCK (Underwriting tab right-side metadata)
+The Underwriting tab carries a "Property Information" block at columns M:R.
+Populate the optional fields below ONLY when the OM, listing, or T12 documents
+state them explicitly. Leave as null if not found — do NOT guess.
+- yearBuilt: integer year (e.g. 2015). From OM "Year Built" field.
+- websiteUrl: broker / property listing URL if present (e.g. flintstoneproperties.com/properties/X)
+- acreage: total acres (number). From OM "Acreage" or "Total Acres".
+- utilityStructure: short phrase describing water/sewer setup (e.g. "Private Well & Septic")
+- electricityNotes: who pays / structure (e.g. "owner paid — sub-metered & billed back")
+- trashNotes: who pays / structure (e.g. "covered through county taxes")
+- taxAssessorUrl: county tax-assessor lookup URL if mentioned
+- taxParcels: array of parcel-level tax records if the OM includes a parcel table
+  (each: parcelId, marketValue, taxableValue, taxes, acres). All fields nullable.
+
 ## Output (JSON only, no prose, no fences)
 
 {{
@@ -2946,7 +2985,15 @@ POH percentage cross-check: If POH > 20% and you see no Home Rent Expense in the
     "ingoingCapRate": number,
     "stabilizedYieldOnCost": number,
     "spreadBps": integer,
-    "meetsInvestmentCriteria": boolean
+    "meetsInvestmentCriteria": boolean,
+    "yearBuilt": integer or null,
+    "websiteUrl": "string" or null,
+    "acreage": number or null,
+    "utilityStructure": "string" or null,
+    "electricityNotes": "string" or null,
+    "trashNotes": "string" or null,
+    "taxAssessorUrl": "string" or null,
+    "taxParcels": [{{"parcelId", "marketValue", "taxableValue", "taxes", "acres"}}] or null
   }},
   "income": [
     {{
@@ -3609,13 +3656,71 @@ def fill_template(financials, market, output_path):
         underw["N5"] = prop.get("address")
     if prop.get("propertyType"):
         underw["N6"] = prop.get("propertyType")
+    if prop.get("acreage") is not None:
+        underw["N9"] = prop.get("acreage")
     if prop.get("county"):
         underw["N10"] = prop.get("county")
 
     # County tax rate (countyTaxRate) and flood zone (floodZone) are
-    # deliberately NOT written to the underwriting tab. Partner direction:
+    # deliberately NOT written to the I22/I23 cells. Partner direction:
     # keep I22 = J22*N7 (per-unit) and I23 = D23*1.05 (T12 × 1.05) — no
-    # methodology MAX branches, no flood surcharge.
+    # methodology MAX branches, no flood surcharge. The Flood Zone is
+    # still written below to R5 as informational metadata only.
+
+    # Underwritten date stamp at N2. Today's date is the default; the
+    # reviewer can overwrite in-cell if they want to date-stamp to a
+    # different reference period. M2 holds the label (set in
+    # fix_template.py section 19d).
+    from datetime import datetime as _dt
+    underw["N2"] = _dt.now()
+    underw["N2"].number_format = "[$-F800]dddd\\,\\ mmmm\\ dd\\,\\ yyyy"
+
+    # Right-side utility / build metadata block (Q3:R8). Each row is
+    # optional — write only when the methodology agent extracted a real
+    # value, otherwise leave the template's blank cell alone.
+    if prop.get("websiteUrl"):
+        underw["R3"] = prop.get("websiteUrl")
+    if prop.get("yearBuilt") is not None:
+        underw["R4"] = prop.get("yearBuilt")
+    # Flood Zone: the user's form value takes precedence (they know the
+    # zone from their own due diligence), with methodology extraction as
+    # the fallback. Skip the placeholder string "unknown".
+    fz = prop.get("floodZone")
+    if fz and str(fz).strip().lower() not in ("", "unknown", "none"):
+        underw["R5"] = fz
+    if prop.get("utilityStructure"):
+        underw["R6"] = prop.get("utilityStructure")
+    if prop.get("electricityNotes"):
+        underw["R7"] = prop.get("electricityNotes")
+    if prop.get("trashNotes"):
+        underw["R8"] = prop.get("trashNotes")
+
+    # Tax Analysis Section (M19:R33). N19 holds the county assessor URL
+    # if the methodology found one; parcel rows go into M26:R32. The
+    # summary formulas at N20/N21/N22 are wired in fix_template.py to
+    # the parcel table, so populating the table cascades into the
+    # Assessed Value / Levy Rate / Estimated Tax cells automatically.
+    if prop.get("taxAssessorUrl"):
+        underw["N19"] = prop.get("taxAssessorUrl")
+    parcels = prop.get("taxParcels") or []
+    if isinstance(parcels, list):
+        # Write up to 7 parcels into rows 26-32. Excess parcels are
+        # dropped (the table is fixed-height in the template); under-7
+        # parcel sets leave trailing rows blank.
+        for i, parcel in enumerate(parcels[:7]):
+            r = 26 + i
+            if not isinstance(parcel, dict):
+                continue
+            if parcel.get("parcelId"):
+                underw[f"M{r}"] = parcel.get("parcelId")
+            if parcel.get("marketValue") is not None:
+                underw[f"N{r}"] = parcel.get("marketValue")
+            if parcel.get("taxableValue") is not None:
+                underw[f"O{r}"] = parcel.get("taxableValue")
+            if parcel.get("taxes") is not None:
+                underw[f"P{r}"] = parcel.get("taxes")
+            if parcel.get("acres") is not None:
+                underw[f"R{r}"] = parcel.get("acres")
 
     # Force Excel to recalculate every formula when the user opens the
     # output. Without these flags, openpyxl-written formulas show as
@@ -4421,6 +4526,14 @@ def run_analysis_job(job_id, api_key, file_blocks, property_info):
             if property_info.get("countyTaxRate"):
                 financials.setdefault("propertyInfo", {})["countyTaxRate"] = \
                     property_info.get("countyTaxRate")
+            # Same pattern for the user's flood-zone input: methodology
+            # may extract one from the OM but the user's form value is
+            # more authoritative (they've consulted FEMA maps). Falls
+            # back to the methodology value when no form input was given.
+            if property_info.get("floodZone") and \
+               str(property_info.get("floodZone")).strip().lower() not in ("", "unknown"):
+                financials.setdefault("propertyInfo", {})["floodZone"] = \
+                    property_info.get("floodZone")
             # Methodology-side checks run AFTER categorization because they
             # need both the income.ggcCategory tags and the rent roll's
             # canonical unit types. This is where the lot-rent / RV-rent
