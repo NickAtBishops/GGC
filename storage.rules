@@ -1,0 +1,18 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Finished underwriting models live at runs/{uid}/{jobId}.xlsx — readable
+    // only by the owning user. Uploads come from the engine's Admin SDK
+    // (bypasses rules), so clients get no write access.
+    match /runs/{uid}/{allPaths=**} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if false;
+    }
+
+    // Deny-by-default for everything else (including seller doc uploads,
+    // which currently go straight to the engine, not to Storage).
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

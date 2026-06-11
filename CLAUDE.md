@@ -86,7 +86,9 @@ period), it should surface the issue for the user to resolve — transparency ov
   category strings must be preserved — do not regenerate it from scratch.
 - **APIs/services:** Anthropic Claude API (extraction + methodology), Google Document AI
   (PDF parsing), Google Maps Static + Street View (property images).
-- **Deployment:** Vercel. Live demo at ggcunderwritingdemo.com.
+- **Deployment:** engine → Cloud Run (`Dockerfile` here, single instance), web app → Vercel
+  (`web/`, Next.js + Firebase Auth), persistence → Firebase (Firestore `deal_runs` + Storage).
+  See `DEPLOYMENT.md` for the full runbook. Legacy demo: ggcunderwritingdemo.com.
 
 ### The pipeline (current design)
 
@@ -94,7 +96,7 @@ The financial side runs as a **multi-stage sequence**, deliberately split so eac
 one job well instead of one giant call doing everything (the single-call design was a major
 source of the accuracy problems):
 
-1. **Extraction** — Sonnet (deterministic settings) reads the Document-AI-parsed documents and
+1. **Extraction** — Fable 5 (no thinking) reads the Document-AI-parsed documents and
    pulls clean numbers: every line item with 12 monthly values + annual total, the correct
    reporting period, and the rent roll. **No GGC categorization here** — just faithful
    transcription.
@@ -102,8 +104,8 @@ source of the accuracy problems):
    (monthlies → annual, rows → unit count, period is a full 12 months). Produces OK/WARN/FAIL
    checks surfaced on an **"Extraction Check" tab** so the reviewer can confirm the numbers tie
    before trusting anything downstream.
-3. **Methodology** — Opus applies GGC's categorization and underwriting logic to the clean,
-   verified data. Works from the extracted JSON, not the raw PDFs.
+3. **Methodology** — Fable 5 (adaptive thinking) applies GGC's categorization and underwriting
+   logic to the clean, verified data. Works from the extracted JSON, not the raw PDFs.
 4. **Market research** — runs in parallel; web-searches for comps, market rents, alternative
    housing data.
 
@@ -163,9 +165,12 @@ if it's in their template — the SUMIFS formulas key off the exact strings.
 - **Don't break the template wiring.** The Excel template's formulas depend on exact category
   strings and cell positions. Changes to categorization must stay consistent with what the
   template expects.
-- **Models:** extraction uses a deterministic Sonnet config (temperature=0, no thinking);
-  methodology and market research use Opus (adaptive thinking, no temperature param — Opus 4.7+
-  rejects temperature/top_p/top_k). Pin model versions explicitly; don't use `-latest`.
+- **Models:** all three stages run **Claude Fable 5** (`claude-fable-5` — the complete ID per
+  Anthropic docs; no date suffix exists). Extraction = no thinking (Fable 5 rejects
+  temperature/top_p/top_k AND an explicit thinking:"disabled" — `call_claude` omits both);
+  methodology + market = adaptive thinking with `THINKING_EFFORT` (default high). Env overrides
+  per stage still work (e.g. `MODEL_EXTRACTION=claude-sonnet-4-6` for A/B runs —
+  `_accepts_sampling` re-attaches temperature=0 automatically). Don't use `-latest`.
 - **Cost is not the constraint; accuracy is.** Don't avoid an extra API call or a more capable
   model to save a few cents per deal if it improves accuracy or consistency.
 

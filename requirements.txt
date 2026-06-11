@@ -1,0 +1,12 @@
+# GGC Deal Engine — analysis engine dependencies.
+# Floors match the APIs the code uses (pydantic v2 validators, Flask 3).
+flask>=3.0,<4
+flask-cors>=4.0
+gunicorn>=22.0
+requests>=2.31
+openpyxl>=3.1
+pillow>=10.0
+python-dotenv>=1.0
+pydantic>=2.5,<3
+google-cloud-documentai>=2.24
+firebase-admin>=6.5

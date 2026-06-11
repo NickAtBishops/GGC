@@ -1,0 +1,18 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Run history: a signed-in user can read only their own runs.
+    // ALL writes happen through the engine's Admin SDK (which bypasses
+    // rules), so clients get no write access at all.
+    match /deal_runs/{runId} {
+      allow read: if request.auth != null
+                  && request.auth.uid == resource.data.uid;
+      allow write: if false;
+    }
+
+    // Deny-by-default for everything else.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

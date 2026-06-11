@@ -1,0 +1,214 @@
+// Typed fetch helpers for the three deal-engine endpoints:
+//   POST /api/analyze        → { job_id }
+//   GET  /api/status/{id}    → { status, progress, result, error? }
+//   GET  /api/download/{id}  → .xlsx attachment
+
+const ENGINE_URL = (
+  process.env.NEXT_PUBLIC_ENGINE_URL || "http://localhost:5001"
+).replace(/\/+$/, "");
+
+// ─────────────────────────── Form fields (analyze) ──────────────────────────
+
+export type FloodZone = "unknown" | "no" | "yes";
+
+/** Exact multipart field names the engine expects (mirrors index.html). */
+export interface DealFormFields {
+  property_name: string;
+  address: string;
+  city: string;
+  state: string;
+  county: string;
+  county_tax_rate: string;
+  units: string;
+  poh_count: string;
+  asking_price: string;
+  flood_zone: FloodZone;
+  deep_search: boolean;
+}
+
+// ───────────────────── Engine response types (contract) ─────────────────────
+
+export interface FinancialLine {
+  sellerLabel?: string;
+  ggcCategory?: string;
+  ggcUnderwritten?: number;
+}
+
+export interface DiligenceFlag {
+  severity?: string;
+  item?: string;
+  issue?: string;
+}
+
+export interface PropertyInfo {
+  askingPrice?: number;
+  totalUnits?: number;
+}
+
+export interface RentRollSummary {
+  occupancyRate?: number;
+}
+
+export interface Financials {
+  propertyInfo?: PropertyInfo;
+  rentRoll?: RentRollSummary;
+  income?: FinancialLine[];
+  expenses?: FinancialLine[];
+  flags?: DiligenceFlag[];
+}
+
+export interface RentComp {
+  lotRent?: number;
+}
+
+export interface MarketData {
+  rentComps?: RentComp[];
+  saleComps?: unknown[];
+  demandSignal?: string;
+}
+
+export interface UsageTotals {
+  cost_usd?: number;
+}
+
+export interface Usage {
+  totals?: UsageTotals;
+  calls?: number;
+}
+
+export interface JobResult {
+  financials?: Financials;
+  market?: MarketData;
+  /** Engine-relative path, e.g. "/api/download/<job_id>". */
+  download_url: string;
+  usage?: Usage;
+}
+
+export type JobState = "queued" | "running" | "complete" | "error";
+
+export interface JobStatus {
+  status: JobState;
+  progress?: string;
+  result?: JobResult | null;
+  error?: string;
+}
+
+// ─────────────────────────────── Internals ──────────────────────────────────
+
+function resolveEngineUrl(pathOrUrl: string): string {
+  if (/^https?:\/\//i.test(pathOrUrl)) return pathOrUrl;
+  return `${ENGINE_URL}${pathOrUrl.startsWith("/") ? "" : "/"}${pathOrUrl}`;
+}
+
+async function engineFetch(pathOrUrl: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(resolveEngineUrl(pathOrUrl), init);
+  } catch {
+    throw new Error(
+      `Could not reach the deal engine at ${ENGINE_URL}. ` +
+        `Check that it is running and that NEXT_PUBLIC_ENGINE_URL is correct.`,
+    );
+  }
+}
+
+async function readJson(res: Response): Promise<Record<string, unknown> | null> {
+  try {
+    return (await res.json()) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function serverError(data: Record<string, unknown> | null, fallback: string): string {
+  return data && typeof data.error === "string" && data.error ? data.error : fallback;
+}
+
+// ─────────────────────────────── Endpoints ──────────────────────────────────
+
+/** POST /api/analyze — multipart upload. Resolves to the new job id. */
+export async function startAnalysis(fields: DealFormFields, files: File[]): Promise<string> {
+  const fd = new FormData();
+  fd.append("property_name", fields.property_name);
+  fd.append("address", fields.address);
+  fd.append("city", fields.city);
+  fd.append("state", fields.state);
+  fd.append("county", fields.county);
+  fd.append("county_tax_rate", fields.county_tax_rate);
+  fd.append("units", fields.units);
+  fd.append("poh_count", fields.poh_count || "0");
+  fd.append("asking_price", fields.asking_price);
+  fd.append("flood_zone", fields.flood_zone);
+  fd.append("deep_search", fields.deep_search ? "on" : "off");
+  for (const file of files) fd.append("files", file);
+
+  const res = await engineFetch("/api/analyze", { method: "POST", body: fd });
+  const data = await readJson(res);
+
+  if (!res.ok) {
+    throw new Error(serverError(data, `Upload failed (HTTP ${res.status}).`));
+  }
+  if (!data || typeof data.job_id !== "string" || !data.job_id) {
+    throw new Error("The engine did not return a job id.");
+  }
+  return data.job_id;
+}
+
+/** GET /api/status/{job_id} — poll while queued/running. */
+export async function getJobStatus(jobId: string): Promise<JobStatus> {
+  const res = await engineFetch(`/api/status/${encodeURIComponent(jobId)}`, {
+    method: "GET",
+    cache: "no-store",
+  });
+  const data = await readJson(res);
+
+  if (!res.ok) {
+    throw new Error(serverError(data, `Status check failed (HTTP ${res.status}).`));
+  }
+  if (!data || typeof data.status !== "string") {
+    throw new Error("The engine returned an unexpected status payload.");
+  }
+  return data as unknown as JobStatus;
+}
+
+function filenameFromDisposition(header: string | null): string | null {
+  if (!header) return null;
+  // RFC 5987 form: filename*=UTF-8''GGC%20UW.xlsx
+  const star = /filename\*\s*=\s*(?:UTF-8|utf-8)''([^;]+)/.exec(header);
+  if (star?.[1]) {
+    try {
+      return decodeURIComponent(star[1].trim().replace(/^"|"$/g, ""));
+    } catch {
+      // fall through to the plain form
+    }
+  }
+  // Plain form: filename="GGC UW.xlsx" or filename=GGC_UW.xlsx
+  const plain = /filename\s*=\s*("?)([^";]+)\1/i.exec(header);
+  if (plain?.[2]) return plain[2].trim();
+  return null;
+}
+
+/**
+ * GET /api/download/{job_id} — fetch as blob → object URL → programmatic <a download> click.
+ * `downloadUrl` is the engine-relative path from the job result.
+ */
+export async function downloadExcel(downloadUrl: string): Promise<void> {
+  const res = await engineFetch(downloadUrl, { method: "GET" });
+
+  if (!res.ok) {
+    const data = await readJson(res);
+    throw new Error(serverError(data, `Download failed (HTTP ${res.status}).`));
+  }
+
+  const blob = await res.blob();
+  const filename =
+    filenameFromDisposition(res.headers.get("Content-Disposition")) ?? "GGC_Underwriting.xlsx";
+
+  const objectUrl = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = objectUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 10_000);
+}

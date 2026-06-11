@@ -1,0 +1,28 @@
+# Never bake secrets into the image — they're injected as Cloud Run env vars.
+.env
+gcp-credentials.json
+*.key
+*.pem
+
+# Not part of the engine image
+web/
+jobs/
+img_cache/
+extraction_cache/
+.git/
+.claude/
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.bak
+.DS_Store
+fix_template.py
+README.md
+CLAUDE.md
+DEPLOYMENT.md
+firebase.json
+.firebaserc
+firestore.rules
+storage.rules
+firestore.indexes.json

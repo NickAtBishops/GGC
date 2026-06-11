@@ -46,28 +46,38 @@ from pydantic import BaseModel, Field, ValidationError, field_validator, model_v
 # CONFIG
 # ═══════════════════════════════════════════════════════════════════════════
 ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
-# Two-stage financial pipeline:
-#   EXTRACTION  → Sonnet 4.6 at temperature=0. Deterministic. Just reads the
-#                 documents and pulls clean numbers. Same input → same output.
-#   METHODOLOGY → Opus 4.8 (effort=high by default). Judgment-heavy: GGC
-#                 categorization, collections, POH bifurcation, taxes. Opus 4.8
-#                 flags its own uncertainty better, which matters for underwriting.
-# NOTE: Opus 4.8 (like 4.7) does NOT accept temperature/top_p/top_k — only
-# adaptive thinking. So temperature=0 is only used on the Sonnet extraction call.
-#
-# Pin model versions explicitly. Bare aliases like "claude-sonnet-4-6" silently
-# re-point to new snapshots over time — a hidden source of run-to-run variance.
-# Override via env once a dated snapshot is confirmed in the Anthropic docs.
-MODEL_EXTRACTION  = os.environ.get("MODEL_EXTRACTION",  "claude-sonnet-4-6")
-MODEL_METHODOLOGY = os.environ.get("MODEL_METHODOLOGY", "claude-opus-4-8")
-MODEL_MARKET      = os.environ.get("MODEL_MARKET",      "claude-opus-4-8")
+# Two-stage financial pipeline — every stage now runs on Claude Fable 5
+# (claude-fable-5), Anthropic's most capable tier (above Opus). The north star
+# is accuracy and cost is explicitly not the constraint (CLAUDE.md §0/§11).
+#   EXTRACTION  → Fable 5, no thinking. Faithful transcription only. Fable 5
+#                 removed temperature/top_p/top_k (400 if sent) and rejects an
+#                 explicit thinking:"disabled" — call_claude simply omits both
+#                 keys. temperature=0 never made hosted LLMs deterministic
+#                 anyway (CLAUDE.md §0); run-to-run consistency comes from
+#                 structured outputs + self-consistency voting + the
+#                 deterministic verifier + the versioned extraction cache.
+#   METHODOLOGY → Fable 5, adaptive thinking (effort via THINKING_EFFORT).
+#                 Judgment-heavy: GGC categorization, collections, POH
+#                 bifurcation, taxes.
+#   MARKET      → Fable 5, adaptive thinking + web_search.
+# Per Anthropic's model docs, "claude-fable-5" is the complete model ID — no
+# dated snapshot suffix exists; do not append one. Override per-stage via env,
+# e.g. MODEL_EXTRACTION=claude-sonnet-4-6 to A/B the old deterministic-Sonnet
+# config — call_claude re-attaches temperature only for models that accept it.
+MODEL_EXTRACTION  = os.environ.get("MODEL_EXTRACTION",  "claude-fable-5")
+MODEL_METHODOLOGY = os.environ.get("MODEL_METHODOLOGY", "claude-fable-5")
+MODEL_MARKET      = os.environ.get("MODEL_MARKET",      "claude-fable-5")
+# Thinking depth for adaptive-thinking calls (methodology + market). "high" is
+# Anthropic's recommended default for intelligence-sensitive work; "max" trades
+# tokens/latency for ceiling accuracy on the hardest deals.
+THINKING_EFFORT   = os.environ.get("THINKING_EFFORT", "high")
 API_VERSION       = "2023-06-01"
-MAX_TOKENS             = 32000  # default; safe for Sonnet 4.6 (64k cap) and non-thinking calls
-# Opus 4.8 with adaptive thinking + effort=high spends most of the budget on
+MAX_TOKENS             = 32000  # default; safe for non-thinking calls (Fable 5 caps at 128k, Sonnet 4.6 at 64k)
+# Fable 5 with adaptive thinking + effort=high spends most of the budget on
 # thinking — a complex deal can burn 30-50k thinking tokens before emitting
 # any visible JSON. max_tokens is the COMBINED ceiling for thinking + output,
 # so the methodology + market stages need much more headroom than extraction.
-# Opus supports up to 128k output via streaming (which we already use).
+# Fable 5 supports up to 128k output via streaming (which we already use).
 MAX_TOKENS_METHODOLOGY = 96000  # ~80k thinking headroom + ~16k for JSON
 MAX_TOKENS_MARKET      = 64000  # thinking + web_search results + comp tables
 MAX_RETRIES       = 6
@@ -79,8 +89,8 @@ BASE_BACKOFF_SEC  = 2
 # a token grammar and invalid tokens are masked at inference — guarantees
 # schema compliance and eliminates the class of variance where Claude emits
 # the wrong field types / out-of-enum categories / malformed JSON.
-# Confirmed supported (GA list): Sonnet 4.5/4.6, Opus 4.5/4.6/4.7/4.8,
-# Haiku 4.5, Mythos Preview. No beta header required.
+# Confirmed supported (GA list): Fable 5, Sonnet 4.5/4.6, Opus 4.5/4.6/4.7/4.8,
+# Haiku 4.5. No beta header required.
 # STRUCTURED_OUTPUTS_BETA is kept for backward compatibility with deployments
 # pinned to a model snapshot where only the beta path is recognized.
 STRUCTURED_OUTPUTS_BETA = "structured-outputs-2025-11-13"
@@ -107,7 +117,17 @@ FINANCIAL_PARSE_RUNS_DEEP = int(os.environ.get("FINANCIAL_PARSE_RUNS_DEEP", "3")
 # input is billed at ~10% of the normal input rate. Cache-write costs the
 # same as a normal input token (no premium).
 MODEL_PRICING = {
-    # model_id_prefix : (input, output, cached_read) per 1M tokens
+    # model_id_prefix : (input, output, cached_read) per 1M tokens.
+    # First prefix match wins (dicts preserve insertion order), so the more
+    # specific pins MUST stay above the generic family fallbacks.
+    # Verified against anthropic.com/pricing 2026-06: Fable 5 = $10/$50;
+    # Opus 4.5-4.8 = $5/$25; the $15/$75 rate only applies to legacy
+    # Opus 4.0/4.1, kept as the "claude-opus-4" fallback.
+    "claude-fable-5":  (10.00, 50.00, 1.00),
+    "claude-opus-4-8": (5.00,  25.00, 0.50),
+    "claude-opus-4-7": (5.00,  25.00, 0.50),
+    "claude-opus-4-6": (5.00,  25.00, 0.50),
+    "claude-opus-4-5": (5.00,  25.00, 0.50),
     "claude-sonnet-4": (3.00, 15.00, 0.30),
     "claude-opus-4":   (15.00, 75.00, 1.50),
     "claude-haiku-4":  (1.00,  5.00,  0.10),
@@ -207,12 +227,16 @@ REDUCTO_API_KEY          = os.environ.get("REDUCTO_API_KEY", "")
 
 # IMPORTANT: GGC's official blank template, extended to 1000 rent roll rows
 TEMPLATE_PATH        = Path(__file__).parent / "GGC_Blank_Underwriting_Sizer_Extended.xlsx"
-JOBS_DIR             = Path(__file__).parent.parent / "jobs"
-IMG_CACHE_DIR        = Path(__file__).parent.parent / "img_cache"
-EXTRACTION_CACHE_DIR = Path(__file__).parent.parent / "extraction_cache"
-JOBS_DIR.mkdir(exist_ok=True)
-IMG_CACHE_DIR.mkdir(exist_ok=True)
-EXTRACTION_CACHE_DIR.mkdir(exist_ok=True)
+# Defaults preserve the historical V5-level dirs for local dev; containers
+# (Cloud Run) point these at a writable path like /tmp/ggc/* via env. Note
+# Cloud Run's filesystem is in-memory and per-instance — durable copies of
+# finished models go to Firebase Storage (see _fb_store_output).
+JOBS_DIR             = Path(os.environ.get("JOBS_DIR")             or Path(__file__).parent.parent / "jobs")
+IMG_CACHE_DIR        = Path(os.environ.get("IMG_CACHE_DIR")        or Path(__file__).parent.parent / "img_cache")
+EXTRACTION_CACHE_DIR = Path(os.environ.get("EXTRACTION_CACHE_DIR") or Path(__file__).parent.parent / "extraction_cache")
+JOBS_DIR.mkdir(parents=True, exist_ok=True)
+IMG_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+EXTRACTION_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 # GGC's exact category strings — must match column A in Data Consolidation
 # (these feed the SUMIFS in the GGC Underwriting tab)
@@ -305,7 +329,129 @@ def _valid_job_id(job_id):
 
 app = Flask(__name__, static_folder=".", static_url_path="")
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
-CORS(app)
+# Local default stays wide-open for the localhost UI. In hosted mode, set
+# ALLOWED_ORIGINS to the Vercel app origin(s), comma-separated, so other
+# sites can't script against the engine with a victim's bearer token.
+_cors_origins = [o.strip() for o in os.environ.get("ALLOWED_ORIGINS", "*").split(",") if o.strip()]
+CORS(app, origins=_cors_origins if _cors_origins != ["*"] else "*")
+
+# ═══════════════════════════════════════════════════════════════════════════
+# FIREBASE — hosted mode: auth + run persistence. Entirely optional:
+#   REQUIRE_AUTH=1            → /api/analyze|status|download demand a Firebase
+#                               ID token (Authorization: Bearer <token>)
+#   ALLOWED_EMAILS=a@x,b@y    → optional allowlist on top of sign-in
+#   FIREBASE_STORAGE_BUCKET   → finished models upload to Cloud Storage and
+#                               run status mirrors to Firestore `deal_runs`
+# Credentials: FIREBASE_SERVICE_ACCOUNT_JSON (one-line JSON) if set, else
+# Application Default Credentials (Cloud Run's service account locally via
+# GOOGLE_APPLICATION_CREDENTIALS — the file Document AI already uses).
+# With neither env var set this whole section is inert and the app behaves
+# exactly as it always has on localhost.
+# ═══════════════════════════════════════════════════════════════════════════
+from functools import wraps
+from flask import g
+
+REQUIRE_AUTH            = os.environ.get("REQUIRE_AUTH", "0") == "1"
+FIREBASE_STORAGE_BUCKET = os.environ.get("FIREBASE_STORAGE_BUCKET", "")
+ALLOWED_EMAILS = {e.strip().lower()
+                  for e in os.environ.get("ALLOWED_EMAILS", "").split(",") if e.strip()}
+
+_FB_APP = _FB_DB = _FB_BUCKET = None
+if REQUIRE_AUTH or FIREBASE_STORAGE_BUCKET:
+    # Hard import on purpose: if hosted mode is requested, fail at boot —
+    # never fall open to unauthenticated serving because a dep is missing.
+    import firebase_admin
+    from firebase_admin import auth as fb_auth
+    from firebase_admin import credentials as fb_credentials
+    from firebase_admin import firestore as fb_firestore
+    from firebase_admin import storage as fb_storage
+
+    _svc = os.environ.get("FIREBASE_SERVICE_ACCOUNT_JSON", "").strip()
+    _fb_cred = fb_credentials.Certificate(json.loads(_svc)) if _svc else None
+    _fb_opts = {"storageBucket": FIREBASE_STORAGE_BUCKET} if FIREBASE_STORAGE_BUCKET else None
+    _FB_APP = firebase_admin.initialize_app(_fb_cred, _fb_opts)
+    _FB_DB = fb_firestore.client()
+    if FIREBASE_STORAGE_BUCKET:
+        _FB_BUCKET = fb_storage.bucket()
+    print(f"[Firebase] initialized — auth={'ON' if REQUIRE_AUTH else 'off'}, "
+          f"firestore=ON, storage={'ON' if _FB_BUCKET else 'off'}, "
+          f"allowlist={sorted(ALLOWED_EMAILS) if ALLOWED_EMAILS else 'any signed-in user'}")
+
+
+def require_auth(fn):
+    """Verify the Firebase ID token on a route. No-op unless REQUIRE_AUTH=1,
+    so local development needs no Firebase project at all."""
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        if not REQUIRE_AUTH:
+            g.user_uid, g.user_email = None, None
+            return fn(*args, **kwargs)
+        hdr = request.headers.get("Authorization", "")
+        token = hdr[7:].strip() if hdr.startswith("Bearer ") else ""
+        if not token:
+            return jsonify({"error": "Sign-in required"}), 401
+        try:
+            decoded = fb_auth.verify_id_token(token)
+        except Exception:
+            return jsonify({"error": "Invalid or expired session — sign in again"}), 401
+        email = (decoded.get("email") or "").lower()
+        if ALLOWED_EMAILS and email not in ALLOWED_EMAILS:
+            return jsonify({"error": "This account is not authorized for the GGC Deal Engine"}), 403
+        g.user_uid, g.user_email = decoded.get("uid"), email
+        return fn(*args, **kwargs)
+    return wrapper
+
+
+def _fb_run_create(job_id, property_info):
+    """Create the Firestore run doc when a job is accepted. Best-effort —
+    the analysis must never die because telemetry hiccuped."""
+    if _FB_DB is None:
+        return
+    try:
+        _FB_DB.collection("deal_runs").document(job_id).set({
+            "uid":       getattr(g, "user_uid", None),
+            "email":     getattr(g, "user_email", None),
+            "name":      property_info.get("name") or "Untitled deal",
+            "city":      property_info.get("city", ""),
+            "state":     property_info.get("state", ""),
+            "status":    "queued",
+            "progress":  "Queued",
+            "createdAt": fb_firestore.SERVER_TIMESTAMP,
+            "updatedAt": fb_firestore.SERVER_TIMESTAMP,
+        })
+    except Exception as e:
+        print(f"[Firebase] Firestore create failed for {job_id}: {e}")
+
+
+def _fb_run_upsert(job_id, fields):
+    """Merge light job-state fields into deal_runs/{job_id}. Best-effort."""
+    if _FB_DB is None or not fields:
+        return
+    try:
+        doc = dict(fields)
+        doc["updatedAt"] = fb_firestore.SERVER_TIMESTAMP
+        _FB_DB.collection("deal_runs").document(job_id).set(doc, merge=True)
+    except Exception as e:
+        print(f"[Firebase] Firestore upsert failed for {job_id}: {e}")
+
+
+def _fb_store_output(job_id, output_path):
+    """Upload the finished 16-tab model to Storage at runs/{uid}/{job_id}.xlsx
+    (the path shape storage.rules grants per-user read on) and record the
+    path on the run doc. Best-effort; the local file remains the source the
+    engine itself serves via /api/download."""
+    if _FB_BUCKET is None:
+        return None
+    try:
+        with JOBS_LOCK:
+            uid = (JOBS.get(job_id) or {}).get("uid") or "anon"
+        blob_path = f"runs/{uid}/{job_id}.xlsx"
+        _FB_BUCKET.blob(blob_path).upload_from_filename(str(output_path))
+        _fb_run_upsert(job_id, {"storagePath": blob_path})
+        return blob_path
+    except Exception as e:
+        print(f"[Firebase] Storage upload failed for {job_id}: {e}")
+        return None
 
 # ═══════════════════════════════════════════════════════════════════════════
 # GOOGLE MAPS HELPERS
@@ -1007,6 +1153,20 @@ def geocode_address(address):
 # ═══════════════════════════════════════════════════════════════════════════
 # CLAUDE API CLIENT
 # ═══════════════════════════════════════════════════════════════════════════
+def _accepts_sampling(model_id):
+    """True if the model still accepts temperature/top_p/top_k. Fable 5 and
+    Opus 4.7+ removed sampling params entirely (the API returns 400 if any is
+    sent). Allowlist the families that DO accept them so an env override back
+    to e.g. Sonnet 4.6 automatically regains its temperature=0 config."""
+    mid = (model_id or "").lower()
+    if mid.startswith(("claude-sonnet-", "claude-haiku-", "claude-3")):
+        return True
+    # Opus 4.6 and earlier accept temperature; Opus 4.7+ and Fable 5 do not.
+    return mid.startswith(("claude-opus-4-0", "claude-opus-4-1",
+                           "claude-opus-4-5", "claude-opus-4-6",
+                           "claude-opus-4-2"))  # ...-4-2 = claude-opus-4-20250514
+
+
 def call_claude(api_key, system_prompt, user_content, tools=None,
                 use_thinking=True, temperature=None, model=None,
                 output_schema=None, max_tokens=None):
@@ -1016,14 +1176,14 @@ def call_claude(api_key, system_prompt, user_content, tools=None,
     heavy thinking + web search) instead of timing out at the request level.
 
     Model routing:
-    - Defaults to MODEL_MARKET (Opus 4.8) for market research with adaptive thinking
-    - Pass model=MODEL_METHODOLOGY (Opus 4.8) for GGC categorization + methodology
-    - Pass model=MODEL_EXTRACTION (Sonnet 4.6) with use_thinking=False, temperature=0
-      for deterministic document extraction
-
-    NOTE: Opus 4.7 and 4.8 deprecated temperature/top_p/top_k entirely. Only pass
-    temperature when targeting Sonnet 4.6 (or other pre-4.7 models). Opus 4.8
-    defaults to effort=high, which is what we want for judgment-heavy work.
+    - Defaults to MODEL_MARKET (Fable 5) for market research with adaptive thinking
+    - Pass model=MODEL_METHODOLOGY (Fable 5) for GGC categorization + methodology
+    - Pass model=MODEL_EXTRACTION with use_thinking=False for document
+      extraction. temperature is only attached when the target model still
+      accepts sampling params (_accepts_sampling) — Fable 5 and Opus 4.7+
+      reject temperature/top_p/top_k AND an explicit thinking:"disabled",
+      so for them a no-thinking call simply omits both keys (omission is the
+      documented way to run Fable 5 without thinking).
     """
     headers = {"x-api-key": api_key, "anthropic-version": API_VERSION,
                "content-type": "application/json"}
@@ -1049,8 +1209,11 @@ def call_claude(api_key, system_prompt, user_content, tools=None,
             "stream": True,}
     if use_thinking:
         body["thinking"] = {"type": "adaptive"}
-        body["output_config"] = {"effort": "high"}
-    elif temperature is not None:
+        body["output_config"] = {"effort": THINKING_EFFORT}
+    elif temperature is not None and _accepts_sampling(body["model"]):
+        # Pre-4.7 models keep their deterministic temperature=0 config.
+        # Fable 5 / Opus 4.7+ get neither key: sampling params 400, and the
+        # only valid "no thinking" on Fable 5 is omitting the field entirely.
         body["temperature"] = temperature
 
     # Structured outputs (GA). The schema is compiled into a token-level
@@ -1415,7 +1578,7 @@ SECTION_INCOME    = ["income"]
 SECTION_EXPENSE   = ["expense"]
 
 
-# ── EXTRACTION SCHEMA (Sonnet 4.6 output) ─────────────────────────────────
+# ── EXTRACTION SCHEMA (Stage-1 / MODEL_EXTRACTION output) ─────────────────
 
 def _extracted_line_schema(section_values):
     """Income/expense row from the extraction stage."""
@@ -1503,7 +1666,7 @@ EXTRACTION_OUTPUT_SCHEMA = {
 }
 
 
-# ── METHODOLOGY SCHEMA (Opus 4.8 output) ───────────────────────────────────
+# ── METHODOLOGY SCHEMA (Stage-2 / MODEL_METHODOLOGY output) ────────────────
 
 def _methodology_line_schema(category_enum):
     return {
@@ -1781,7 +1944,7 @@ class MethodologyExpenseItem(MethodologyLineItem):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# CLAUDE CALL #1 — EXTRACTION (deterministic, Sonnet 4.6 @ temp=0)
+# CLAUDE CALL #1 — EXTRACTION (faithful transcription, Fable 5, no thinking)
 # ═══════════════════════════════════════════════════════════════════════════
 # This call does ONE job: read the documents and pull out clean numbers.
 # No GGC categorization, no underwriting methodology, no judgment. Just faithful
@@ -1871,9 +2034,11 @@ Transcribe the rent roll into structured form:
 
 def call_extract_financials(api_key, file_blocks, property_info):
     """
-    Call 1 of the financial pipeline: deterministic extraction.
-    Sonnet 4.6 at temperature=0 reads the documents and returns clean numbers
-    with the correct reporting period identified. No GGC methodology applied.
+    Call 1 of the financial pipeline: faithful extraction.
+    MODEL_EXTRACTION (Fable 5, no thinking) reads the documents and returns
+    clean numbers with the correct reporting period identified. No GGC
+    methodology applied. (temperature=0 is still passed but only attaches on
+    models that accept sampling params, e.g. a Sonnet env override.)
 
     Two correctness layers:
       (a) Structured outputs grammar (Anthropic beta) — guarantees schema
@@ -1901,7 +2066,7 @@ Extract the income statement, rent roll, and reporting period into the structure
 
     for attempt in range(MAX_PARSE_RETRIES + 1):
         print(f"[Claude] Stage 1/2 — EXTRACTION attempt "
-              f"{attempt+1}/{MAX_PARSE_RETRIES+1} ({MODEL_EXTRACTION}, temp=0)...")
+              f"{attempt+1}/{MAX_PARSE_RETRIES+1} ({MODEL_EXTRACTION})...")
         t0 = time.time()
         response = call_claude(api_key, EXTRACTION_PROMPT, user_blocks,
                                use_thinking=False, temperature=0,
@@ -2548,7 +2713,7 @@ def _merge_extraction(runs):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# CLAUDE CALL #2 — METHODOLOGY (Opus 4.8, judgment)
+# CLAUDE CALL #2 — METHODOLOGY (Fable 5, adaptive thinking, judgment)
 # Takes the CLEAN extracted data from Call 1 and applies GGC's categorization
 # and underwriting methodology. Because the numbers are already extracted and
 # verified, this call focuses purely on analysis instead of fighting raw PDFs.
@@ -3058,9 +3223,10 @@ RENT ROLL OUTPUT GUIDANCE:
 def call_parse_financials(api_key, extracted, property_info):
     """
     Call 2 of the financial pipeline: GGC methodology on clean extracted data.
-    Opus 4.8 (adaptive thinking, effort=high) takes the verified extraction
-    output and applies categorization + underwriting logic. No raw documents —
-    it works from the clean JSON the extraction step produced.
+    MODEL_METHODOLOGY (Fable 5, adaptive thinking, effort=THINKING_EFFORT)
+    takes the verified extraction output and applies categorization +
+    underwriting logic. No raw documents — it works from the clean JSON the
+    extraction step produced.
     """
     user_blocks = [{
         "type": "text",
@@ -3080,7 +3246,8 @@ Below is the CLEAN, PRE-EXTRACTED financial data from the seller's documents. Th
 
 Apply the GGC methodology and return the structured JSON."""
     }]
-    print("[Claude] Stage 2/2 — METHODOLOGY (Opus 4.8, effort=high)...")
+    print(f"[Claude] Stage 2/2 — METHODOLOGY ({MODEL_METHODOLOGY}, "
+          f"effort={THINKING_EFFORT})...")
     t0 = time.time()
     response = call_claude(api_key, FINANCIAL_PARSE_PROMPT, user_blocks,
                            use_thinking=True, model=MODEL_METHODOLOGY,
@@ -3240,7 +3407,11 @@ City/State: {property_info.get('city', '')}, {property_info.get('state', '')}
 Units: {property_info.get('units', '')}
 
 Pull comps, demographics, alt housing, landmarks, and visual URLs."""
-    tools = [{"type": "web_search_20250305", "name": "web_search", "max_uses": 12}]
+    # web_search_20260209 adds dynamic filtering on Fable 5 / Opus 4.8+: the
+    # model code-filters search results before they enter context, which
+    # measurably improves comp accuracy and cuts token burn vs the 20250305
+    # version. No beta header needed.
+    tools = [{"type": "web_search_20260209", "name": "web_search", "max_uses": 12}]
     print("[Claude] Starting market research call (with web_search)...")
     t0 = time.time()
     response = call_claude(api_key, MARKET_RESEARCH_PROMPT,
@@ -4466,6 +4637,12 @@ def _set_job(job_id, **fields):
     with JOBS_LOCK:
         if job_id in JOBS:
             JOBS[job_id].update(fields)
+    # Hosted mode: mirror the light fields to Firestore so the web app's run
+    # history survives instance restarts. The full result payload stays out —
+    # Firestore docs cap at 1MB and the dashboard only needs status/progress;
+    # /api/status keeps serving the full result from memory.
+    _fb_run_upsert(job_id, {k: v for k, v in fields.items()
+                            if k in ("status", "progress", "error")})
 
 
 def run_analysis_job(job_id, api_key, file_blocks, property_info):
@@ -4485,10 +4662,11 @@ def run_analysis_job(job_id, api_key, file_blocks, property_info):
 
         # The financial side is now a 4-step sequence with two opt-in stages:
         #   0. CACHE LOOKUP                   — fingerprint hit returns instantly
-        #   1. EXTRACT (Sonnet 4.6, temp=0)   — N=1 default, N=3 when deep_search
+        #   1. EXTRACT (Fable 5, no thinking) — N=1 default, N=3 when deep_search
         #      → field-level median across N runs
         #   2. VERIFY  (pure Python)          — tie-outs, 2σ rents, POH, cross-doc
-        #   3. METHODOLOGY (Opus 4.8)         — GGC categorization + underwriting
+        #   3. METHODOLOGY (Fable 5, adaptive thinking) — GGC categorization +
+        #      underwriting
         #   4. CACHE WRITE                    — if no hard-fail in verification
         # Market research is independent, so we run it in parallel with the
         # whole financial sequence.
@@ -4570,6 +4748,9 @@ def run_analysis_job(job_id, api_key, file_blocks, property_info):
         _set_job(job_id, progress="Filling GGC template...")
         output_path = JOBS_DIR / f"{job_id}.xlsx"
         fill_template(results["financials"], results["market"], output_path)
+        # Hosted mode: persist the finished model to Firebase Storage so it
+        # survives instance restarts and shows up in the web app's history.
+        _fb_store_output(job_id, output_path)
 
         usage_summary = get_usage_summary()
         _set_job(job_id,
@@ -4616,6 +4797,7 @@ def config():
 
 
 @app.route("/api/analyze", methods=["POST"])
+@require_auth
 def analyze():
     api_key = (request.form.get("api_key") or "").strip() or DEFAULT_ANTHROPIC_KEY
     if not api_key:
@@ -4652,8 +4834,13 @@ def analyze():
     file_blocks = [encode_file_for_claude(f) for f in files]
     job_id = _new_job_id()
     with JOBS_LOCK:
-        JOBS[job_id] = {"status": "queued", "progress": "Queued", "result": None}
+        JOBS[job_id] = {"status": "queued", "progress": "Queued", "result": None,
+                        # Ownership for hosted mode: only the creator's uid may
+                        # poll or download this job (None when auth is off).
+                        "uid": getattr(g, "user_uid", None),
+                        "email": getattr(g, "user_email", None)}
         _evict_old_jobs()
+    _fb_run_create(job_id, property_info)
 
     Thread(target=run_analysis_job, args=(job_id, api_key, file_blocks, property_info),
            daemon=True).start()
@@ -4662,6 +4849,7 @@ def analyze():
 
 
 @app.route("/api/status/<job_id>")
+@require_auth
 def status(job_id):
     # Validate the path component before any dict / filesystem lookup so
     # /api/status/../../etc/passwd can't even probe state.
@@ -4670,6 +4858,10 @@ def status(job_id):
     with JOBS_LOCK:
         job = JOBS.get(job_id)
         if not job:
+            return jsonify({"error": "Job not found"}), 404
+        # Hosted mode: a signed-in user may only see their own jobs. 404 (not
+        # 403) so other users' job ids aren't confirmed to exist.
+        if REQUIRE_AUTH and job.get("uid") != g.user_uid:
             return jsonify({"error": "Job not found"}), 404
         # Return progress fields + the full analysis result (financials,
         # market, download_url) — the frontend's showResults() reads
@@ -4688,9 +4880,18 @@ def status(job_id):
 
 
 @app.route("/api/download/<job_id>")
+@require_auth
 def download(job_id):
     if not _valid_job_id(job_id):
         return jsonify({"error": "Invalid job id"}), 400
+    if REQUIRE_AUTH:
+        # Same ownership rule as /api/status. If the job aged out of memory,
+        # the durable copy lives in Firebase Storage (runs/{uid}/{job_id}.xlsx)
+        # and the web app downloads it there with per-user rules instead.
+        with JOBS_LOCK:
+            owner = (JOBS.get(job_id) or {}).get("uid")
+        if owner != g.user_uid:
+            return jsonify({"error": "Job not found"}), 404
     file_path = JOBS_DIR / f"{job_id}.xlsx"
     # Defense in depth: even with the regex guard, resolve and verify the
     # final path stays inside JOBS_DIR before serving.
@@ -4708,6 +4909,9 @@ def download(job_id):
 
 
 if __name__ == "__main__":
+    # Cloud Run injects PORT; localhost keeps the historical 5001. (In the
+    # container this file is served by gunicorn instead — see Dockerfile.)
+    _port = int(os.environ.get("PORT", "5001"))
     print(" ╔═════════════════════════════════════════════════════════════════════════════════════╗")
     print(" ║  GGC Deal Engine — Backend Server v6 (playbook hardening)                           ║")
     print(f"║  Extraction:   {MODEL_EXTRACTION:<48s}                                 ║")
@@ -4721,6 +4925,7 @@ if __name__ == "__main__":
     print(f"║  Template: GGC_Blank_Underwriting_Sizer_Extended (1000 rows)                        ║")
     print(f"║  Google Maps: {'ENABLED' if GOOGLE_MAPS_API_KEY else 'DISABLED (no key set)':<43s}  ║")
     print(f"║  Document AI: {'ENABLED' if DOC_AI_ENABLED else 'DISABLED (no GCP config)':<43s} ║")
-    print(" ║  Open: http://localhost:5001                                                        ║")
+    print(f"║  Auth: {'REQUIRED (Firebase)' if REQUIRE_AUTH else 'off (local mode)':<43s}                                  ║")
+    print(f"║  Open: http://localhost:{_port:<5d}                                                       ║")
     print(" ╚═════════════════════════════════════════════════════════════════════════════════════╝")
-    app.run(host="0.0.0.0", port=5001, debug=False, threaded=True)
+    app.run(host="0.0.0.0", port=_port, debug=False, threaded=True)
