@@ -67,6 +67,10 @@ export default function ResultsPanel({ result }: { result: JobResult }) {
     : 0;
 
   async function handleDownload() {
+    if (!result.download_url) {
+      setDownloadError("No download available — verification gate blocked the workbook.");
+      return;
+    }
     setDownloading(true);
     setDownloadError(null);
     try {

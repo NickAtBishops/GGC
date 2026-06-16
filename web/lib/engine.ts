@@ -76,15 +76,32 @@ export interface Usage {
   calls?: number;
 }
 
+export interface VerificationSummary {
+  hardFails?: number;
+  warnings?: number;
+  failedCheckNames?: string[];
+}
+
 export interface JobResult {
   financials?: Financials;
   market?: MarketData;
-  /** Engine-relative path, e.g. "/api/download/<job_id>". */
-  download_url: string;
+  /**
+   * Engine-relative path, e.g. "/api/download/<job_id>". Absent when the
+   * job ended in `needs_review` — verification blocked the write-back.
+   */
+  download_url?: string;
   usage?: Usage;
+  verification?: VerificationSummary;
+  /** Human-readable note set by the engine on `needs_review`. */
+  message?: string;
 }
 
-export type JobState = "queued" | "running" | "complete" | "error";
+export type JobState =
+  | "queued"
+  | "running"
+  | "complete"
+  | "error"
+  | "needs_review";
 
 export interface JobStatus {
   status: JobState;

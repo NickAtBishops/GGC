@@ -92,6 +92,21 @@ export default function HomePage() {
               setError("The job completed but the engine returned no result payload.");
               setPhase("error");
             }
+          } else if (job.status === "needs_review") {
+            // Verification gate fired — engine refused to produce a workbook
+            // because hard checks did not tie out. Show the failing checks in
+            // the error panel so the user knows what to fix and retry.
+            stopPolling();
+            clearStoredJob();
+            const v = job.result?.verification;
+            const names = v?.failedCheckNames ?? [];
+            const msg =
+              job.result?.message ||
+              `Verification failed: ${v?.hardFails ?? 0} hard checks did not tie out.` +
+                (names.length ? ` Failed: ${names.slice(0, 5).join(", ")}.` : "") +
+                " No workbook was produced — re-upload corrected docs or adjust inputs and retry.";
+            setError(msg);
+            setPhase("error");
           } else if (job.status === "error") {
             stopPolling();
             clearStoredJob();

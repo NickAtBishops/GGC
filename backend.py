@@ -103,9 +103,16 @@ SO_LEGACY_BETA_HEADER   = os.environ.get("SO_LEGACY_BETA_HEADER", "0") == "1"
 # failure messages back to Claude (Instructor pattern).
 MAX_PARSE_RETRIES = int(os.environ.get("MAX_PARSE_RETRIES", "2"))
 
-# N parallel extraction runs to field-merge when deep_search=on (Wang et al.
-# self-consistency). 1 disables it. Costs ~N× extraction tokens.
-FINANCIAL_PARSE_RUNS_DEEP = int(os.environ.get("FINANCIAL_PARSE_RUNS_DEEP", "3"))
+# N parallel runs for self-consistency voting (Wang et al.). Per CLAUDE.md
+# §0 the bar is zero acknowledged accuracy gap, so voting is the DEFAULT —
+# not an opt-in deep_search feature. Numeric fields merge by confidence-
+# weighted median; categorical (ggcCategory in particular) by confidence-
+# weighted mode. Cost is N× tokens per stage, which the §0 policy explicitly
+# permits.
+FINANCIAL_PARSE_RUNS      = int(os.environ.get("FINANCIAL_PARSE_RUNS",      "3"))
+FINANCIAL_PARSE_RUNS_DEEP = int(os.environ.get("FINANCIAL_PARSE_RUNS_DEEP", "5"))
+METHODOLOGY_RUNS          = int(os.environ.get("METHODOLOGY_RUNS",          "3"))
+METHODOLOGY_RUNS_DEEP     = int(os.environ.get("METHODOLOGY_RUNS_DEEP",     "5"))
 
 # ── Per-job token & cost accounting ──────────────────────────────────────
 # Each run_analysis_job spawns its own Thread, so a thread-local accumulator
@@ -198,20 +205,17 @@ EXTRACTION_CACHE_ENABLED = os.environ.get("EXTRACTION_CACHE_ENABLED", "1") == "1
 PARSER_BACKEND = os.environ.get("PARSER_BACKEND", "docai").lower()
 PARSER_VERSION = "v1"  # bump when changing parser configuration
 
-GOOGLE_MAPS_API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY", "")
 GOOGLE_STATIC_MAPS_URL       = "https://maps.googleapis.com/maps/api/staticmap"
 GOOGLE_STATIC_STREETVIEW_URL = "https://maps.googleapis.com/maps/api/streetview"
 
-# ─────────────────────────────────────────────────────────────────────────────
-# DEFAULT ANTHROPIC KEY (optional)
-# Paste your key here so you don't have to enter it in the UI every time.
-# Leave as empty string "" if you want to type it in the UI manually.
-# Example: DEFAULT_ANTHROPIC_KEY = "sk-ant-api03-AbCd1234..."
-# ─────────────────────────────────────────────────────────────────────────────
+# Secrets only ever come from the environment (or .env in local dev). No
+# hardcoded fallbacks — a key committed to source ends up in git history
+# forever, which is why CLAUDE.md §12.4 calls out historical leaks as a
+# rotate-immediately item.
 load_dotenv()
 
 DEFAULT_ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-GOOGLE_MAPS_API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY", "")
+GOOGLE_MAPS_API_KEY   = os.environ.get("GOOGLE_MAPS_API_KEY", "")
 
 GCP_PROJECT_ID         = os.environ.get("GCP_PROJECT_ID", "")
 GCP_LOCATION           = os.environ.get("GCP_LOCATION", "us")
@@ -1040,7 +1044,8 @@ def _hash_obj(obj):
 
 
 def extraction_cache_key(file_blocks, property_info, n_extraction_runs,
-                         extraction_prompt, methodology_prompt):
+                         extraction_prompt, methodology_prompt,
+                         n_methodology_runs=1):
     """
     Build the cache key tuple, then hash it. Anything that changes the output
     must be in here. PARSER_BACKEND is in via PARSER_VERSION + the fact that
@@ -1060,6 +1065,7 @@ def extraction_cache_key(file_blocks, property_info, n_extraction_runs,
         "ext_schema":   _hash_obj(EXTRACTION_OUTPUT_SCHEMA)[:16],
         "meth_schema":  _hash_obj(METHODOLOGY_OUTPUT_SCHEMA)[:16],
         "n_runs":       n_extraction_runs,
+        "n_meth_runs":  n_methodology_runs,
     }
     return _hash_obj(key_obj)[:32]
 
@@ -2322,6 +2328,69 @@ def verify_extraction(extracted, property_info):
             "detail": note.split("Run-to-run disagreement")[-1].strip()[:300],
         })
 
+    # ── Section subtotal sums (§7 check #2): line items must sum to the
+    # extracted subtotal row within tolerance. Catches the case where one
+    # line item was dropped or duplicated by the parser.
+    def _check_section_subtotal(lines, label):
+        if not lines:
+            return
+        items   = [ln for ln in lines if not ln.get("isSubtotal")
+                                    and isinstance(ln.get("annualTotal"), (int, float))]
+        totals  = [ln for ln in lines if ln.get("isSubtotal")
+                                    and isinstance(ln.get("annualTotal"), (int, float))]
+        if not items or not totals:
+            return
+        items_sum    = sum(ln["annualTotal"] for ln in items)
+        subtotal_val = max((t["annualTotal"] for t in totals), key=abs)
+        if subtotal_val == 0:
+            return
+        pct_off = abs(items_sum - subtotal_val) / abs(subtotal_val) * 100
+        if pct_off <= 0.5:
+            status, prefix = "ok", "Lines sum to subtotal"
+        elif pct_off <= 5:
+            status, prefix = "warn", "Lines ≈ subtotal"
+        else:
+            status, prefix = "fail", "Lines vs subtotal MISMATCH"
+        checks.append({
+            "item": f"{label} subtotal sum",
+            "check": prefix,
+            "status": status,
+            "detail": (f"Σ{label.lower()} items ${items_sum:,.0f} vs subtotal "
+                       f"${subtotal_val:,.0f} ({pct_off:.1f}% off)"),
+        })
+
+    _check_section_subtotal(extracted.get("income"),   "Income")
+    _check_section_subtotal(extracted.get("expenses"), "Expense")
+
+    # ── Rent-roll cross-check: occupied × avg lot rent ≈ scheduled rent
+    # (§7 rent-roll check #1). Within 5% is OK; outside is a real signal.
+    types = rr.get("unitTypes") or []
+    implied_monthly = 0.0
+    for ut in types:
+        oc  = ut.get("occupiedCount") or 0
+        rent = ut.get("avgLotRentOccupied") or 0
+        if isinstance(oc, (int, float)) and isinstance(rent, (int, float)):
+            implied_monthly += oc * rent
+    if implied_monthly > 0 and isinstance(stated_total, (int, float)) and stated_total > 0:
+        stated_monthly = stated_total if rr.get("statedTotalIsMonthly", True) \
+                                       else stated_total / 12
+        spread = abs(implied_monthly - stated_monthly) / max(stated_monthly, 1)
+        pct = spread * 100
+        if pct <= 5:
+            status, prefix = "ok",   "Occupied × avg = stated rent"
+        elif pct <= 15:
+            status, prefix = "warn", "Occupied × avg ≈ stated rent"
+        else:
+            status, prefix = "fail", "Occupied × avg ≠ stated rent"
+        checks.append({
+            "item": "Rent-roll cross-check",
+            "check": prefix,
+            "status": status,
+            "detail": (f"Σ(occupied × avg lot rent) ${implied_monthly:,.0f}/mo "
+                       f"vs stated total ${stated_monthly:,.0f}/mo "
+                       f"({pct:.1f}% off)"),
+        })
+
     return checks
 
 
@@ -2447,6 +2516,138 @@ def verify_methodology(financials):
             "check": "Per-line Pydantic check",
             "status": severity_for_issues,
             "detail": msg,
+        })
+
+    checks.extend(_check_template_wiring(financials))
+
+    # ── EGI − OpEx = NOI identity (§7 T-12 check #3). Catches a stale
+    # propertyInfo.noi (or a methodology that under-summed income lines).
+    prop = financials.get("propertyInfo") or {}
+    egi  = sum(float(i.get("ggcUnderwritten") or 0) for i in income)
+    opex = sum(float(e.get("ggcUnderwritten") or 0) for e in expenses)
+    implied_noi = egi - opex
+    reported_noi = prop.get("noi")
+    if isinstance(reported_noi, (int, float)) and reported_noi != 0:
+        spread = abs(implied_noi - reported_noi) / max(abs(reported_noi), 1)
+        pct = spread * 100
+        if pct <= 0.5:
+            status, prefix = "ok",   "EGI − OpEx = NOI"
+        elif pct <= 2:
+            status, prefix = "warn", "EGI − OpEx ≈ NOI"
+        else:
+            status, prefix = "fail", "EGI − OpEx ≠ NOI"
+        checks.append({
+            "item": "NOI identity",
+            "check": prefix,
+            "status": status,
+            "detail": (f"Σincome.ggcUnderwritten ${egi:,.0f} − "
+                       f"Σexpense.ggcUnderwritten ${opex:,.0f} = "
+                       f"${implied_noi:,.0f}; propertyInfo.noi reports "
+                       f"${reported_noi:,.0f} ({pct:.1f}% off)"),
+        })
+
+    # ── Unit/pad ID uniqueness — if per-row data is present. The rent
+    # roll's COUNTIFS in the template assumes unique unit IDs; duplicates
+    # would inflate occupancy counts and double-charge GPR.
+    rows = (financials.get("rentRoll") or {}).get("rentRollRows") or []
+    if isinstance(rows, list) and rows:
+        ids = [(r.get("unitId") or "").strip() for r in rows
+               if isinstance(r, dict)]
+        ids = [i for i in ids if i]
+        if ids:
+            seen, dupes = set(), []
+            for uid in ids:
+                if uid in seen:
+                    dupes.append(uid)
+                seen.add(uid)
+            if dupes:
+                unique_dupes = sorted(set(dupes))
+                preview = ", ".join(unique_dupes[:5])
+                more = f" (+{len(unique_dupes) - 5} more)" if len(unique_dupes) > 5 else ""
+                checks.append({
+                    "item": "Rent-roll unit ID uniqueness",
+                    "check": "All unitIds unique",
+                    "status": "fail",
+                    "detail": (f"Duplicate unit IDs: {preview}{more}. "
+                               "COUNTIFS will over-count occupancy."),
+                })
+            else:
+                checks.append({
+                    "item": "Rent-roll unit ID uniqueness",
+                    "check": "All unitIds unique",
+                    "status": "ok",
+                    "detail": f"{len(ids)} unique unit IDs.",
+                })
+
+    return checks
+
+
+def _check_template_wiring(financials):
+    """§10.4 NOI traceback: simulate what the Underwriting tab's NOI cell
+    (I47) will compute to, given the values fill_template is about to
+    write. I47 is built from SUMIFS over Data Consolidation column G
+    (t12Total), keyed by EXACT ggcCategory strings. Any income/expense
+    item whose ggcCategory is not in the canonical lists is silently
+    invisible to the SUMIFS — its value vanishes from the workbook NOI
+    with no error. This check catches that before write-back so the
+    verification gate can block the run.
+
+    Even when every category is canonical, this surfaces the implied
+    NOI as a value the reviewer can compare against the workbook's I47
+    after opening it. That's the actionable "tie-out" piece §10.4 wants.
+    """
+    checks = []
+    income = financials.get("income") or []
+    expenses = financials.get("expenses") or []
+    inc_canonical = set(GGC_INCOME_CATEGORIES)
+    exp_canonical = set(GGC_EXPENSE_CATEGORIES)
+
+    def _split(items, canonical):
+        in_total, out_total = 0.0, 0.0
+        bad = []
+        for it in items:
+            v = float(it.get("t12Total") or it.get("ggcUnderwritten") or 0)
+            cat = (it.get("ggcCategory") or "").strip()
+            if cat in canonical:
+                in_total += v
+            else:
+                out_total += v
+                if cat:
+                    bad.append((cat, v))
+        return in_total, out_total, bad
+
+    in_inc, out_inc, bad_inc = _split(income, inc_canonical)
+    in_exp, out_exp, bad_exp = _split(expenses, exp_canonical)
+    expected_egi  = in_inc + out_inc
+    expected_opex = in_exp + out_exp
+    expected_noi = expected_egi - expected_opex
+    implied_noi  = in_inc - in_exp
+
+    if bad_inc or bad_exp:
+        bad_strings = sorted(set([c for c, _ in bad_inc + bad_exp]))
+        preview = ", ".join(repr(c) for c in bad_strings[:5])
+        more = f" (+{len(bad_strings) - 5} more)" if len(bad_strings) > 5 else ""
+        loss = expected_noi - implied_noi
+        checks.append({
+            "item": "Underwriting NOI traceback",
+            "check": "All ggcCategory strings match SUMIFS criteria",
+            "status": "fail",
+            "detail": (f"${(out_inc + out_exp):,.0f} of value lives under "
+                       f"non-canonical category string(s) {preview}{more}. "
+                       f"These will not match the Underwriting!I47 SUMIFS "
+                       f"criteria. Expected NOI ${expected_noi:,.0f}; the "
+                       f"workbook will compute ${implied_noi:,.0f} "
+                       f"(off by ${loss:,.0f})."),
+        })
+    else:
+        checks.append({
+            "item": "Underwriting NOI traceback",
+            "check": "Implied Underwriting!I47",
+            "status": "ok",
+            "detail": (f"All categories canonical. Implied NOI "
+                       f"${implied_noi:,.0f} = EGI ${in_inc:,.0f} − "
+                       f"OpEx ${in_exp:,.0f}. Compare against I47 "
+                       f"after opening the workbook."),
         })
 
     return checks
@@ -3280,7 +3481,543 @@ Apply the GGC methodology and return the structured JSON."""
         parsed.setdefault("_methodologyValidation", []).extend(validation_errors)
         print(f"[Methodology] {len(validation_errors)} validation warnings "
               f"(see Extraction Check tab)")
+    _ensure_rent_roll_complete(parsed, property_info)
+    apply_ggc_overrides(parsed, property_info)
     return parsed
+
+
+def call_parse_financials_merged(api_key, extracted, property_info, n_runs=3):
+    """Self-consistency wrapper around call_parse_financials. Runs N
+    methodology calls in parallel against the SAME extracted data and
+    merges them: ggcCategory by confidence-weighted mode (the actual fix
+    for category drift), numerics by confidence-weighted median. A
+    non-unanimous vote on ggcCategory becomes an entry on the Extraction
+    Check tab so the reviewer can see the model disagreed with itself.
+    Per CLAUDE.md §0 mechanism #2 this is the default, not opt-in.
+    """
+    if n_runs <= 1:
+        return call_parse_financials(api_key, extracted, property_info)
+
+    print(f"[Claude] Starting {n_runs}× methodology merge...")
+    t0 = time.time()
+    with ThreadPoolExecutor(max_workers=n_runs) as executor:
+        futures = [executor.submit(call_parse_financials, api_key,
+                                   extracted, property_info)
+                   for _ in range(n_runs)]
+        results = []
+        for i, f in enumerate(as_completed(futures)):
+            try:
+                results.append(f.result())
+                print(f"[Claude] Methodology run {i+1}/{n_runs} complete")
+            except Exception as e:
+                print(f"[Claude] Methodology run {i+1}/{n_runs} FAILED: {e}")
+
+    if not results:
+        raise RuntimeError(f"All {n_runs} methodology runs failed")
+    print(f"[Claude] Merged {len(results)} methodology runs in "
+          f"{time.time() - t0:.1f}s")
+    merged = _merge_methodology(results)
+    # Re-run rent-roll completeness on the merged output so the deterministic
+    # backstop still applies (each run's _ensure_rent_roll_complete output
+    # is replaced by the merged unitGroups, which may again be short).
+    _ensure_rent_roll_complete(merged, property_info)
+    # Force-apply GGC's deterministic methodology rules (§5.4): management
+    # fee, taxes, insurance, CapEx, bad-debt sign. These are RULES, not LLM
+    # judgment — applying them in Python eliminates run-to-run drift on
+    # exactly the lines GGC requires to be exact. Per CLAUDE.md §0
+    # mechanism #3 these overrides are not optional.
+    apply_ggc_overrides(merged, property_info)
+    return merged
+
+
+def _merge_methodology(runs):
+    """Field-level merge for the methodology output. Income / expense rows
+    are grouped by sellerName (the input identity that doesn't drift between
+    runs); within each group, ggcCategory is voted by confidence-weighted
+    mode and every numeric field is reduced by confidence-weighted median.
+    A non-unanimous category vote is surfaced as a check so the reviewer
+    sees the disagreement.
+
+    propertyInfo and rentRoll scalars merge by median (numerics) or mode
+    (strings). unitGroups merge by unitType. Flags union by (item, issue).
+    """
+    if len(runs) == 1:
+        return runs[0]
+
+    category_disagreements = []  # surfaced as checks on the merged output
+
+    def _merge_line_items(field):
+        # Group across runs by sellerName so the same input line ends up
+        # in the same merge bucket regardless of category drift.
+        buckets = {}
+        for r_i, run in enumerate(runs):
+            for it in (run.get(field) or []):
+                if not isinstance(it, dict):
+                    continue
+                key = (it.get("sellerName") or "").strip()
+                buckets.setdefault(key, []).append(it)
+
+        merged_items = []
+        for seller_name, items in buckets.items():
+            if not items:
+                continue
+            # Vote on ggcCategory (the high-stakes drift field).
+            cats = [(it.get("ggcCategory") or "",
+                     _CONF_WEIGHT.get((it.get("confidence") or "medium").lower(),
+                                      _CONF_WEIGHT["medium"]))
+                    for it in items]
+            cat_votes = Counter()
+            for c, w in cats:
+                if c:
+                    cat_votes[c] += w
+            ggc_cat = cat_votes.most_common(1)[0][0] if cat_votes else ""
+            unique_cats = {c for c, _ in cats if c}
+            if len(unique_cats) > 1:
+                category_disagreements.append({
+                    "field": field,
+                    "sellerName": seller_name,
+                    "winner": ggc_cat,
+                    "candidates": sorted(unique_cats),
+                })
+
+            # Confidence-weighted median for numerics.
+            t12_total = _median_with_confidence(items, "t12Total") or 0
+            ggc_uw    = _median_with_confidence(items, "ggcUnderwritten") or 0
+            fy_prior  = _median_with_confidence(items, "fyPrior") or 0
+            fy_curr   = _median_with_confidence(items, "fyCurrent") or 0
+            broker_pf = _median_with_confidence(items, "brokerProforma") or 0
+
+            # Monthly: median per month-index across the runs that emit it.
+            monthly_runs = [it.get("monthly") for it in items
+                            if isinstance(it.get("monthly"), list)
+                            and len(it["monthly"]) == 12]
+            if monthly_runs:
+                monthly = [statistics.median(
+                    [m[i] for m in monthly_runs
+                     if isinstance(m[i], (int, float))])
+                    for i in range(12)]
+            elif t12_total:
+                monthly = [t12_total / 12] * 12
+            else:
+                monthly = [0] * 12
+
+            # Confidence: mode across runs (high beats medium beats low only
+            # if more than half of runs say so).
+            conf = _mode_of([it.get("confidence") for it in items]) or "medium"
+            notes = " || ".join(sorted({it.get("notes") or "" for it in items
+                                         if it.get("notes")}))
+
+            merged_items.append({
+                "ggcCategory":     ggc_cat,
+                "sellerName":      seller_name,
+                "fyPrior":         fy_prior,
+                "fyCurrent":       fy_curr,
+                "brokerProforma":  broker_pf,
+                "t12Total":        t12_total,
+                "monthly":         monthly,
+                "ggcUnderwritten": ggc_uw,
+                "confidence":      conf,
+                "notes":           notes,
+            })
+        return merged_items
+
+    merged = {
+        "income":   _merge_line_items("income"),
+        "expenses": _merge_line_items("expenses"),
+    }
+
+    # propertyInfo: per-field median/mode across runs.
+    prop_runs = [r.get("propertyInfo") or {} for r in runs]
+    merged_prop = {}
+    if prop_runs:
+        keys = set().union(*(p.keys() for p in prop_runs))
+        for k in keys:
+            vs = [p.get(k) for p in prop_runs if p.get(k) is not None]
+            if not vs:
+                continue
+            nums = [v for v in vs if isinstance(v, (int, float))]
+            if nums and len(nums) == len(vs):
+                merged_prop[k] = statistics.median(nums)
+            else:
+                merged_prop[k] = _mode_of(vs)
+    merged["propertyInfo"] = merged_prop
+
+    # rentRoll: scalars by median, unitGroups merged by unitType.
+    rr_runs = [r.get("rentRoll") or {} for r in runs]
+    scalar_fields = ("totalUnits", "occupiedUnits", "vacantUnits",
+                     "occupancyRate", "avgLotRent", "parkOwnedHomes",
+                     "pohPercent")
+    merged_rr = {}
+    for k in scalar_fields:
+        vs = [rr.get(k) for rr in rr_runs if rr.get(k) is not None]
+        nums = [v for v in vs if isinstance(v, (int, float))]
+        if nums:
+            merged_rr[k] = statistics.median(nums)
+
+    group_buckets = {}
+    for rr in rr_runs:
+        for g in (rr.get("unitGroups") or []):
+            if not isinstance(g, dict):
+                continue
+            t = (g.get("unitType") or "").strip()
+            if not t:
+                continue
+            group_buckets.setdefault(t, []).append(g)
+    merged_groups = []
+    for unit_type, gs in group_buckets.items():
+        merged_groups.append({
+            "unitType":      unit_type,
+            "occupiedCount": int(statistics.median(
+                [g.get("occupiedCount") or 0 for g in gs])),
+            "vacantCount":   int(statistics.median(
+                [g.get("vacantCount") or 0 for g in gs])),
+            "lotRent":       statistics.median(
+                [g.get("lotRent") or 0 for g in gs]),
+            "pohRent":       statistics.median(
+                [g.get("pohRent") or 0 for g in gs]),
+            "tenantNamePattern": _mode_of(
+                [g.get("tenantNamePattern") for g in gs]),
+            "sellerUnitLabel":   _mode_of(
+                [g.get("sellerUnitLabel") for g in gs]),
+        })
+    merged_rr["unitGroups"] = merged_groups
+    merged["rentRoll"] = merged_rr
+
+    # Flags: union across runs by (item, issue), keep highest severity seen.
+    sev_rank = {"high": 3, "medium": 2, "low": 1}
+    flag_by_key = {}
+    for r in runs:
+        for fl in (r.get("flags") or []):
+            if not isinstance(fl, dict):
+                continue
+            key = ((fl.get("item") or "").strip(),
+                   (fl.get("issue") or "").strip()[:160])
+            cur = flag_by_key.get(key)
+            if cur is None or sev_rank.get(fl.get("severity") or "low", 0) > \
+                              sev_rank.get(cur.get("severity") or "low", 0):
+                flag_by_key[key] = fl
+    merged["flags"] = list(flag_by_key.values())
+
+    # dataQualityChecks: per-field median/mode.
+    dqc_runs = [r.get("dataQualityChecks") or {} for r in runs]
+    merged_dqc = {}
+    if dqc_runs:
+        keys = set().union(*(d.keys() for d in dqc_runs))
+        for k in keys:
+            vs = [d.get(k) for d in dqc_runs if d.get(k) is not None]
+            nums = [v for v in vs if isinstance(v, (int, float))]
+            if nums and len(nums) == len(vs):
+                merged_dqc[k] = statistics.median(nums)
+            else:
+                merged_dqc[k] = _mode_of(vs)
+    merged["dataQualityChecks"] = merged_dqc
+
+    # questions: dedupe-by-text, preserve order of first appearance.
+    seen_q = set()
+    merged_questions = []
+    for r in runs:
+        for q in (r.get("questions") or []):
+            qn = (q or "").strip()
+            if qn and qn not in seen_q:
+                seen_q.add(qn)
+                merged_questions.append(qn)
+    merged["questions"] = merged_questions
+
+    # dataQuality: take the first run's (modal) view; this field is
+    # narrative-shaped so a true field-level merge would be lossy.
+    merged["dataQuality"] = runs[0].get("dataQuality") or {}
+
+    # Surface the category disagreements as checks (one per disagreed line).
+    if category_disagreements:
+        check_entries = []
+        for d in category_disagreements[:20]:
+            check_entries.append({
+                "item": f"Methodology vote disagreement: {d['sellerName']!r}",
+                "check": "Unanimous ggcCategory across runs",
+                "status": "warn",
+                "detail": (f"Runs voted {d['candidates']} — picked "
+                           f"{d['winner']!r} by weighted mode. Verify the "
+                           f"placement is correct."),
+            })
+        merged.setdefault("_extractionChecks", []).extend(check_entries)
+        merged["_methodologyVoteDisagreements"] = len(category_disagreements)
+        print(f"[Methodology] {len(category_disagreements)} ggcCategory "
+              f"vote disagreement(s) across {len(runs)} runs.")
+    merged["_methodologyVoteRuns"] = len(runs)
+    return merged
+
+
+def apply_ggc_overrides(financials, property_info):
+    """Force the GGC methodology rules per CLAUDE.md §5.4 onto the merged
+    methodology output. These are rules (not LLM judgment), so applying
+    them in Python eliminates run-to-run drift on the exact lines GGC
+    requires to be exact:
+
+    * Bad debt sign: always negative (t12Total, ggcUnderwritten, monthly).
+    * Management fee: 5% of EGI under 200 sites, 4% at 200+ sites,
+      EGI-based. Override any seller mgmt-fee line; insert one if missing.
+    * Insurance: T12 × 1.05; × 1.15 when the user marked the property
+      flood zone.
+    * Taxes: never below the historical T12 × 1.15 floor.
+    * CapEx reserve: $50/unit/year.
+
+    Mutates `financials` in place. Records every applied override on
+    `financials["_ggcOverrides"]` so the Extraction Check tab can list
+    exactly what changed.
+    """
+    income = financials.setdefault("income", [])
+    expenses = financials.setdefault("expenses", [])
+    rr = financials.get("rentRoll") or {}
+    overrides = financials.setdefault("_ggcOverrides", [])
+
+    def _record(category, before, after, basis):
+        overrides.append({
+            "category": category, "before": before, "after": after,
+            "basis": basis,
+        })
+
+    # ── Bad debt sign: always negative ──────────────────────────────────
+    for it in income:
+        if (it.get("ggcCategory") or "").strip() == "Less: Bad Debt":
+            for fld in ("t12Total", "ggcUnderwritten", "fyPrior",
+                        "fyCurrent", "brokerProforma"):
+                v = it.get(fld)
+                if isinstance(v, (int, float)) and v > 0:
+                    it[fld] = -v
+            monthly = it.get("monthly")
+            if isinstance(monthly, list):
+                it["monthly"] = [
+                    -m if isinstance(m, (int, float)) and m > 0 else m
+                    for m in monthly
+                ]
+
+    # ── Effective Gross Income (post bad-debt sign fix) ────────────────
+    egi = 0.0
+    for it in income:
+        v = it.get("ggcUnderwritten")
+        if isinstance(v, (int, float)):
+            egi += v
+
+    # ── Management fee: 5% under 200, 4% at 200+, EGI-based ────────────
+    try:
+        units_for_mgmt = int(rr.get("totalUnits") or 0) or int(
+            str(property_info.get("units", "")).strip() or 0)
+    except (ValueError, TypeError):
+        units_for_mgmt = 0
+    mgmt_pct = 0.04 if units_for_mgmt >= 200 else 0.05
+    if egi > 0:
+        mgmt_target = round(egi * mgmt_pct, 2)
+        mgmt_lines = [e for e in expenses
+                      if (e.get("ggcCategory") or "").strip() == "Management Fee"]
+        if mgmt_lines:
+            primary = mgmt_lines[0]
+            before = primary.get("ggcUnderwritten")
+            primary["ggcUnderwritten"] = mgmt_target
+            primary["monthly"] = [mgmt_target / 12] * 12
+            primary["notes"] = (primary.get("notes") or "").strip()
+            if primary["notes"]:
+                primary["notes"] += " || "
+            primary["notes"] += (
+                f"GGC override: {mgmt_pct:.0%} of EGI "
+                f"(${egi:,.0f}) on {units_for_mgmt} units"
+            )
+            primary["confidence"] = "high"
+            _record("Management Fee", before, mgmt_target,
+                    f"{mgmt_pct:.0%} × EGI ${egi:,.0f}")
+            # Zero any duplicate mgmt fee rows so they don't double-count.
+            for extra in mgmt_lines[1:]:
+                _record("Management Fee (duplicate)",
+                        extra.get("ggcUnderwritten"), 0,
+                        "deduped vs primary mgmt-fee row")
+                extra["ggcUnderwritten"] = 0
+                extra["monthly"] = [0] * 12
+        else:
+            expenses.append({
+                "ggcCategory":     "Management Fee",
+                "sellerName":      "Management Fee (GGC override)",
+                "fyPrior":         0, "fyCurrent": 0, "brokerProforma": 0,
+                "t12Total":        0,
+                "monthly":         [mgmt_target / 12] * 12,
+                "ggcUnderwritten": mgmt_target,
+                "confidence":      "high",
+                "notes": (f"GGC override (no seller line found): "
+                          f"{mgmt_pct:.0%} of EGI ${egi:,.0f} "
+                          f"on {units_for_mgmt} units"),
+            })
+            _record("Management Fee (inserted)", None, mgmt_target,
+                    f"{mgmt_pct:.0%} × EGI ${egi:,.0f}")
+
+    # ── Insurance: T12 × 1.05 (× 1.15 if flood zone) ───────────────────
+    fz_raw = str(property_info.get("floodZone", "")).strip().lower()
+    flood = fz_raw in ("yes", "true", "1", "flood", "y")
+    ins_mult = 1.15 if flood else 1.05
+    for e in expenses:
+        if (e.get("ggcCategory") or "").strip() == "Insurance":
+            t12 = e.get("t12Total") or e.get("ggcUnderwritten") or 0
+            if isinstance(t12, (int, float)) and t12 > 0:
+                target = round(t12 * ins_mult, 2)
+                before = e.get("ggcUnderwritten")
+                e["ggcUnderwritten"] = target
+                e["monthly"] = [target / 12] * 12
+                e["confidence"] = "high"
+                e["notes"] = ((e.get("notes") or "").strip()
+                              + (" || " if e.get("notes") else "")
+                              + f"GGC override: T12 × {ins_mult:.2f}"
+                              + (" (flood zone)" if flood else ""))
+                _record("Insurance", before, target,
+                        f"T12 ${t12:,.0f} × {ins_mult:.2f}"
+                        + (" (flood)" if flood else ""))
+
+    # ── Taxes: never below historical × 1.15 ───────────────────────────
+    for e in expenses:
+        if (e.get("ggcCategory") or "").strip() == "RE Taxes":
+            t12 = e.get("t12Total") or 0
+            llm_val = e.get("ggcUnderwritten") or 0
+            if isinstance(t12, (int, float)) and t12 > 0:
+                floor = round(t12 * 1.15, 2)
+                if not isinstance(llm_val, (int, float)) or llm_val < floor:
+                    before = e.get("ggcUnderwritten")
+                    e["ggcUnderwritten"] = floor
+                    e["monthly"] = [floor / 12] * 12
+                    e["confidence"] = "high"
+                    e["notes"] = ((e.get("notes") or "").strip()
+                                  + (" || " if e.get("notes") else "")
+                                  + "GGC override: T12 × 1.15 historical floor")
+                    _record("RE Taxes", before, floor,
+                            f"T12 ${t12:,.0f} × 1.15 (was below floor)")
+
+    # ── CapEx reserve: $50/unit/year ───────────────────────────────────
+    try:
+        units = int(rr.get("totalUnits") or 0) or int(
+            str(property_info.get("units", "")).strip() or 0)
+    except (ValueError, TypeError):
+        units = 0
+    if units > 0:
+        capex_target = float(units * 50)
+        capex_lines = [e for e in expenses
+                       if (e.get("ggcCategory") or "").strip() == "Cap-Ex Reserve"]
+        if capex_lines:
+            primary = capex_lines[0]
+            before = primary.get("ggcUnderwritten")
+            primary["ggcUnderwritten"] = capex_target
+            primary["monthly"] = [capex_target / 12] * 12
+            primary["confidence"] = "high"
+            primary["notes"] = ((primary.get("notes") or "").strip()
+                                + (" || " if primary.get("notes") else "")
+                                + f"GGC override: $50 × {units} units")
+            _record("Cap-Ex Reserve", before, capex_target,
+                    f"$50 × {units} units")
+            for extra in capex_lines[1:]:
+                _record("Cap-Ex Reserve (duplicate)",
+                        extra.get("ggcUnderwritten"), 0, "deduped")
+                extra["ggcUnderwritten"] = 0
+                extra["monthly"] = [0] * 12
+        else:
+            expenses.append({
+                "ggcCategory":     "Cap-Ex Reserve",
+                "sellerName":      "Cap-Ex Reserve (GGC override)",
+                "fyPrior":         0, "fyCurrent": 0, "brokerProforma": 0,
+                "t12Total":        0,
+                "monthly":         [capex_target / 12] * 12,
+                "ggcUnderwritten": capex_target,
+                "confidence":      "high",
+                "notes": f"GGC override (no seller line): $50 × {units} units",
+            })
+            _record("Cap-Ex Reserve (inserted)", None, capex_target,
+                    f"$50 × {units} units")
+
+    # Drop the override log if nothing actually changed — keeps the
+    # Extraction Check tab focused on real events.
+    if not overrides:
+        financials.pop("_ggcOverrides", None)
+    else:
+        # Surface a single summary check so the reviewer sees what changed
+        # without scrolling through every individual override.
+        summary = "; ".join(
+            f"{o['category']}: → ${(o['after'] or 0):,.0f}"
+            for o in overrides[:6]
+        )
+        more = f" (+{len(overrides) - 6} more)" if len(overrides) > 6 else ""
+        financials.setdefault("_extractionChecks", []).append({
+            "item": "GGC deterministic overrides",
+            "check": "§5.4 rules (mgmt fee, ins, taxes, capex, bad-debt sign)",
+            "status": "ok",
+            "detail": f"{len(overrides)} override(s) applied: {summary}{more}",
+        })
+        print(f"[GGC Overrides] Applied {len(overrides)} deterministic "
+              f"override(s) (mgmt/ins/tax/capex/bad-debt sign).")
+
+
+def _ensure_rent_roll_complete(financials, property_info):
+    """Deterministic backstop for §2.3 / §5.1 vacant-pad imputation.
+
+    The methodology prompt instructs the LLM to impute missing vacant lots
+    at per-type market rent when rent-roll rows < stated unit count, but the
+    LLM does not always follow through — and when it doesn't, GPR is
+    silently undercounted. This runs after Stage 3 returns: if the
+    methodology's totalUnits is short of the user-stated unit count, the
+    shortfall is added as vacant lots, distributed proportionally across
+    existing unit groups (so per-type market rents already on each group
+    carry forward). Adds a high-severity flag and updates the rent-roll
+    aggregates so downstream consumers (Excel write-back, parity checks,
+    KPI tiles) see the corrected totals.
+    """
+    try:
+        stated_units = int(str(property_info.get("units", "")).strip() or 0)
+    except (ValueError, TypeError):
+        stated_units = 0
+    if not stated_units:
+        return
+
+    rr = financials.get("rentRoll") or {}
+    groups = rr.get("unitGroups") or []
+    if not groups:
+        return
+
+    sizes = [(g.get("occupiedCount") or 0) + (g.get("vacantCount") or 0)
+             for g in groups]
+    current_total = sum(sizes)
+    if current_total >= stated_units:
+        return
+
+    shortfall = stated_units - current_total
+    sized = sorted(enumerate(sizes), key=lambda x: -x[1])
+    remaining = shortfall
+    for idx, sz in sized[:-1]:
+        share = int(round(shortfall * sz / current_total)) if current_total else 0
+        share = min(share, remaining)
+        groups[idx]["vacantCount"] = (groups[idx].get("vacantCount") or 0) + share
+        remaining -= share
+    if remaining > 0:
+        biggest_idx = sized[0][0]
+        groups[biggest_idx]["vacantCount"] = (
+            groups[biggest_idx].get("vacantCount") or 0) + remaining
+
+    new_occupied = sum(g.get("occupiedCount") or 0 for g in groups)
+    new_vacant = sum(g.get("vacantCount") or 0 for g in groups)
+    new_total = new_occupied + new_vacant
+    rr["unitGroups"] = groups
+    rr["totalUnits"] = new_total
+    rr["occupiedUnits"] = new_occupied
+    rr["vacantUnits"] = new_vacant
+    if new_total:
+        rr["occupancyRate"] = new_occupied / new_total
+    financials["rentRoll"] = rr
+
+    flags = financials.setdefault("flags", [])
+    flags.append({
+        "item": "Rent roll vs unit count",
+        "issue": (f"Rent roll showed {current_total} units but property is "
+                  f"{stated_units} units — assumed {shortfall} additional "
+                  f"vacant lots at per-type market rent."),
+        "severity": "high",
+        "recommendation": (
+            "Confirm with broker: are vacant sites excluded from the rent "
+            "roll, or is the property actually smaller than stated?"
+        ),
+    })
+    print(f"[Methodology] Imputed {shortfall} vacant lots "
+          f"({current_total} → {new_total}) to match stated unit count.")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -3634,6 +4371,45 @@ def _merge_market_research(runs):
 # ═══════════════════════════════════════════════════════════════════════════
 # TEMPLATE FILLING — uses GGC's actual blank template
 # ═══════════════════════════════════════════════════════════════════════════
+def _protect_formulas(ws):
+    """Wrap a worksheet so any value-write via ws.cell(row=, column=, value=)
+    is skipped when the target cell already holds a formula. Defense in
+    depth per CLAUDE.md §10.2: the template has ~1,651 pre-wired formulas
+    (SUM, SUMIFS, IFERROR-based pricing chains, etc.) and a write-back that
+    clobbers one of them yields a workbook whose final NOI doesn't trace.
+    Returns a mutable counter [int] so the caller can read how many writes
+    were blocked. Only `ws.cell()` is patched — the ws["P4"] = v style uses
+    `_set_addr()` below.
+    """
+    blocked = [0]
+    orig_cell = ws.cell
+
+    def safe_cell(row, column, value=None):
+        c = orig_cell(row=row, column=column)
+        if value is not None:
+            if isinstance(c.value, str) and c.value.startswith("="):
+                blocked[0] += 1
+                return c
+            c.value = value
+        return c
+
+    ws.cell = safe_cell
+    ws._formula_blocks = blocked
+    return blocked
+
+
+def _set_addr(ws, addr, value):
+    """Set ws[addr].value = value, skipping if a formula is already there."""
+    cell = ws[addr]
+    if isinstance(cell.value, str) and cell.value.startswith("="):
+        blocked = getattr(ws, "_formula_blocks", None)
+        if blocked is not None:
+            blocked[0] += 1
+        return False
+    cell.value = value
+    return True
+
+
 def fill_template(financials, market, output_path):
     if not TEMPLATE_PATH.exists():
         raise FileNotFoundError(
@@ -3642,12 +4418,16 @@ def fill_template(financials, market, output_path):
         )
 
     wb = load_workbook(TEMPLATE_PATH)
+    # Per-worksheet counters of writes blocked because a formula already
+    # lived in the target cell. Summed and surfaced at the end of fill.
+    formula_blocks_total = [0]
 
     # ── Data Consolidation ────────────────────────────────────────────────
     # Income rows 3-21, Expense rows 28-58
     # Cols: A=GGC Cat, B=Source Name, D=FY Prior, E=FY Current, F=Broker PF,
     #       G=T12, J-U=monthly (12), H=annualization (formula — don't touch)
     ws = wb["Data Consolidation"]
+    _protect_formulas(ws)
     income_items = financials.get("income", [])
     expense_items = financials.get("expenses", [])
 
@@ -3698,6 +4478,7 @@ def fill_template(financials, market, output_path):
     # names + unit IDs). Fall back to unitGroups expansion when only the
     # aggregated form is available.
     ws = wb["Rent Roll Input"]
+    _protect_formulas(ws)
     rr = financials.get("rentRoll") or {}
     per_row = rr.get("rentRollRows") or []
     unit_groups = rr.get("unitGroups") or []
@@ -3789,13 +4570,6 @@ def fill_template(financials, market, output_path):
         del wb["Comps Analysis"]
     add_comps_analysis_tab(wb, financials, market)
 
-    # ── Add Extraction Check tab (source reconciliation) ───────────────────
-    # This is the "do the numbers tie out?" tab Michael asked for in the
-    # meeting. Lives at the front so it's the first thing the reviewer sees.
-    if "Extraction Check" in wb.sheetnames:
-        del wb["Extraction Check"]
-    add_extraction_check_tab(wb, financials)
-
     # ── Subject property cells the template formulas key on ───────────────
     # The patched template puts the Subject pricing block at columns O-P
     # of GGC Underwriting. The P4 (Purchase Price) cell is wired to
@@ -3803,34 +4577,34 @@ def fill_template(financials, market, output_path):
     # Price). Without this write, P4 stays at 0 and the entire Sources
     # and Uses / Loan Scenario / Pro Forma Y0 chain collapses.
     underw = wb["GGC Underwriting"]
+    _protect_formulas(underw)
     prop = financials.get("propertyInfo") or {}
     try:
         ask = float(prop.get("askingPrice") or 0)
     except (TypeError, ValueError):
         ask = 0
     if ask > 0:
-        # The template uses P4 (Purchase Price) as the basis for Sources &
-        # Uses, Loan Scenario, and ingoing cap rate; P9 is the asking
-        # price for the deal-summary block. Until we expose a separate
-        # "negotiated purchase price" field on the form, default both to
-        # the user's askingPrice and let them override P4 in-cell when
-        # negotiating below ask.
-        underw["P4"] = ask
-        underw["P9"] = ask
+        # P9 (Asking Price) is the only cell we write — P4 (Purchase Price)
+        # is wired to =IFERROR(IF(ISNUMBER(P9),P9,0),0), so it auto-computes
+        # from P9 and the reviewer can adjust P9 when negotiating below ask
+        # without losing the formula chain. The earlier dual-write clobbered
+        # P4's formula with a literal, defeating that override path; the
+        # formula-protection guard at _set_addr now blocks it anyway.
+        _set_addr(underw, "P9", ask)
     # Property metadata for the M-N subject block. CorrectOutput's row
     # layout is: M4 Name, M5 Address, M6 Type, M7 Units, M8 Occupancy,
     # M9 Acreage, M10 County. Earlier code was off by one (name landed at
     # N5 where the Address label sits) — fixed here to match correct.
     if prop.get("name"):
-        underw["N4"] = prop.get("name")
+        _set_addr(underw, "N4", prop.get("name"))
     if prop.get("address"):
-        underw["N5"] = prop.get("address")
+        _set_addr(underw, "N5", prop.get("address"))
     if prop.get("propertyType"):
-        underw["N6"] = prop.get("propertyType")
+        _set_addr(underw, "N6", prop.get("propertyType"))
     if prop.get("acreage") is not None:
-        underw["N9"] = prop.get("acreage")
+        _set_addr(underw, "N9", prop.get("acreage"))
     if prop.get("county"):
-        underw["N10"] = prop.get("county")
+        _set_addr(underw, "N10", prop.get("county"))
 
     # County tax rate (countyTaxRate) and flood zone (floodZone) are
     # deliberately NOT written to the I22/I23 cells. Partner direction:
@@ -3843,28 +4617,28 @@ def fill_template(financials, market, output_path):
     # different reference period. M2 holds the label (set in
     # fix_template.py section 19d).
     from datetime import datetime as _dt
-    underw["N2"] = _dt.now()
-    underw["N2"].number_format = "[$-F800]dddd\\,\\ mmmm\\ dd\\,\\ yyyy"
+    if _set_addr(underw, "N2", _dt.now()):
+        underw["N2"].number_format = "[$-F800]dddd\\,\\ mmmm\\ dd\\,\\ yyyy"
 
     # Right-side utility / build metadata block (Q3:R8). Each row is
     # optional — write only when the methodology agent extracted a real
     # value, otherwise leave the template's blank cell alone.
     if prop.get("websiteUrl"):
-        underw["R3"] = prop.get("websiteUrl")
+        _set_addr(underw, "R3", prop.get("websiteUrl"))
     if prop.get("yearBuilt") is not None:
-        underw["R4"] = prop.get("yearBuilt")
+        _set_addr(underw, "R4", prop.get("yearBuilt"))
     # Flood Zone: the user's form value takes precedence (they know the
     # zone from their own due diligence), with methodology extraction as
     # the fallback. Skip the placeholder string "unknown".
     fz = prop.get("floodZone")
     if fz and str(fz).strip().lower() not in ("", "unknown", "none"):
-        underw["R5"] = fz
+        _set_addr(underw, "R5", fz)
     if prop.get("utilityStructure"):
-        underw["R6"] = prop.get("utilityStructure")
+        _set_addr(underw, "R6", prop.get("utilityStructure"))
     if prop.get("electricityNotes"):
-        underw["R7"] = prop.get("electricityNotes")
+        _set_addr(underw, "R7", prop.get("electricityNotes"))
     if prop.get("trashNotes"):
-        underw["R8"] = prop.get("trashNotes")
+        _set_addr(underw, "R8", prop.get("trashNotes"))
 
     # Tax Analysis Section (M19:R33). N19 holds the county assessor URL
     # if the methodology found one; parcel rows go into M26:R32. The
@@ -3872,7 +4646,7 @@ def fill_template(financials, market, output_path):
     # the parcel table, so populating the table cascades into the
     # Assessed Value / Levy Rate / Estimated Tax cells automatically.
     if prop.get("taxAssessorUrl"):
-        underw["N19"] = prop.get("taxAssessorUrl")
+        _set_addr(underw, "N19", prop.get("taxAssessorUrl"))
     parcels = prop.get("taxParcels") or []
     if isinstance(parcels, list):
         # Write up to 7 parcels into rows 26-32. Excess parcels are
@@ -3883,15 +4657,48 @@ def fill_template(financials, market, output_path):
             if not isinstance(parcel, dict):
                 continue
             if parcel.get("parcelId"):
-                underw[f"M{r}"] = parcel.get("parcelId")
+                _set_addr(underw, f"M{r}", parcel.get("parcelId"))
             if parcel.get("marketValue") is not None:
-                underw[f"N{r}"] = parcel.get("marketValue")
+                _set_addr(underw, f"N{r}", parcel.get("marketValue"))
             if parcel.get("taxableValue") is not None:
-                underw[f"O{r}"] = parcel.get("taxableValue")
+                _set_addr(underw, f"O{r}", parcel.get("taxableValue"))
             if parcel.get("taxes") is not None:
-                underw[f"P{r}"] = parcel.get("taxes")
+                _set_addr(underw, f"P{r}", parcel.get("taxes"))
             if parcel.get("acres") is not None:
-                underw[f"R{r}"] = parcel.get("acres")
+                _set_addr(underw, f"R{r}", parcel.get("acres"))
+
+    # Tally formula-protection blocks across the worksheets we wrapped.
+    # When a write was deferred to a pre-wired template formula, surface
+    # it on the Extraction Check tab so the reviewer can spot any
+    # unexpected collisions. A nonzero count is informational, not a
+    # failure — the template formula was preserved exactly as intended.
+    total_blocks = sum(
+        ws._formula_blocks[0]
+        for ws in (wb["Data Consolidation"], wb["Rent Roll Input"],
+                   wb["GGC Underwriting"])
+        if getattr(ws, "_formula_blocks", None) is not None
+    )
+    if total_blocks:
+        financials.setdefault("_extractionChecks", []).append({
+            "item": "Template formula protection",
+            "check": "Skip writes that would clobber pre-wired formulas",
+            "status": "warn",
+            "detail": (f"{total_blocks} cell write(s) were deferred because "
+                       "the template already held a formula at that "
+                       "address. Confirm the cells you expected to "
+                       "populate (asking price, property metadata, data "
+                       "consolidation) made it through."),
+        })
+        print(f"[Template] Formula protection blocked {total_blocks} write(s).")
+
+    # ── Add Extraction Check tab (source reconciliation) ───────────────────
+    # This is the "do the numbers tie out?" tab Michael asked for in the
+    # meeting. Lives at the front so it's the first thing the reviewer
+    # sees. Built LAST so it can include the formula-protection tally
+    # above and any other checks accumulated during fill_template.
+    if "Extraction Check" in wb.sheetnames:
+        del wb["Extraction Check"]
+    add_extraction_check_tab(wb, financials)
 
     # Force Excel to recalculate every formula when the user opens the
     # output. Without these flags, openpyxl-written formulas show as
@@ -4670,12 +5477,16 @@ def run_analysis_job(job_id, api_key, file_blocks, property_info):
         #   4. CACHE WRITE                    — if no hard-fail in verification
         # Market research is independent, so we run it in parallel with the
         # whole financial sequence.
-        n_extract_runs = FINANCIAL_PARSE_RUNS_DEEP if deep_search else 1
+        n_extract_runs     = (FINANCIAL_PARSE_RUNS_DEEP if deep_search
+                              else FINANCIAL_PARSE_RUNS)
+        n_methodology_runs = (METHODOLOGY_RUNS_DEEP     if deep_search
+                              else METHODOLOGY_RUNS)
 
         def financial_pipeline():
             cache_key = extraction_cache_key(
                 file_blocks, property_info, n_extract_runs,
-                EXTRACTION_PROMPT, FINANCIAL_PARSE_PROMPT)
+                EXTRACTION_PROMPT, FINANCIAL_PARSE_PROMPT,
+                n_methodology_runs=n_methodology_runs)
             cached = extraction_cache_get(cache_key)
             if cached is not None:
                 print(f"[Cache] HIT key={cache_key[:8]}... — returning memoized "
@@ -4684,7 +5495,8 @@ def run_analysis_job(job_id, api_key, file_blocks, property_info):
                 cached["_cache"].update({"hit": True, "key": cache_key[:8]})
                 return cached
             print(f"[Cache] MISS key={cache_key[:8]} "
-                  f"(deep_search={deep_search}, n_extract_runs={n_extract_runs})")
+                  f"(deep_search={deep_search}, "
+                  f"n_extract={n_extract_runs}, n_method={n_methodology_runs})")
 
             if n_extract_runs > 1:
                 extracted = call_extract_financials_merged(
@@ -4693,10 +5505,11 @@ def run_analysis_job(job_id, api_key, file_blocks, property_info):
                 extracted = call_extract_financials(
                     api_key, file_blocks, property_info)
             checks = verify_extraction(extracted, property_info)
-            n_fail = sum(1 for c in checks if c["status"] == "fail")
-            n_warn = sum(1 for c in checks if c["status"] == "warn")
-            print(f"[Verify] {len(checks)} checks: {n_fail} fail, {n_warn} warn")
-            financials = call_parse_financials(api_key, extracted, property_info)
+            print(f"[Verify/Extract] {len(checks)} checks: "
+                  f"{sum(1 for c in checks if c['status'] == 'fail')} fail, "
+                  f"{sum(1 for c in checks if c['status'] == 'warn')} warn")
+            financials = call_parse_financials_merged(
+                api_key, extracted, property_info, n_runs=n_methodology_runs)
             # Carry the user-provided county tax rate through into
             # financials.propertyInfo so fill_template can stamp it into
             # the Underwriting tab (P12) — the RE Taxes override formula
@@ -4717,10 +5530,24 @@ def run_analysis_job(job_id, api_key, file_blocks, property_info):
             # canonical unit types. This is where the lot-rent / RV-rent
             # collapse bug would surface.
             checks.extend(verify_methodology(financials))
+            # Recompute fail/warn counts now that methodology-side checks are
+            # in. Earlier versions only counted extraction fails, so a clean
+            # extraction with a broken methodology categorization slipped
+            # through both the cache gate and the write-back gate.
+            n_fail = sum(1 for c in checks if c["status"] == "fail")
+            n_warn = sum(1 for c in checks if c["status"] == "warn")
+            print(f"[Verify/Total] {len(checks)} checks: "
+                  f"{n_fail} fail, {n_warn} warn")
             # Carry the raw extraction + checks through so they can be rendered
             # on the Extraction Check tab.
             financials["_extraction"] = extracted
             financials["_extractionChecks"] = checks
+            financials["_verification"] = {
+                "hardFails": n_fail,
+                "warnings": n_warn,
+                "failedCheckNames": [c["item"] for c in checks
+                                     if c["status"] == "fail"][:20],
+            }
             financials["_cache"] = {"hit": False, "key": cache_key[:8],
                                      "n_extract_runs": n_extract_runs}
 
@@ -4745,6 +5572,36 @@ def run_analysis_job(job_id, api_key, file_blocks, property_info):
                     results["market"] = future.result()
                     _set_job(job_id, progress="✓ Market research complete.")
 
+        # Verification gate — refuse to produce a workbook when hard fails
+        # remain. The extraction stage already retried up to
+        # MAX_PARSE_RETRIES with the validation errors fed back; if checks
+        # are still failing they're real, and a workbook with non-tying
+        # numbers does more harm than no workbook. The user sees the
+        # failures (status='needs_review', failedCheckNames in result) and
+        # can re-upload corrected docs or set property_info correctly.
+        verification = results["financials"].get("_verification") or {}
+        n_fail = int(verification.get("hardFails") or 0)
+        failed_names = verification.get("failedCheckNames") or []
+        usage_summary = get_usage_summary()
+        if n_fail > 0:
+            preview = ", ".join(failed_names[:3])
+            more = f" (+{len(failed_names) - 3} more)" if len(failed_names) > 3 else ""
+            msg = (f"Verification failed: {n_fail} hard checks did not tie out — "
+                   f"{preview}{more}. Re-upload corrected docs or adjust inputs.")
+            print(f"[{job_id}] WRITE-BACK BLOCKED — {n_fail} hard fails "
+                  f"({preview}{more})")
+            _set_job(job_id,
+                     status="needs_review",
+                     progress=f"Blocked: {n_fail} verification fails.",
+                     result={
+                         "financials": results["financials"],
+                         "market": results["market"],
+                         "verification": verification,
+                         "usage": usage_summary,
+                         "message": msg,
+                     })
+            return
+
         _set_job(job_id, progress="Filling GGC template...")
         output_path = JOBS_DIR / f"{job_id}.xlsx"
         fill_template(results["financials"], results["market"], output_path)
@@ -4752,7 +5609,6 @@ def run_analysis_job(job_id, api_key, file_blocks, property_info):
         # survives instance restarts and shows up in the web app's history.
         _fb_store_output(job_id, output_path)
 
-        usage_summary = get_usage_summary()
         _set_job(job_id,
                  status="complete",
                  progress="Done.",
@@ -4760,6 +5616,7 @@ def run_analysis_job(job_id, api_key, file_blocks, property_info):
                      "financials": results["financials"],
                      "market": results["market"],
                      "download_url": f"/api/download/{job_id}",
+                     "verification": verification,
                      "usage": usage_summary,
                  })
         print(f"[{job_id}] Job cost: ${usage_summary['totals']['cost_usd']:.2f} "

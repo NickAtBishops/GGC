@@ -493,6 +493,10 @@
           setStep('fill', 'done');
           setStep('complete', 'done');
           showResults(job.result);
+        } else if (job.status === 'needs_review') {
+          clearInterval(state.pollInterval);
+          stopElapsedTimer();
+          showNeedsReview(job.result);
         } else if (job.status === 'error') {
           clearInterval(state.pollInterval);
           stopElapsedTimer();
@@ -617,6 +621,16 @@
     document.getElementById('error-msg').textContent = msg;
     document.getElementById('analyze-btn').disabled = false;
     stopElapsedTimer();
+  }
+
+  function showNeedsReview(result) {
+    const v = (result && result.verification) || {};
+    const names = v.failedCheckNames || [];
+    const msg = (result && result.message)
+      || `Verification failed: ${v.hardFails || 0} hard checks did not tie out. `
+         + (names.length ? `Failed: ${names.slice(0, 5).join(', ')}. ` : '')
+         + 'No workbook was produced. Re-upload corrected docs or adjust inputs and retry.';
+    showError(msg);
   }
 </script>
 
