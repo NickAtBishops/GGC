@@ -2735,6 +2735,76 @@ def verify_methodology(financials):
                        f"${reported_noi:,.0f} ({pct:.1f}% off)"),
         })
 
+    # ── Extraction → methodology line count parity. Catches the root cause
+    # of the payroll-aggregation bug: the methodology silently dropped 5
+    # leaf GLs into a single "Total Personnel" row with t12Total=0. The
+    # Pydantic validator now rejects the subtotal-shaped row, but we also
+    # want to catch the case where the LLM emits FEWER rows than the
+    # source had non-subtotal leaves — i.e., real GLs went missing.
+    extracted = financials.get("_extraction") or {}
+    if isinstance(extracted, dict):
+        for section, label in (("income", "Income"), ("expenses", "Expense")):
+            ext_leaves = [ln for ln in (extracted.get(section) or [])
+                          if isinstance(ln, dict)
+                          and not ln.get("isSubtotal")
+                          and not _looks_like_subtotal(ln.get("sellerLabel"))
+                          and isinstance(ln.get("annualTotal"), (int, float))
+                          and abs(ln["annualTotal"]) > 1]
+            meth_rows = [r for r in (financials.get(section) or [])
+                         if isinstance(r, dict)
+                         and (r.get("ggcCategory") or "").strip()
+                         not in {"Cap-Ex Reserve", "Management Fee"}]
+            # Skip GGC-inserted lines from the comparison: apply_ggc_overrides
+            # inserts CapEx / Mgmt Fee rows that have no extracted counterpart.
+            n_ext, n_meth = len(ext_leaves), len(meth_rows)
+            if n_ext == 0:
+                continue
+            gap = n_ext - n_meth
+            # Tolerance: allow ±2 (the LLM sometimes merges two adjacent
+            # GLs of the same category, which is fine for the workbook).
+            if gap > 2:
+                # Surface the specific extracted labels that look dropped.
+                ext_labels = {(ln.get("sellerLabel") or "").strip()
+                              for ln in ext_leaves}
+                meth_sellers = {(r.get("sellerName") or "").strip()
+                                for r in meth_rows}
+                def _norm(s):
+                    return "".join(c for c in s.lower() if c.isalnum())
+                meth_norms = {_norm(s) for s in meth_sellers}
+                missing = sorted([lbl for lbl in ext_labels
+                                  if not any(_norm(lbl) in m or m in _norm(lbl)
+                                             for m in meth_norms if m)])
+                preview = ", ".join(repr(m) for m in missing[:6])
+                more = f" (+{len(missing) - 6} more)" if len(missing) > 6 else ""
+                checks.append({
+                    "item": f"{label} line count parity",
+                    "check": "Methodology rows ≈ extraction leaves",
+                    "status": "fail",
+                    "detail": (f"Extraction has {n_ext} non-subtotal "
+                               f"{section} rows; methodology emitted "
+                               f"{n_meth} ({gap} dropped). Likely missing: "
+                               f"{preview}{more}. The methodology stage "
+                               "collapsed leaf GLs into a subtotal or "
+                               "skipped them — the underlying t12Total "
+                               "values are lost from the workbook."),
+                })
+            elif gap > 0:
+                checks.append({
+                    "item": f"{label} line count parity",
+                    "check": "Methodology rows ≈ extraction leaves",
+                    "status": "warn",
+                    "detail": (f"Extraction has {n_ext} {section} rows; "
+                               f"methodology emitted {n_meth} ({gap} fewer). "
+                               "Small gap; possibly intentional consolidation."),
+                })
+            else:
+                checks.append({
+                    "item": f"{label} line count parity",
+                    "check": "Methodology rows ≈ extraction leaves",
+                    "status": "ok",
+                    "detail": f"{n_meth} methodology rows ≥ {n_ext} extraction leaves.",
+                })
+
     # ── Unit/pad ID uniqueness — if per-row data is present. The rent
     # roll's COUNTIFS in the template assumes unique unit IDs; duplicates
     # would inflate occupancy counts and double-charge GPR.
@@ -3205,6 +3275,18 @@ DECISION RULES (expense):
 - HARD RULE: every emitted row MUST have a numeric t12Total (zero is allowed; null is NOT allowed when the source P&L shows a value). If the extracted data has a value, the methodology row must carry it through. A row whose sellerName contains "Total"/"Subtotal"/"non-posting" AND has t12Total=0 across all value columns will be DROPPED by the write-back as a placeholder — emit the leaf GLs instead.
 
 REJECT any deviation from the exact category strings above. The downstream Excel SUMIFS keys on these exact strings; even a trailing space or different capitalization will silently zero out the line.
+
+## ggcUnderwritten — choosing the underwritten value
+
+For each row, `ggcUnderwritten` is the value GGC will carry forward into the underwriting model. Pick its basis using this hierarchy:
+
+1. **If sellerNotes contains "T12" or is empty**: ggcUnderwritten = t12Total (or the adjusted value after applying any deterministic GGC override — e.g. insurance × 1.05, taxes × 1.15 floor, mgmt fee 5%/4% of EGI, capex $75/site/year). The Python override pass handles these specific lines; the LLM should still emit t12Total as the basis.
+
+2. **If sellerNotes describes an ADJUSTMENT to the historical T12** (examples: "Last quarter annualized", "Switched insurance policies", "Adjusted for new rate", "Annualized from N months", "Pro forma based on actuals"): the seller has done the adjustment work for us. Use proFormaTotal as ggcUnderwritten. Add a one-line note saying "Used seller's pro-forma per sellerNotes: <quote the notes>". This is how CorrectOutput handles Whaleshead's insurance line ($37,681 T12 → $32,735 pro-forma).
+
+3. **If sellerNotes flags exclusion** ("Non-recurring", "Discontinued", "Seller Specific", "One-time", "Non-operating"): the line is already routed to Omitt by the hard rule above. ggcUnderwritten should still reflect the seller's value (so the workbook's Omitt row carries the dollar amount the reviewer sees), but it does NOT flow into EGI / OpEx — the Underwriting tab's SUMIFS for those buckets exclude the Omitt categories.
+
+4. **If proFormaTotal is null/0 and notes are absent**: ggcUnderwritten = t12Total. Default behavior.
 
 ## GGC Underwriting Methodology
 
@@ -6144,6 +6226,10 @@ def run_analysis_job(job_id, api_key, file_blocks, property_info):
             # need both the income.ggcCategory tags and the rent roll's
             # canonical unit types. This is where the lot-rent / RV-rent
             # collapse bug would surface.
+            # Attach the extraction to financials BEFORE verify_methodology
+            # runs so the extraction-vs-methodology line count check has
+            # the data it needs to flag dropped-line bugs at their cause.
+            financials["_extraction"] = extracted
             checks.extend(verify_methodology(financials))
             # Recompute fail/warn counts now that methodology-side checks are
             # in. Earlier versions only counted extraction fails, so a clean
@@ -6153,9 +6239,7 @@ def run_analysis_job(job_id, api_key, file_blocks, property_info):
             n_warn = sum(1 for c in checks if c["status"] == "warn")
             print(f"[Verify/Total] {len(checks)} checks: "
                   f"{n_fail} fail, {n_warn} warn")
-            # Carry the raw extraction + checks through so they can be rendered
-            # on the Extraction Check tab.
-            financials["_extraction"] = extracted
+            # Carry checks through so they render on the Extraction Check tab.
             financials["_extractionChecks"] = checks
             financials["_verification"] = {
                 "hardFails": n_fail,

@@ -19,6 +19,11 @@ export interface DealFormFields {
   state: string;
   county: string;
   county_tax_rate: string;
+  /** Per-site RE tax assumption ($/unit/year). Optional. When present,
+   *  the engine writes it to `GGC Underwriting!J22` so the template's
+   *  `I22 = J22 × N7` formula yields the underwritten RE Taxes. Typical
+   *  range is $100–$2,000 depending on county (Whaleshead was $400). */
+  tax_per_site: string;
   units: string;
   poh_count: string;
   asking_price: string;
@@ -159,6 +164,7 @@ export async function startAnalysis(fields: DealFormFields, files: File[]): Prom
   fd.append("state", fields.state);
   fd.append("county", fields.county);
   fd.append("county_tax_rate", fields.county_tax_rate);
+  fd.append("tax_per_site", fields.tax_per_site);
   fd.append("units", fields.units);
   fd.append("poh_count", fields.poh_count || "0");
   fd.append("asking_price", fields.asking_price);

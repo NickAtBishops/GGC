@@ -48,6 +48,7 @@ const EMPTY_FIELDS: DealFormFields = {
   state: "",
   county: "",
   county_tax_rate: "",
+  tax_per_site: "",
   units: "",
   poh_count: "",
   asking_price: "",
@@ -220,7 +221,7 @@ export default function DealForm({ busy, onSubmit }: DealFormProps) {
                 className="input-field rounded-lg px-4 py-2 text-sm uppercase"
               />
             </div>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               <input
                 value={fields.county}
                 onChange={(e) => setField("county", e.target.value)}
@@ -235,6 +236,15 @@ export default function DealForm({ busy, onSubmit }: DealFormProps) {
                 step="0.0001"
                 placeholder="County Tax Rate (e.g. 0.0125)"
                 title="Effective millage / tax rate as a decimal (1.25% = 0.0125). Leave blank if unknown; backend will fall back to T12 × 1.15."
+                className="input-field rounded-lg px-4 py-2 text-sm"
+              />
+              <input
+                value={fields.tax_per_site}
+                onChange={(e) => setField("tax_per_site", e.target.value)}
+                type="number"
+                step="1"
+                placeholder="Per-Site Tax (e.g. 400)"
+                title="GGC's per-site RE tax assumption ($/unit/year). When set, the engine writes this to Underwriting!J22 and the workbook computes I22 = J22 × N7. Leave blank to use the template default. Typical range $100–$2,000."
                 className="input-field rounded-lg px-4 py-2 text-sm"
               />
             </div>

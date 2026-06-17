@@ -48,9 +48,27 @@ export default function ResultsPanel({ result }: { result: JobResult }) {
   const rentComps = m.rentComps ?? [];
   const saleComps = m.saleComps ?? [];
 
-  // KPI math — identical to index.html's showResults().
-  const totalInc = (f.income ?? []).reduce((sum, line) => sum + (line.ggcUnderwritten ?? 0), 0);
-  const totalExp = (f.expenses ?? []).reduce((sum, line) => sum + (line.ggcUnderwritten ?? 0), 0);
+  // KPI math. Exclude the Omitt buckets from EGI / OpEx so the displayed
+  // NOI matches what the workbook's I47 SUMIFS will compute — Omitt is the
+  // explicit non-operating exclusion. The Omitt totals are surfaced as
+  // their own tile so the reviewer can sanity-check what was excluded.
+  const isOmittIncome = (line: { ggcCategory?: string }) =>
+    (line.ggcCategory ?? "").trim() === "Omitt Income";
+  const isOmittExpense = (line: { ggcCategory?: string }) =>
+    (line.ggcCategory ?? "").trim() === "Omitt Expense";
+  const totalInc = (f.income ?? [])
+    .filter((l) => !isOmittIncome(l))
+    .reduce((sum, line) => sum + (line.ggcUnderwritten ?? 0), 0);
+  const totalExp = (f.expenses ?? [])
+    .filter((l) => !isOmittExpense(l))
+    .reduce((sum, line) => sum + (line.ggcUnderwritten ?? 0), 0);
+  const omittIncome = (f.income ?? [])
+    .filter(isOmittIncome)
+    .reduce((sum, line) => sum + (line.ggcUnderwritten ?? 0), 0);
+  const omittExpense = (f.expenses ?? [])
+    .filter(isOmittExpense)
+    .reduce((sum, line) => sum + (line.ggcUnderwritten ?? 0), 0);
+  const omittTotal = omittIncome + omittExpense;
   const ggcNoi = totalInc - totalExp;
   const ask = pi.askingPrice ?? 0;
   const capRate = ask ? ggcNoi / ask : 0;
@@ -98,6 +116,13 @@ export default function ResultsPanel({ result }: { result: JobResult }) {
         <KpiCard label="Cap Rate" value={(capRate * 100).toFixed(2) + "%"} />
         <KpiCard label="$ / Unit" value={formatMoney(pricePerUnit)} />
         <KpiCard label="Occupancy" value={occupancy} />
+        {omittTotal !== 0 && (
+          <KpiCard
+            label="Omitt (excluded)"
+            value={formatMoney(omittTotal)}
+            subtitle={`+${formatMoney(omittIncome)} inc, −${formatMoney(omittExpense)} exp`}
+          />
+        )}
         {cost !== null && (
           <KpiCard
             label="API Cost"

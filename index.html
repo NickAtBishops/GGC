@@ -118,6 +118,7 @@
         <div class="grid grid-cols-2 gap-2">
           <input id="county" placeholder="County" class="input-field rounded-lg px-4 py-2 text-sm" title="County name — used for tax reassessment lookup and demographics.">
           <input id="county_tax_rate" type="number" step="0.0001" placeholder="County Tax Rate (e.g. 0.0125)" class="input-field rounded-lg px-4 py-2 text-sm" title="Effective millage / tax rate as a decimal (1.25% = 0.0125). Leave blank if unknown; backend will fall back to T12 × 1.15.">
+          <input id="tax_per_site" type="number" step="1" placeholder="Per-Site Tax (e.g. 400)" class="input-field rounded-lg px-4 py-2 text-sm" title="GGC's per-site RE tax assumption ($/unit/year). When set, the engine writes this to Underwriting!J22 and I22 = J22 × N7. Leave blank for template default. Typical range $100–$2,000.">
         </div>
         <div class="grid grid-cols-3 gap-2">
           <input id="units" type="number" placeholder="Total Units (optional)" title="Leave blank to auto-derive from the rent roll." class="input-field rounded-lg px-4 py-2 text-sm">
@@ -317,6 +318,7 @@
   // sessions when the user does enter it). The REQUIRED subset gates submit;
   // units is optional and auto-derived from the rent roll when blank.
   const PROPERTY_FIELDS = ['property_name', 'address', 'city', 'state', 'county',
+                           'county_tax_rate', 'tax_per_site',
                            'units', 'asking_price'];
   const REQUIRED_FIELDS = ['property_name', 'address', 'city', 'state', 'county',
                            'asking_price'];
@@ -513,6 +515,7 @@
     fd.append('flood_zone',   document.getElementById('flood_zone').value);
     fd.append('county',           document.getElementById('county').value);
     fd.append('county_tax_rate',  document.getElementById('county_tax_rate').value);
+    fd.append('tax_per_site',     document.getElementById('tax_per_site').value);
     fd.append('deep_search', document.getElementById('deep_search').checked ? 'on' : 'off');
     fd.append('cost_mode',   document.getElementById('cost_mode').value);
     fd.append('n_runs',      document.getElementById('n_runs').value);
@@ -604,9 +607,22 @@
     const rentComps = m.rentComps || [];
     const saleComps = m.saleComps || [];
 
-    // KPI cards
-    const totalInc = (f.income || []).reduce((s, i) => s + (i.ggcUnderwritten || 0), 0);
-    const totalExp = (f.expenses || []).reduce((s, e) => s + (e.ggcUnderwritten || 0), 0);
+    // KPI cards. Exclude Omitt buckets from EGI / OpEx so the displayed
+    // NOI matches what the workbook's I47 SUMIFS will compute. The Omitt
+    // total gets its own tile so the reviewer sees what was excluded.
+    const isOmittInc = (l) => (l.ggcCategory || '').trim() === 'Omitt Income';
+    const isOmittExp = (l) => (l.ggcCategory || '').trim() === 'Omitt Expense';
+    const totalInc = (f.income || [])
+      .filter(l => !isOmittInc(l))
+      .reduce((s, i) => s + (i.ggcUnderwritten || 0), 0);
+    const totalExp = (f.expenses || [])
+      .filter(l => !isOmittExp(l))
+      .reduce((s, e) => s + (e.ggcUnderwritten || 0), 0);
+    const omittIncome = (f.income || []).filter(isOmittInc)
+      .reduce((s, i) => s + (i.ggcUnderwritten || 0), 0);
+    const omittExpense = (f.expenses || []).filter(isOmittExp)
+      .reduce((s, e) => s + (e.ggcUnderwritten || 0), 0);
+    const omittTotal = omittIncome + omittExpense;
     const ggcNoi = totalInc - totalExp;
     const ask = pi.askingPrice || 0;
     const capRate = ask ? (ggcNoi / ask) : 0;
@@ -622,12 +638,18 @@
       '$' + cost.toFixed(2),
       `${usage.calls} Claude calls`
     );
+    const omittCard = omittTotal === 0 ? '' : kpiCard(
+      'Omitt (excluded)',
+      '$' + Math.round(omittTotal).toLocaleString(),
+      `+$${Math.round(omittIncome).toLocaleString()} inc, −$${Math.round(omittExpense).toLocaleString()} exp`
+    );
 
     document.getElementById('results-summary').innerHTML = `
       ${kpiCard('GGC NOI', '$' + Math.round(ggcNoi).toLocaleString())}
       ${kpiCard('Cap Rate', (capRate * 100).toFixed(2) + '%')}
       ${kpiCard('$ / Unit', '$' + Math.round(pricePerUnit).toLocaleString())}
       ${kpiCard('Occupancy', ((rr.occupancyRate || 0) * 100).toFixed(1) + '%')}
+      ${omittCard}
       ${costCard}
     `;
 
