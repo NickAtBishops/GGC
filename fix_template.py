@@ -866,24 +866,59 @@ for r in (39, 40):
 ws["H14"] = "=I14"
 ws["H16"] = None
 
-# Bifurcated valuation block at M13:P16. This is the GGC methodology
+# Bifurcated valuation block at M13:R16. This is the GGC methodology
 # split — value the Lot Rent NOI at 5.5% cap, Home Rent NOI at 12% cap.
+# The full table runs M:R (6 columns: Asset / NOI / CAP RATE / VALUE /
+# VALUE/UNIT / UNIT) so the workbook shows both an aggregate $ value
+# AND a per-site value derived from Unit Mix Summary's unit counts.
+# Mirrors CorrectOutput.xlsx exactly so the visual layout matches.
 ws["M13"] = "Asset"
 ws["N13"] = "NOI"
 ws["O13"] = "CAP RATE"
 ws["P13"] = "VALUE"
+ws["Q13"] = "VALUE/UNIT"
+ws["R13"] = "UNIT"
+
+# Row 14: Lot Rent valuation. N14 = I47 (per CorrectOutput — uses Total
+# NOI as the Lot-Rent-only basis for valuation; H47 is the strict lot-
+# rent-only NOI which would be used in a different methodology). Caps at
+# 5.5%. Per-site VALUE/UNIT divides P14 by the MH-site unit count
+# (E9 = TOH MH Site + POH-Infilled in Unit Mix Summary).
 ws["M14"] = "Lot Rent only NOI"
-ws["N14"] = "=H47"
+ws["N14"] = "=I47"
 ws["O14"] = 0.055
 ws["P14"] = "=N14/O14"
+ws["Q14"] = "=P14/R14"
+ws["R14"] = "='Unit Mix Summary'!E9"
+
+# Row 15: Home Rent valuation. N15 = I47-H47 = Home Rent NOI. Caps at
+# 12% (higher cap = lower multiple for home-rent business, per §5.2's
+# "GGC values land, not homes"). Unit count = POH + Retail/Commercial.
 ws["M15"] = "Home Rent only NOI"
 ws["N15"] = "=I47-H47"
 ws["O15"] = 0.12
 ws["P15"] = "=N15/O15"
+ws["Q15"] = "=P15/R15"
+ws["R15"] = "='Unit Mix Summary'!E5+'Unit Mix Summary'!E7"
+
+# Row 16: blended total.
 ws["M16"] = "Total"
 ws["N16"] = "=SUM(N14:N15)"
 ws["O16"] = "=N16/P16"
 ws["P16"] = "=SUM(P14:P15)"
+
+# Number formats matching CorrectOutput exactly. Without these the
+# values display as raw numbers (0.055 instead of 5.50%, 17255392
+# instead of $17,255,392). The display is half the work.
+_currency = '"$"#,##0_);[Red]\\("$"#,##0\\)'
+_currency_simple = '"$"#,##0'
+_percent = '0.00%'
+for _ref in ("N14", "P14", "Q14", "P15", "Q15", "P16"):
+    ws[_ref].number_format = _currency
+for _ref in ("N15", "N16"):
+    ws[_ref].number_format = _currency_simple
+for _ref in ("O14", "O15", "O16"):
+    ws[_ref].number_format = _percent
 
 # ════════════════════════════════════════════════════════════════════════
 # 14. FORCE FULL RECALC ON OPEN
@@ -1011,14 +1046,17 @@ LABEL_FIXES = [
     ("GGC Pro Forma (Conversion)","F102","Avg CoC Y1-Y4"),
     # 10-yr Cash on Cash should be Y1-Y9 (was contradicting itself)
     ("Investor Return",           "C8",  "Cash on Cash Avg Y1-Y9"),
-    # Bifurcated NOI label consistency
-    ("GGC Underwriting",          "H2",  "Lot Rent NOI"),                  # was "LOT RENT NOI"
-    ("GGC Underwriting",          "M14", "Lot Rent NOI"),                  # was "Lot Rent only NOI"
-    ("GGC Underwriting",          "M15", "Home Rent NOI"),                 # was "Home Rent only NOI"
+    # Bifurcated NOI label consistency — restored to CorrectOutput's
+    # "...only NOI" wording so the workbook matches the gold standard
+    # exactly. The earlier short form ("Lot Rent NOI") was a personal
+    # preference that diverged from CorrectOutput; revert.
+    ("GGC Underwriting",          "H2",  "Lot Rent only NOI"),
+    ("GGC Underwriting",          "M14", "Lot Rent only NOI"),
+    ("GGC Underwriting",          "M15", "Home Rent only NOI"),
     # Trailing/leading-space cleanups
     ("Unit Mix Rent Growth",      "D13", "$ Change"),                      # was "$change"
-    ("GGC Underwriting",          "M7",  "# of Units"),                    # trailing space
-    ("GGC Underwriting",          "O10", "Asking Price Per Site"),         # trailing space
+    ("GGC Underwriting",          "M7",  "# of Units "),                   # CorrectOutput keeps the trailing space
+    ("GGC Underwriting",          "O10", "Asking Price Per Site "),        # CorrectOutput keeps the trailing space
     ("GGC Underwriting",          "A30", "Repair and Maintenance"),
     ("GGC Pro Forma",             "C36", "Repair and Maintenance"),
     ("GGC Pro Forma (Conversion)","C36", "Repair and Maintenance"),
@@ -1157,13 +1195,16 @@ uw["K5"] = "Stabilized economic vacancy (5% industry benchmark)"
 # isn't tractable. K7 holds the explainer; J7 stays at 0.03.
 uw["K7"] = "T12 actual; 3% fallback when no trend signal"
 
-# 16f. Bifurcated cap rates — expose as inputs at O14/O15 with the
-# methodology range as a comment. Default to midpoints (6% lot, 13.5%
-# home) rather than the most aggressive ends.
-uw["O14"] = 0.060   # was 0.055 — midpoint of 5-7% range
-uw["O15"] = 0.135   # was 0.120 — midpoint of 12-15% range
-uw["Q14"] = "Methodology range: 5-7%"
-uw["Q15"] = "Methodology range: 12-15%"
+# 16f. Bifurcated cap rates — match CorrectOutput exactly (5.5% lot,
+# 12% home; the more aggressive ends, which CorrectOutput uses for the
+# Whaleshead model). Q14/Q15 are the per-unit VALUE/UNIT formulas, NOT
+# the methodology-range text comments. Override any earlier writes.
+uw["O14"] = 0.055
+uw["O15"] = 0.12
+uw["Q14"] = "=P14/R14"
+uw["Q15"] = "=P15/R15"
+uw["R14"] = "='Unit Mix Summary'!E9"
+uw["R15"] = "='Unit Mix Summary'!E5+'Unit Mix Summary'!E7"
 
 # 16g. Loan rates — datestamp them so they don't go stale silently.
 # Loan Scenario C14=4.05%, C15=185bps already in section 5. Add a note.
@@ -1359,23 +1400,28 @@ for col, w in _widths.items():
 # DemoOutput5 had a second pricing column at Q4:R10 (Purchase/Offer
 # Price duplicated, with R5/R6/R10 formulas referencing nonexistent R4)
 # and a second valuation table at Q12:T14 producing #DIV/0. Both were
-# left over from an abandoned "two-scenario" layout. Clear them.
+# left over from an abandoned "two-scenario" layout. Clear the genuinely
+# stray cells; KEEP Q13/R13 (VALUE/UNIT and UNIT headers from section 13)
+# and R14/R15 (Unit Mix Summary cross-references for the per-unit
+# valuation column) — those are CorrectOutput's gold-standard layout
+# and were getting silently wiped here, leaving the right side of the
+# Asset/NOI table blank.
 _clear_cells = ["P2",                              # orphan date (moves to N2)
                 "S4", "S5",                        # orphan "Homes/Utilities"
                 "Q9", "R9", "Q10", "R10",          # duplicate Asking Price
                 "Q12", "R12", "S12", "T12",        # duplicate valuation hdr
-                "Q13", "R13", "S13", "T13",        # duplicate valuation row
-                "R14", "S14", "T14",               # duplicate valuation row
-                "R15", "S15", "T15",               # duplicate valuation row
-                "R16", "S16", "T16"]               # duplicate valuation row
+                "S13", "T13",                      # duplicate valuation row (KEEP Q13/R13)
+                "S14", "T14",                      # duplicate valuation row (KEEP R14)
+                "S15", "T15",                      # duplicate valuation row (KEEP R15)
+                "S16", "T16"]                      # duplicate valuation row
 for coord in _clear_cells:
     cell = uw[coord]
     cell.value = None
     cell.fill = _clear_fill
     cell.font = _clear_font
     cell.border = _clear_border
-# Q4-Q8, R4-R8 get rewritten below (utility block); Q14:Q15 are kept
-# (they hold the "Methodology range: X-Y%" annotations from section 16f).
+# Q4-Q8, R4-R8 get rewritten below (utility block); Q14:Q15 hold the
+# per-site VALUE/UNIT formulas (=P14/R14 and =P15/R15) from section 16f.
 
 # ── 19c. Style helpers (theme-0 = default white background) ──────────
 _navy_fill = PatternFill("solid", fgColor="FF002060")
