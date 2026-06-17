@@ -204,6 +204,41 @@ def main():
     print(f"[build] Rent Roll Input: cleared {n_cleared} per-tenant input cells "
           f"({len(RR_DATA_ROWS)} rows × {len(RR_STRIP_COLS)} cols)")
 
+    # ── 3b. Strip "Input Source Data" reference rows ─────────────────────
+    # Data Consolidation rows 39 (income) and 105 (expense) are "Input
+    # Source Data" check rows that the analyst hand-typed with Whaleshead
+    # historical totals ($1.4M income, $494K expense) for comparison
+    # against the SUM aggregates above them. These hardcoded Whaleshead
+    # values must NOT ship in a generic blank — they'd compare every new
+    # deal's income against Whaleshead's $1.4M and the check rows would
+    # always look wrong. Clear the value cells; the row labels in column B
+    # ("Input Source Data") stay for the analyst to optionally re-fill.
+    # Includes column V (the SUM aggregation column that F39/F105 forward
+    # from via =V39 / =V105) — without this V holds the Whaleshead total.
+    for r in (39, 105):
+        for col in DC_STRIP_COLS + DC_STRIP_MONTHLY_COLS + ["V"]:
+            cell = dc[f"{col}{r}"]
+            if cell.value is not None and not (
+                isinstance(cell.value, str) and cell.value.startswith("=")
+            ):
+                cell.value = None
+    print(f"[build] Data Consolidation: cleared 'Input Source Data' check rows 39 + 105")
+
+    # ── 3c. Strip embedded images ────────────────────────────────────────
+    # CorrectOutput has an Oregon Department of Revenue / FEMA flood map
+    # image on Unit Mix Rent Growth and 3 deal-specific images on GGC
+    # Underwriting (right-side Whaleshead photos, etc.). These are tied
+    # to the Whaleshead deal and shouldn't ship in a generic blank.
+    # The engine's Miscellaneous tab is where Street View / Static Maps
+    # for the actual deal get embedded at fill_template time.
+    n_images = 0
+    for sname in wb.sheetnames:
+        ws = wb[sname]
+        if ws._images:
+            n_images += len(ws._images)
+            ws._images = []
+    print(f"[build] Stripped {n_images} embedded image(s) from the workbook")
+
     # ── 4b. Extend Rent Roll scan ranges + per-row formulas ──────────────
     # CorrectOutput's Unit Mix Summary COUNTIFS/SUMIFS scan only rows 3:150
     # of Rent Roll Input (Whaleshead-specific 148-unit fit). Bump every
