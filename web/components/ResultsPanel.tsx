@@ -68,7 +68,7 @@ export default function ResultsPanel({ result }: { result: JobResult }) {
 
   async function handleDownload() {
     if (!result.download_url) {
-      setDownloadError("No download available — verification gate blocked the workbook.");
+      setDownloadError("No download URL on this result. Re-run the analysis.");
       return;
     }
     setDownloading(true);
@@ -152,6 +152,23 @@ export default function ResultsPanel({ result }: { result: JobResult }) {
           </div>
         </div>
       </div>
+
+      {(result.verification?.hardFails ?? 0) > 0 && (
+        <div className="mb-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs">
+          <div className="font-semibold text-amber-300 mb-1">
+            Review before trusting — {result.verification?.hardFails} verification check
+            {(result.verification?.hardFails ?? 0) === 1 ? "" : "s"} did not tie out.
+          </div>
+          <div className="text-slate-300">
+            Workbook produced. Open the <strong>Extraction Check</strong> tab (first sheet)
+            for details. Failed:{" "}
+            <span className="text-amber-200">
+              {(result.verification?.failedCheckNames ?? []).slice(0, 5).join(", ")}
+            </span>
+            {(result.verification?.failedCheckNames?.length ?? 0) > 5 && " (+more)"}
+          </div>
+        </div>
+      )}
 
       <button
         onClick={() => void handleDownload()}

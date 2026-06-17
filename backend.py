@@ -5650,13 +5650,13 @@ def run_analysis_job(job_id, api_key, file_blocks, property_info):
                 results["market"] = empty_market
                 _set_job(job_id, progress="✓ Market research skipped per cost-mode.")
 
-        # Verification gate — refuse to produce a workbook when hard fails
-        # remain. The extraction stage already retried up to
-        # MAX_PARSE_RETRIES with the validation errors fed back; if checks
-        # are still failing they're real, and a workbook with non-tying
-        # numbers does more harm than no workbook. The user sees the
-        # failures (status='needs_review', failedCheckNames in result) and
-        # can re-upload corrected docs or set property_info correctly.
+        # Verification surfacing (formerly a hard gate). We ALWAYS produce
+        # the workbook now — the Extraction Check tab at sheet 0 carries
+        # every failure with OK/WARN/FAIL coloring, and the API result also
+        # carries the count + failed-check names so the result panel can
+        # show a clear "review this before trusting" banner. Blocking the
+        # workbook entirely was too aggressive: a reviewer would rather see
+        # a flagged draft than nothing at all.
         verification = results["financials"].get("_verification") or {}
         n_fail = int(verification.get("hardFails") or 0)
         failed_names = verification.get("failedCheckNames") or []
@@ -5664,21 +5664,8 @@ def run_analysis_job(job_id, api_key, file_blocks, property_info):
         if n_fail > 0:
             preview = ", ".join(failed_names[:3])
             more = f" (+{len(failed_names) - 3} more)" if len(failed_names) > 3 else ""
-            msg = (f"Verification failed: {n_fail} hard checks did not tie out — "
-                   f"{preview}{more}. Re-upload corrected docs or adjust inputs.")
-            print(f"[{job_id}] WRITE-BACK BLOCKED — {n_fail} hard fails "
-                  f"({preview}{more})")
-            _set_job(job_id,
-                     status="needs_review",
-                     progress=f"Blocked: {n_fail} verification fails.",
-                     result={
-                         "financials": results["financials"],
-                         "market": results["market"],
-                         "verification": verification,
-                         "usage": usage_summary,
-                         "message": msg,
-                     })
-            return
+            print(f"[{job_id}] Verification: {n_fail} hard fail(s) — "
+                  f"workbook still produced. Failed checks: {preview}{more}")
 
         _set_job(job_id, progress="Filling GGC template...")
         output_path = JOBS_DIR / f"{job_id}.xlsx"
