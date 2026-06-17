@@ -126,6 +126,26 @@ def main():
             del wb[name]
             print(f"[build] Removed '{name}' tab")
 
+    # ── 1b. Strip external workbook links ───────────────────────────────
+    # CorrectOutput references two external workbooks (probably the
+    # seller's files or earlier GGC templates) that don't exist on the
+    # deploy target. Excel pops "We found a problem with some content"
+    # on open when these dangle. Clear them.
+    if getattr(wb, "_external_links", None):
+        n = len(wb._external_links)
+        wb._external_links = []
+        print(f"[build] Removed {n} external workbook link(s)")
+
+    # ── 1c. Drop defined names with invalid characters ──────────────────
+    # CorrectOutput has a defined name "CU?" that probably originally
+    # had a non-ASCII char. Excel can't resolve it and warns on open.
+    if hasattr(wb.defined_names, "delete"):
+        bad = [n for n in list(wb.defined_names) if "?" in n or not n.isascii()]
+        for n in bad:
+            wb.defined_names.delete(n)
+        if bad:
+            print(f"[build] Removed {len(bad)} invalid defined name(s): {bad}")
+
     # ── 2. GGC Underwriting — strip property + parcel inputs ─────────────
     uw = wb["GGC Underwriting"]
     for coord in STRIP_UNDERWRITING:
