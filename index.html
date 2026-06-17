@@ -120,7 +120,7 @@
           <input id="county_tax_rate" type="number" step="0.0001" placeholder="County Tax Rate (e.g. 0.0125)" class="input-field rounded-lg px-4 py-2 text-sm" title="Effective millage / tax rate as a decimal (1.25% = 0.0125). Leave blank if unknown; backend will fall back to T12 × 1.15.">
         </div>
         <div class="grid grid-cols-3 gap-2">
-          <input id="units" type="number" placeholder="Total Units" class="input-field rounded-lg px-4 py-2 text-sm">
+          <input id="units" type="number" placeholder="Total Units (optional)" title="Leave blank to auto-derive from the rent roll." class="input-field rounded-lg px-4 py-2 text-sm">
           <input id="poh_count" type="number" placeholder="POH Count" class="input-field rounded-lg px-4 py-2 text-sm" title="Number of Park-Owned Homes. Enter 0 if all tenant-owned (TOH).">
           <input id="asking_price" type="number" placeholder="Asking Price ($)" class="input-field rounded-lg px-4 py-2 text-sm">
         </div>
@@ -287,8 +287,13 @@
     startTime: null,
   };
 
+  // Persisted across reloads (units stays here so the value sticks across
+  // sessions when the user does enter it). The REQUIRED subset gates submit;
+  // units is optional and auto-derived from the rent roll when blank.
   const PROPERTY_FIELDS = ['property_name', 'address', 'city', 'state', 'county',
                            'units', 'asking_price'];
+  const REQUIRED_FIELDS = ['property_name', 'address', 'city', 'state', 'county',
+                           'asking_price'];
 
   // ═══════════════ INIT ═══════════════
   // Reflect whether the server has a default API key set. Note: we
@@ -429,11 +434,11 @@
   // build property context from these values.
   function validateForm() {
     const btn = document.getElementById('analyze-btn');
-    const allFieldsFilled = PROPERTY_FIELDS.every(id => {
+    const requiredFilled = REQUIRED_FIELDS.every(id => {
       const v = (document.getElementById(id).value || '').trim();
       return v.length > 0;
     });
-    btn.disabled = !(state.apiKey && state.files.length > 0 && allFieldsFilled);
+    btn.disabled = !(state.apiKey && state.files.length > 0 && requiredFilled);
   }
 
   // (Property field listeners are installed in INIT above to also persist values)

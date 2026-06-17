@@ -14,7 +14,10 @@ import {
 } from "react";
 import type { DealFormFields, FloodZone } from "@/lib/engine";
 
-// Fields persisted across reloads and required before submit (as in index.html).
+// Fields persisted across reloads. The REQUIRED subset gates the submit
+// button; the rest persist for convenience but can be left blank — the
+// engine derives them from the uploaded documents (units from the rent
+// roll, etc.).
 const PERSISTED_FIELDS = [
   "property_name",
   "address",
@@ -24,6 +27,15 @@ const PERSISTED_FIELDS = [
   "units",
   "asking_price",
 ] as const;
+
+const REQUIRED_FIELDS: readonly (typeof PERSISTED_FIELDS)[number][] = [
+  "property_name",
+  "address",
+  "city",
+  "state",
+  "county",
+  "asking_price",
+];
 
 const ALLOWED_EXTS = ["pdf", "xlsx", "xls", "csv", "png", "jpg", "jpeg", "txt", "md"];
 const MAX_FILE_BYTES = 50 * 1024 * 1024; // 50 MB per file
@@ -135,7 +147,7 @@ export default function DealForm({ busy, onSubmit }: DealFormProps) {
     addFiles(e.dataTransfer.files);
   }
 
-  const allRequiredFilled = PERSISTED_FIELDS.every((key) => fields[key].trim().length > 0);
+  const allRequiredFilled = REQUIRED_FIELDS.every((key) => fields[key].trim().length > 0);
   const canSubmit = allRequiredFilled && files.length > 0 && !busy;
 
   function handleSubmit(e: FormEvent<HTMLFormElement>) {
@@ -212,7 +224,8 @@ export default function DealForm({ busy, onSubmit }: DealFormProps) {
                 value={fields.units}
                 onChange={(e) => setField("units", e.target.value)}
                 type="number"
-                placeholder="Total Units"
+                placeholder="Total Units (optional)"
+                title="Leave blank to auto-derive from the rent roll. Enter only if you want the engine to cross-check the rent-roll row count against your number."
                 className="input-field rounded-lg px-4 py-2 text-sm"
               />
               <input

@@ -60,13 +60,16 @@ ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
 #                 Judgment-heavy: GGC categorization, collections, POH
 #                 bifurcation, taxes.
 #   MARKET      → Fable 5, adaptive thinking + web_search.
-# Per Anthropic's model docs, "claude-fable-5" is the complete model ID — no
-# dated snapshot suffix exists; do not append one. Override per-stage via env,
-# e.g. MODEL_EXTRACTION=claude-sonnet-4-6 to A/B the old deterministic-Sonnet
-# config — call_claude re-attaches temperature only for models that accept it.
-MODEL_EXTRACTION  = os.environ.get("MODEL_EXTRACTION",  "claude-fable-5")
-MODEL_METHODOLOGY = os.environ.get("MODEL_METHODOLOGY", "claude-fable-5")
-MODEL_MARKET      = os.environ.get("MODEL_MARKET",      "claude-fable-5")
+# Default to Opus 4.8 — Fable 5 is not yet generally available on most
+# Anthropic orgs (Anthropic returns "Claude Fable 5 is not available. Please
+# use Opus 4.8."). Opus 4.8 is the most capable Claude model and supports
+# Structured Outputs + adaptive thinking + web_search, so it's a clean
+# drop-in. Override per-stage via env when Fable 5 access lands:
+#   MODEL_EXTRACTION=claude-fable-5 etc. call_claude re-attaches temperature
+# only for models that accept it (Opus does; Fable 5 does not).
+MODEL_EXTRACTION  = os.environ.get("MODEL_EXTRACTION",  "claude-opus-4-8")
+MODEL_METHODOLOGY = os.environ.get("MODEL_METHODOLOGY", "claude-opus-4-8")
+MODEL_MARKET      = os.environ.get("MODEL_MARKET",      "claude-opus-4-8")
 # Thinking depth for adaptive-thinking calls (methodology + market). "high" is
 # Anthropic's recommended default for intelligence-sensitive work; "max" trades
 # tokens/latency for ceiling accuracy on the hardest deals.
@@ -5504,6 +5507,32 @@ def run_analysis_job(job_id, api_key, file_blocks, property_info):
             else:
                 extracted = call_extract_financials(
                     api_key, file_blocks, property_info)
+            # If the user left the unit count blank on the form, derive it
+            # from the rent roll the extraction step transcribed. This makes
+            # the field truly optional (the form's job is to capture domain
+            # knowledge the docs don't carry, not to duplicate what they do)
+            # and skips the rent-roll-rows-vs-units cross-check in
+            # verify_extraction by leaving stated_units==0. The derived
+            # value flows into the methodology prompt + apply_ggc_overrides
+            # so management-fee tiering, etc. still work.
+            try:
+                stated_units_form = int(
+                    str(property_info.get("units", "")).strip() or 0)
+            except (ValueError, TypeError):
+                stated_units_form = 0
+            if stated_units_form == 0:
+                derived = ((extracted.get("rentRoll") or {})
+                           .get("totalRowsInRentRoll") or 0)
+                if isinstance(derived, (int, float)) and derived > 0:
+                    property_info["units"] = str(int(derived))
+                    extracted["extractionNotes"] = (
+                        (extracted.get("extractionNotes") or "")
+                        + (" || " if extracted.get("extractionNotes") else "")
+                        + f"Total Units auto-derived from rent roll "
+                          f"({int(derived)} rows) — user left the field blank."
+                    )
+                    print(f"[Auto-derive] units = {int(derived)} "
+                          f"(from rent-roll row count, form was blank)")
             checks = verify_extraction(extracted, property_info)
             print(f"[Verify/Extract] {len(checks)} checks: "
                   f"{sum(1 for c in checks if c['status'] == 'fail')} fail, "
