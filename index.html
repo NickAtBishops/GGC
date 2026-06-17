@@ -168,6 +168,32 @@
                       after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-500"></div>
         </label>
       </div>
+      <div class="grid grid-cols-3 gap-2 text-xs pt-2 border-t border-slate-700/50 mt-3">
+        <div>
+          <label for="cost_mode" class="block text-slate-400 mb-1">Model quality</label>
+          <select id="cost_mode" class="input-field rounded-lg px-3 py-2 w-full" title="Economy = Haiku 4.5 (cheap). Balanced = Haiku extract + Opus methodology. Max = Opus everywhere.">
+            <option value="economy">Economy (Haiku)</option>
+            <option value="balanced">Balanced</option>
+            <option value="max" selected>Max accuracy (Opus)</option>
+          </select>
+        </div>
+        <div>
+          <label for="n_runs" class="block text-slate-400 mb-1">Self-consistency runs</label>
+          <select id="n_runs" class="input-field rounded-lg px-3 py-2 w-full" title="N parallel runs per stage, voted to consensus.">
+            <option value="1">1 (no voting, cheap)</option>
+            <option value="3" selected>3 (recommended)</option>
+            <option value="5">5 (max determinism)</option>
+          </select>
+        </div>
+        <div>
+          <label for="skip_market" class="block text-slate-400 mb-1">Market research</label>
+          <select id="skip_market" class="input-field rounded-lg px-3 py-2 w-full" title="Skip the web_search comps call to save ~$2.50/run.">
+            <option value="0" selected>Run market research</option>
+            <option value="1">Skip (save ~$2.50)</option>
+          </select>
+        </div>
+      </div>
+      <div id="cost-estimate" class="text-xs text-slate-500 text-right mt-2">est. ≈ $14 / run</div>
     </div>
 
     <!-- File Upload -->
@@ -331,6 +357,26 @@
   setupDropZone();
   validateForm();
 
+  // Live per-run cost estimate. Updates whenever the user touches any of
+  // the three cost-mode controls so they can see what each click spends.
+  function updateCostEstimate() {
+    const mode = document.getElementById('cost_mode').value;
+    const nRuns = parseInt(document.getElementById('n_runs').value, 10) || 3;
+    const skip = document.getElementById('skip_market').value === '1';
+    const per = ({
+      economy:  { ext: 0.20, meth: 0.20, mkt: 0.30 },
+      balanced: { ext: 0.20, meth: 2.50, mkt: 2.50 },
+      max:      { ext: 2.50, meth: 2.50, mkt: 2.50 },
+    })[mode] || { ext: 2.50, meth: 2.50, mkt: 2.50 };
+    const cost = per.ext * nRuns + per.meth * nRuns + (skip ? 0 : per.mkt);
+    document.getElementById('cost-estimate').textContent =
+      `est. ≈ $${cost.toFixed(2)} / run`;
+  }
+  ['cost_mode', 'n_runs', 'skip_market'].forEach(id => {
+    document.getElementById(id).addEventListener('change', updateCostEstimate);
+  });
+  updateCostEstimate();
+
   function updateApiStatus(connected) {
     const el = document.getElementById('api-status');
     if (connected) {
@@ -468,6 +514,9 @@
     fd.append('county',           document.getElementById('county').value);
     fd.append('county_tax_rate',  document.getElementById('county_tax_rate').value);
     fd.append('deep_search', document.getElementById('deep_search').checked ? 'on' : 'off');
+    fd.append('cost_mode',   document.getElementById('cost_mode').value);
+    fd.append('n_runs',      document.getElementById('n_runs').value);
+    fd.append('skip_market', document.getElementById('skip_market').value);
     state.files.forEach(f => fd.append('files', f));
 
     try {

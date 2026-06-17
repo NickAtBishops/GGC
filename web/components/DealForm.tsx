@@ -53,7 +53,26 @@ const EMPTY_FIELDS: DealFormFields = {
   asking_price: "",
   flood_zone: "unknown",
   deep_search: false,
+  cost_mode: "max",
+  n_runs: "3",
+  skip_market: false,
 };
+
+// Per-run cost estimate (USD), used for the "≈ $X.XX" hint on the form so
+// the user sees what they're about to spend before clicking Analyze. These
+// are rough order-of-magnitude estimates based on typical token counts on
+// MHC deals; actual cost is reported on the result panel after the run.
+function estimateCostUsd(mode: string, nRuns: number, skipMarket: boolean): number {
+  // Per-call cost ≈ $0.20 on Haiku, $2.50 on Opus (input + output + thinking).
+  const perCall: Record<string, { ext: number; meth: number; mkt: number }> = {
+    economy:  { ext: 0.20, meth: 0.20, mkt: 0.30 },
+    balanced: { ext: 0.20, meth: 2.50, mkt: 2.50 },
+    max:      { ext: 2.50, meth: 2.50, mkt: 2.50 },
+  };
+  const p = perCall[mode] ?? perCall.max;
+  const market = skipMarket ? 0 : p.mkt;
+  return p.ext * nRuns + p.meth * nRuns + market;
+}
 
 interface DealFormProps {
   /** True while a job is uploading or running — disables submission. */
@@ -418,6 +437,62 @@ export default function DealForm({ busy, onSubmit }: DealFormProps) {
               ))}
             </div>
           )}
+        </div>
+      </div>
+
+      {/* Cost controls — lets the user trade accuracy for spend per-run.
+          Cost estimate below the controls so the spend is visible before
+          clicking Analyze. */}
+      <div className="mb-4 card rounded-xl p-4 border-slate-700/50">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold text-slate-300">Run mode</h3>
+          <span className="text-xs text-slate-400">
+            est. ≈ ${estimateCostUsd(
+              fields.cost_mode,
+              parseInt(fields.n_runs, 10) || 3,
+              fields.skip_market,
+            ).toFixed(2)} / run
+          </span>
+        </div>
+        <div className="grid grid-cols-3 gap-2 text-xs">
+          <div>
+            <label className="block text-slate-400 mb-1">Model quality</label>
+            <select
+              value={fields.cost_mode}
+              onChange={(e) => setField("cost_mode", e.target.value as "economy" | "balanced" | "max")}
+              className="input-field rounded-lg px-3 py-2 w-full"
+              title="Economy = Haiku 4.5 everywhere (cheap, decent). Balanced = Haiku for transcription + Opus for judgment. Max = Opus everywhere (most accurate)."
+            >
+              <option value="economy">Economy (Haiku)</option>
+              <option value="balanced">Balanced</option>
+              <option value="max">Max accuracy (Opus)</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-slate-400 mb-1">Self-consistency runs</label>
+            <select
+              value={fields.n_runs}
+              onChange={(e) => setField("n_runs", e.target.value as "1" | "3" | "5")}
+              className="input-field rounded-lg px-3 py-2 w-full"
+              title="N parallel runs per stage, voted to consensus. 1 disables voting (cheapest, less deterministic). 3 is the recommended default. 5 is max accuracy."
+            >
+              <option value="1">1 (no voting, cheap)</option>
+              <option value="3">3 (recommended)</option>
+              <option value="5">5 (max determinism)</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-slate-400 mb-1">Market research</label>
+            <select
+              value={fields.skip_market ? "skip" : "run"}
+              onChange={(e) => setField("skip_market", e.target.value === "skip")}
+              className="input-field rounded-lg px-3 py-2 w-full"
+              title="Skips the web_search comps lookup. Saves the priciest single call but leaves the Comps Analysis tab blank."
+            >
+              <option value="run">Run market research</option>
+              <option value="skip">Skip (save ~$2.50)</option>
+            </select>
+          </div>
         </div>
       </div>
 

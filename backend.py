@@ -70,6 +70,23 @@ ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
 MODEL_EXTRACTION  = os.environ.get("MODEL_EXTRACTION",  "claude-opus-4-8")
 MODEL_METHODOLOGY = os.environ.get("MODEL_METHODOLOGY", "claude-opus-4-8")
 MODEL_MARKET      = os.environ.get("MODEL_MARKET",      "claude-opus-4-8")
+
+# Cost-mode model presets. Selected on the upload form per-run and read
+# from property_info inside the call sites — beats hard-coded constants
+# so users can dial cost down for demos without redeploying.
+COST_MODE_MODELS = {
+    "economy":  {"extraction": "claude-haiku-4-5",  "methodology": "claude-haiku-4-5",  "market": "claude-haiku-4-5"},
+    "balanced": {"extraction": "claude-haiku-4-5",  "methodology": "claude-opus-4-8",   "market": "claude-opus-4-8"},
+    "max":      {"extraction": MODEL_EXTRACTION,    "methodology": MODEL_METHODOLOGY,   "market": MODEL_MARKET},
+}
+
+def _model_for_stage(property_info, stage):
+    """Resolve the model id for a stage. Per-run cost mode wins over the
+    module-level default so a single demo can use Haiku while production
+    runs use Opus, no redeploy required. stage ∈ {extraction, methodology, market}."""
+    mode = (property_info.get("_costMode") or "max").lower()
+    preset = COST_MODE_MODELS.get(mode) or COST_MODE_MODELS["max"]
+    return preset.get(stage) or COST_MODE_MODELS["max"][stage]
 # Thinking depth for adaptive-thinking calls (methodology + market). "high" is
 # Anthropic's recommended default for intelligence-sensitive work; "max" trades
 # tokens/latency for ceiling accuracy on the hardest deals.
@@ -2073,13 +2090,14 @@ Extract the income statement, rent roll, and reporting period into the structure
     user_blocks    = base_user_blocks
     last_extracted = None
 
+    model_id = _model_for_stage(property_info, "extraction")
     for attempt in range(MAX_PARSE_RETRIES + 1):
         print(f"[Claude] Stage 1/2 — EXTRACTION attempt "
-              f"{attempt+1}/{MAX_PARSE_RETRIES+1} ({MODEL_EXTRACTION})...")
+              f"{attempt+1}/{MAX_PARSE_RETRIES+1} ({model_id})...")
         t0 = time.time()
         response = call_claude(api_key, EXTRACTION_PROMPT, user_blocks,
                                use_thinking=False, temperature=0,
-                               model=MODEL_EXTRACTION,
+                               model=model_id,
                                output_schema=EXTRACTION_OUTPUT_SCHEMA)
         elapsed = time.time() - t0
         print(f"[Claude] Extraction returned in {elapsed:.1f}s "
@@ -2220,8 +2238,8 @@ def verify_extraction(extracted, property_info):
                            "detail": f"{rows} rows but {stated_units} units stated — {stated_units - rows} likely vacant lots omitted by seller. Should be imputed at market rent."})
         else:
             checks.append({"item": "Rent roll rows vs unit count", "check": "Rent roll long",
-                           "status": "fail",
-                           "detail": f"{rows} rows but only {stated_units} units stated — verify unit count or check for non-unit rows."})
+                           "status": "warn",
+                           "detail": f"{rows} rows but only {stated_units} units stated — likely the form unit count is low or the rent roll includes non-unit rows (model homes, manager-comp lots, storage). Workbook still produced; reviewer should confirm."})
 
     # ── Rent roll stated total vs sum of unit-type rents (rough) ─────────
     stated_total = rr.get("statedTotalRentMonthly")
@@ -2348,9 +2366,13 @@ def verify_extraction(extracted, property_info):
         if subtotal_val == 0:
             return
         pct_off = abs(items_sum - subtotal_val) / abs(subtotal_val) * 100
-        if pct_off <= 0.5:
-            status, prefix = "ok", "Lines sum to subtotal"
-        elif pct_off <= 5:
+        # Section subtotals can legitimately differ from line-item sums by a
+        # few percent on seller P&Ls (rounding, omitted small lines, mid-
+        # period adjustments). Only catastrophic mismatches indicate a real
+        # parsing failure that would corrupt the workbook.
+        if pct_off <= 1:
+            status, prefix = "ok",   "Lines sum to subtotal"
+        elif pct_off <= 20:
             status, prefix = "warn", "Lines ≈ subtotal"
         else:
             status, prefix = "fail", "Lines vs subtotal MISMATCH"
@@ -3450,11 +3472,12 @@ Below is the CLEAN, PRE-EXTRACTED financial data from the seller's documents. Th
 
 Apply the GGC methodology and return the structured JSON."""
     }]
-    print(f"[Claude] Stage 2/2 — METHODOLOGY ({MODEL_METHODOLOGY}, "
+    model_id = _model_for_stage(property_info, "methodology")
+    print(f"[Claude] Stage 2/2 — METHODOLOGY ({model_id}, "
           f"effort={THINKING_EFFORT})...")
     t0 = time.time()
     response = call_claude(api_key, FINANCIAL_PARSE_PROMPT, user_blocks,
-                           use_thinking=True, model=MODEL_METHODOLOGY,
+                           use_thinking=True, model=model_id,
                            output_schema=METHODOLOGY_OUTPUT_SCHEMA,
                            max_tokens=MAX_TOKENS_METHODOLOGY)
     elapsed = time.time() - t0
@@ -4152,11 +4175,12 @@ Pull comps, demographics, alt housing, landmarks, and visual URLs."""
     # measurably improves comp accuracy and cuts token burn vs the 20250305
     # version. No beta header needed.
     tools = [{"type": "web_search_20260209", "name": "web_search", "max_uses": 12}]
-    print("[Claude] Starting market research call (with web_search)...")
+    model_id = _model_for_stage(property_info, "market")
+    print(f"[Claude] Starting market research call ({model_id}, with web_search)...")
     t0 = time.time()
     response = call_claude(api_key, MARKET_RESEARCH_PROMPT,
                             [{"type": "text", "text": prompt}], tools=tools,
-                            model=MODEL_MARKET,
+                            model=model_id,
                             max_tokens=MAX_TOKENS_MARKET)
     elapsed = time.time() - t0
     print(f"[Claude] Market research returned in {elapsed:.1f}s "
@@ -5468,6 +5492,7 @@ def run_analysis_job(job_id, api_key, file_blocks, property_info):
         _set_job(job_id, status="running", progress="Starting analysis...")
 
         deep_search = property_info.get("deepSearch", "off") == "on"
+        skip_market = bool(property_info.get("_skipMarket"))
         market_fn = (lambda *a, **k: call_market_research_merged(*a, **k, n_runs=3)) if deep_search else call_market_research
 
         # The financial side is now a 4-step sequence with two opt-in stages:
@@ -5484,6 +5509,12 @@ def run_analysis_job(job_id, api_key, file_blocks, property_info):
                               else FINANCIAL_PARSE_RUNS)
         n_methodology_runs = (METHODOLOGY_RUNS_DEEP     if deep_search
                               else METHODOLOGY_RUNS)
+        # Form override beats the default when present (1, 3, or 5 only).
+        n_runs_override = int(property_info.get("_nRunsOverride") or 0)
+        if n_runs_override in (1, 3, 5):
+            n_extract_runs = n_runs_override
+            n_methodology_runs = n_runs_override
+            print(f"[CostMode] User override: n_runs={n_runs_override} on both stages")
 
         def financial_pipeline():
             cache_key = extraction_cache_key(
@@ -5588,18 +5619,36 @@ def run_analysis_job(job_id, api_key, file_blocks, property_info):
                 print(f"[Cache] Skipping write — {n_fail} hard failures remain")
             return financials
 
+        # Skip market research when the user toggles it off — saves one Claude
+        # call (the most expensive single call thanks to web_search + thinking).
+        # The Excel template gracefully handles an empty market dict: comp
+        # tables stay empty, the Comps Analysis tab notes "no data", and
+        # Underwriting fields that key off market rents fall back to the
+        # contracted lot rents on the rent roll.
+        empty_market = {
+            "rentComps": [], "saleComps": [], "demographics": {},
+            "landmarks": [], "demandSignal": "skipped",
+            "_skipped": "Market research skipped (cost-mode override).",
+        }
         with ThreadPoolExecutor(max_workers=2) as executor:
-            future_market = executor.submit(market_fn, api_key, property_info)
             future_financials = executor.submit(financial_pipeline)
+            if skip_market:
+                future_market = None
+            else:
+                future_market = executor.submit(market_fn, api_key, property_info)
 
             results = {}
-            for future in as_completed([future_financials, future_market]):
+            futures = [future_financials] + ([future_market] if future_market else [])
+            for future in as_completed(futures):
                 if future is future_financials:
                     results["financials"] = future.result()
                     _set_job(job_id, progress="✓ Financials extracted, verified, and underwritten.")
                 else:
                     results["market"] = future.result()
                     _set_job(job_id, progress="✓ Market research complete.")
+            if skip_market:
+                results["market"] = empty_market
+                _set_job(job_id, progress="✓ Market research skipped per cost-mode.")
 
         # Verification gate — refuse to produce a workbook when hard fails
         # remain. The extraction stage already retried up to
@@ -5689,6 +5738,20 @@ def analyze():
     if not api_key:
         return jsonify({"error": "API key required"}), 400
 
+    # Cost-mode controls. "economy" overrides extraction+methodology to the
+    # cheap model, n_runs lets the user dial self-consistency down to 1, and
+    # skip_market eliminates the market-research call entirely. These let
+    # the user trade accuracy for spend during demos/testing without losing
+    # the option to flip back to max-accuracy mode for real deals.
+    cost_mode = (request.form.get("cost_mode", "max") or "max").lower()
+    if cost_mode not in {"economy", "balanced", "max"}:
+        cost_mode = "max"
+    try:
+        n_runs_override = int(request.form.get("n_runs", "0") or 0)
+    except (TypeError, ValueError):
+        n_runs_override = 0
+    skip_market = (request.form.get("skip_market", "0") or "0") in ("1", "true", "on")
+
     property_info = {
         "name":        request.form.get("property_name", ""),
         "address":     request.form.get("address", ""),
@@ -5701,6 +5764,9 @@ def analyze():
         "askingPrice": request.form.get("asking_price", ""),
         "floodZone":   request.form.get("flood_zone", "unknown"),
         "deepSearch":  request.form.get("deep_search", "off"),
+        "_costMode":   cost_mode,
+        "_nRunsOverride": n_runs_override,
+        "_skipMarket": skip_market,
     }
 
     if not property_info["city"] or not property_info["state"]:

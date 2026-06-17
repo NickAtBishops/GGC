@@ -24,6 +24,14 @@ export interface DealFormFields {
   asking_price: string;
   flood_zone: FloodZone;
   deep_search: boolean;
+  /** "economy" = Haiku only, "balanced" = Haiku extract + Opus methodology,
+   *  "max" = Opus all stages (current default). */
+  cost_mode: "economy" | "balanced" | "max";
+  /** Self-consistency runs per stage. "1" disables voting (cheap), "3"
+   *  is the recommended default, "5" is max accuracy. */
+  n_runs: "1" | "3" | "5";
+  /** Skip the market-research Claude call (cheapest single saving). */
+  skip_market: boolean;
 }
 
 // ───────────────────── Engine response types (contract) ─────────────────────
@@ -156,6 +164,9 @@ export async function startAnalysis(fields: DealFormFields, files: File[]): Prom
   fd.append("asking_price", fields.asking_price);
   fd.append("flood_zone", fields.flood_zone);
   fd.append("deep_search", fields.deep_search ? "on" : "off");
+  fd.append("cost_mode", fields.cost_mode);
+  fd.append("n_runs", fields.n_runs);
+  fd.append("skip_market", fields.skip_market ? "1" : "0");
   for (const file of files) fd.append("files", file);
 
   const res = await engineFetch("/api/analyze", { method: "POST", body: fd });
