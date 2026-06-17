@@ -1,0 +1,8 @@
+SHEET: 'questions'
+Dimensions: 5 rows x 2 cols
+====================================================================================================
+CELL     VALUE (resolved)                                             FORMULA / RAW                                               
+====================================================================================================
+B3       We notice declining Long term RV Site rental income? Is it                                                               
+B4       What kind of lease is the retail on trile net? Mo                                                                        
+B5       Can you provide the inventory details for the 11 infilled                                                                

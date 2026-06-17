@@ -1,0 +1,55 @@
+SHEET: 'Sources and Uses'
+Dimensions: 27 rows x 10 cols
+====================================================================================================
+CELL     VALUE (resolved)                                             FORMULA / RAW                                               
+====================================================================================================
+A1       GARY GROUP CAPITAL                                                                                                       
+B4       Sources of Funds                                                                                                         
+D4       / Unit                                                                                                                   
+B5       Senior Loan                                                                                                              
+C5       10666983.040068395                                           ='Loan Scenario (acquisition)'!C31                          
+D5       72074.20973019185                                            =C5/'GGC Underwriting'!$N$7                                 
+B6       Mezz Debt                                                                                                                
+C6       0                                                                                                                        
+D6       0                                                            =C6/'GGC Underwriting'!$N$7                                 
+B7       LP - Equity                                                                                                              
+C7       6405516.959931605                                            =C18-C5-C6-C8                                               
+D7       43280.51999953787                                            =C7/'GGC Underwriting'!$N$7                                 
+B8       GP                                                                                                                       
+C8       330000                                                       =C15                                                        
+D8       2229.7297297297296                                           =C8/'GGC Underwriting'!$N$7                                 
+E8       0.0489940121839365                                           =C8/(C7+C8)                                                 
+B9       Total                                                                                                                    
+C9       17402500                                                     =C5+C6+C7+C8                                                
+D9       117584.45945945945                                           =C9/'GGC Underwriting'!$N$7                                 
+B12      Uses of Funds of Funds                                                                                                   
+D12      / Unit                                                                                                                   
+B13      Purchase Price                                                                                                           
+C13      16500000                                                     ='GGC Underwriting'!P4                                      
+D13      111486.48648648648                                           =C13/'GGC Underwriting'!$N$7                                
+B14      Closing Costs(1.5%)                                                                                                      
+C14      247500                                                       =C13*1.5%                                                   
+D14      1672.2972972972973                                           =C14/'GGC Underwriting'!$N$7                                
+B15      Acquistion Fee (2%)                                                                                                      
+C15      330000                                                       =C13*2%                                                     
+D15      2229.7297297297296                                           =C15/'GGC Underwriting'!$N$7                                
+B16      Equity Broker Fee (3%)                                                                                                   
+C16      0                                                            =3%*C20                                                     
+D16      0                                                            =C16/'GGC Underwriting'!$N$7                                
+B17      Capex Budget                                                                                                             
+C17      325000                                                       =C24                                                        
+D17      2195.945945945946                                            =C17/'GGC Underwriting'!$N$7                                
+E17      Working Capital                                                                                                          
+B18      Total                                                                                                                    
+C18      17402500                                                     =SUM(C13:C17)                                               
+D18      117584.45945945945                                           =C18/'GGC Underwriting'!$N$7                                
+B21      Private water & septic maint.-recently upgraded                                                                          
+C21      25000                                                                                                                    
+B22      Add New Homes                                                                                                            
+C22      100000                                                       =D22*E22                                                    
+D22      4                                                                                                                        
+E22      25000                                                                                                                    
+B23      Working Capex                                                                                                            
+C23      200000                                                                                                                   
+B24      Estimated Capex Budget                                                                                                   
+C24      325000                                                       =SUM(C21:C23)                                               

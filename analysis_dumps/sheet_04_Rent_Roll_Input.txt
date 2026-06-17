@@ -1,0 +1,1421 @@
+SHEET: 'Rent Roll Input'
+Dimensions: 1039 rows x 131 cols
+====================================================================================================
+CELL     VALUE (resolved)                                             FORMULA / RAW                                               
+====================================================================================================
+A1       RENT ROLL                                                                                                                
+C1       2026-03-03 00:00:00                                                                                                      
+I1       MHC Only                                                                                                                 
+L1       Apartments                                                                                                               
+Q1       Other Income                                                                                                             
+T1       Commercial Leases                                                                                                        
+A2       Count                                                                                                                    
+B2       Unit                                                                                                                     
+C2       Unit Type                                                                                                                
+D2       Occupied or Vacant                                                                                                       
+F2       Name                                                                                                                     
+H2       Type                                                                                                                     
+I2       Lot Rent                                                                                                                 
+J2       Home Rent                                                                                                                
+K2       Combined                                                                                                                 
+L2       Studio                                                                                                                   
+M2       1 Bedroom                                                                                                                
+N2       2 Bedroom                                                                                                                
+O2       3 Bedroom                                                                                                                
+P2       Combined                                                                                                                 
+Q2       Storage                                                                                                                  
+R2       Utility RUBS                                                                                                             
+S2       Pet Income                                                                                                               
+T2       Lease Amount                                                                                                             
+U2       Maturity                                                                                                                 
+V2       Lease Type                                                                                                               
+W2       CAM Amount                                                                                                               
+A3       1                                                                                                                        
+B3       A05                                                                                                                      
+C3       Type 1                                                                                                                   
+D3       Occupied                                                                                                                 
+F3       McKinney, Amy                                                                                                            
+G3       MH TOH SITE RENT                                                                                                         
+H3       WHA Lot                                                                                                                  
+I3       942                                                                                                                      
+K3       942                                                          =I3+J3                                                      
+P3       0                                                            =N3+O3+L3                                                   
+A4       2                                                                                                                        
+B4       A06                                                                                                                      
+C4       Type 1                                                                                                                   
+D4       Occupied                                                                                                                 
+F4       Zarnick, Steven                                                                                                          
+G4       MH TOH SITE RENT                                                                                                         
+H4       WHA Lot                                                                                                                  
+I4       942                                                                                                                      
+K4       942                                                          =I4+J4                                                      
+P4       0                                                            =N4+O4+L4                                                   
+A5       3                                                                                                                        
+B5       A07                                                                                                                      
+C5       Type 1                                                                                                                   
+D5       Occupied                                                                                                                 
+F5       Dyer, Tim                                                                                                                
+G5       MH TOH SITE RENT                                                                                                         
+H5       WHA Lot                                                                                                                  
+I5       993                                                                                                                      
+K5       993                                                          =I5+J5                                                      
+P5       0                                                            =N5+O5+L5                                                   
+A6       4                                                                                                                        
+B6       A24                                                                                                                      
+C6       Type 1                                                                                                                   
+D6       Occupied                                                                                                                 
+F6       Curasi, Jason                                                                                                            
+G6       MH TOH SITE RENT                                                                                                         
+H6       WHA Lot                                                                                                                  
+I6       942                                                                                                                      
+K6       942                                                          =I6+J6                                                      
+P6       0                                                            =N6+O6+L6                                                   
+A7       5                                                                                                                        
+B7       B01                                                                                                                      
+C7       Type 1                                                                                                                   
+D7       Occupied                                                                                                                 
+F7       Phillippe, Jim                                                                                                           
+G7       MH TOH SITE RENT                                                                                                         
+H7       WHA Lot                                                                                                                  
+I7       881                                                                                                                      
+K7       881                                                          =I7+J7                                                      
+P7       0                                                            =N7+O7+L7                                                   
+A8       6                                                                                                                        
+B8       B02                                                                                                                      
+C8       Type 1                                                                                                                   
+D8       Occupied                                                                                                                 
+F8       Barron, Pamela                                                                                                           
+G8       MH TOH SITE RENT                                                                                                         
+H8       WHA Lot                                                                                                                  
+I8       942                                                                                                                      
+K8       942                                                          =I8+J8                                                      
+P8       0                                                            =N8+O8+L8                                                   
+A9       7                                                                                                                        
+B9       B04                                                                                                                      
+C9       Type 1                                                                                                                   
+D9       Occupied                                                                                                                 
+F9       Shrode, Corinne                                                                                                          
+G9       MH TOH SITE RENT                                                                                                         
+H9       WHA Lot                                                                                                                  
+I9       583                                                                                                                      
+K9       583                                                          =I9+J9                                                      
+P9       0                                                            =N9+O9+L9                                                   
+A10      8                                                                                                                        
+B10      B07                                                                                                                      
+C10      Type 1                                                                                                                   
+D10      Occupied                                                                                                                 
+F10      Crimi, Martha                                                                                                            
+G10      MH TOH SITE RENT                                                                                                         
+H10      WHA Lot                                                                                                                  
+I10      942                                                                                                                      
+K10      942                                                          =I10+J10                                                    
+P10      0                                                            =N10+O10+L10                                                
+A11      9                                                                                                                        
+B11      B08                                                                                                                      
+C11      Type 1                                                                                                                   
+D11      Occupied                                                                                                                 
+F11      Dorshorst, Michael                                                                                                       
+G11      MH TOH SITE RENT                                                                                                         
+H11      WHA Lot                                                                                                                  
+I11      942                                                                                                                      
+K11      942                                                          =I11+J11                                                    
+P11      0                                                            =N11+O11+L11                                                
+A12      10                                                                                                                       
+B12      B09                                                                                                                      
+C12      Type 1                                                                                                                   
+D12      Occupied                                                                                                                 
+F12      Goode, Michael                                                                                                           
+G12      MH TOH SITE RENT                                                                                                         
+H12      WHA Lot                                                                                                                  
+I12      1021                                                                                                                     
+K12      1021                                                         =I12+J12                                                    
+P12      0                                                            =N12+O12+L12                                                
+A13      11                                                                                                                       
+B13      B11                                                                                                                      
+C13      Type 1                                                                                                                   
+D13      Occupied                                                                                                                 
+F13      Reinhardt, Marna                                                                                                         
+G13      MH TOH SITE RENT                                                                                                         
+H13      WHA Lot                                                                                                                  
+I13      942                                                                                                                      
+K13      942                                                          =I13+J13                                                    
+P13      0                                                            =N13+O13+L13                                                
+A14      12                                                                                                                       
+B14      B12                                                                                                                      
+C14      Type 1                                                                                                                   
+D14      Occupied                                                                                                                 
+F14      Premo, Justin                                                                                                            
+G14      MH TOH SITE RENT                                                                                                         
+H14      WHA Lot                                                                                                                  
+I14      852                                                                                                                      
+K14      852                                                          =I14+J14                                                    
+P14      0                                                            =N14+O14+L14                                                
+A15      13                                                                                                                       
+B15      B14                                                                                                                      
+C15      Type 1                                                                                                                   
+D15      Occupied                                                                                                                 
+F15      Weiss, Andrea                                                                                                            
+G15      MH TOH SITE RENT                                                                                                         
+H15      WHA Lot                                                                                                                  
+I15      895                                                                                                                      
+K15      895                                                          =I15+J15                                                    
+P15      0                                                            =N15+O15+L15                                                
+A16      14                                                                                                                       
+B16      B15                                                                                                                      
+C16      Type 1                                                                                                                   
+D16      Occupied                                                                                                                 
+F16      Lopes, Sabrina                                                                                                           
+G16      MH TOH SITE RENT                                                                                                         
+H16      WHA Lot                                                                                                                  
+I16      942                                                                                                                      
+K16      942                                                          =I16+J16                                                    
+P16      0                                                            =N16+O16+L16                                                
+A17      15                                                                                                                       
+B17      B16                                                                                                                      
+C17      Type 1                                                                                                                   
+D17      Occupied                                                                                                                 
+F17      Guerrero, Jesus                                                                                                          
+G17      MH TOH SITE RENT                                                                                                         
+H17      WHA Lot                                                                                                                  
+I17      993                                                                                                                      
+K17      993                                                          =I17+J17                                                    
+P17      0                                                            =N17+O17+L17                                                
+A18      16                                                                                                                       
+B18      C01                                                                                                                      
+C18      Type 1                                                                                                                   
+D18      Occupied                                                                                                                 
+F18      Snow, Joel                                                                                                               
+G18      MH TOH SITE RENT                                                                                                         
+H18      WHA Lot                                                                                                                  
+I18      942                                                                                                                      
+K18      942                                                          =I18+J18                                                    
+P18      0                                                            =N18+O18+L18                                                
+A19      17                                                                                                                       
+B19      C06                                                                                                                      
+C19      Type 1                                                                                                                   
+D19      Occupied                                                                                                                 
+F19      Westervelt, Donna                                                                                                        
+G19      MH TOH SITE RENT                                                                                                         
+H19      WHA Lot                                                                                                                  
+I19      903                                                                                                                      
+K19      903                                                          =I19+J19                                                    
+P19      0                                                            =N19+O19+L19                                                
+A20      18                                                                                                                       
+B20      C07                                                                                                                      
+C20      Type 1                                                                                                                   
+D20      Occupied                                                                                                                 
+F20      Revocable Trust, Morrish                                                                                                 
+G20      MH TOH SITE RENT                                                                                                         
+H20      WHA Lot                                                                                                                  
+I20      942                                                                                                                      
+K20      942                                                          =I20+J20                                                    
+P20      0                                                            =N20+O20+L20                                                
+A21      19                                                                                                                       
+B21      C08                                                                                                                      
+C21      Type 1                                                                                                                   
+D21      Occupied                                                                                                                 
+F21      Bagwell, Debra                                                                                                           
+G21      MH TOH SITE RENT                                                                                                         
+H21      WHA Lot                                                                                                                  
+I21      903                                                                                                                      
+K21      903                                                          =I21+J21                                                    
+P21      0                                                            =N21+O21+L21                                                
+A22      20                                                                                                                       
+B22      C09                                                                                                                      
+C22      Type 1                                                                                                                   
+D22      Occupied                                                                                                                 
+F22      Carson, Larry                                                                                                            
+G22      MH TOH SITE RENT                                                                                                         
+H22      WHA Lot                                                                                                                  
+I22      942                                                                                                                      
+K22      942                                                          =I22+J22                                                    
+P22      0                                                            =N22+O22+L22                                                
+A23      21                                                                                                                       
+B23      C10                                                                                                                      
+C23      Type 1                                                                                                                   
+D23      Occupied                                                                                                                 
+F23      Slagle, Eric                                                                                                             
+G23      MH TOH SITE RENT                                                                                                         
+H23      WHA Lot                                                                                                                  
+I23      942                                                                                                                      
+K23      942                                                          =I23+J23                                                    
+P23      0                                                            =N23+O23+L23                                                
+A24      22                                                                                                                       
+B24      C11                                                                                                                      
+C24      Type 1                                                                                                                   
+D24      Occupied                                                                                                                 
+F24      McLain, Donnie                                                                                                           
+G24      MH TOH SITE RENT                                                                                                         
+H24      WHA Lot                                                                                                                  
+I24      942                                                                                                                      
+K24      942                                                          =I24+J24                                                    
+P24      0                                                            =N24+O24+L24                                                
+A25      23                                                                                                                       
+B25      C12                                                                                                                      
+C25      Type 1                                                                                                                   
+D25      Occupied                                                                                                                 
+F25      Luck, John                                                                                                               
+G25      MH TOH SITE RENT                                                                                                         
+H25      WHA Lot                                                                                                                  
+I25      942                                                                                                                      
+K25      942                                                          =I25+J25                                                    
+P25      0                                                            =N25+O25+L25                                                
+A26      24                                                                                                                       
+B26      C13                                                                                                                      
+C26      Type 1                                                                                                                   
+D26      Occupied                                                                                                                 
+F26      Martin, William                                                                                                          
+G26      MH TOH SITE RENT                                                                                                         
+H26      WHA Lot                                                                                                                  
+I26      942                                                                                                                      
+K26      942                                                          =I26+J26                                                    
+P26      0                                                            =N26+O26+L26                                                
+A27      25                                                                                                                       
+B27      C14                                                                                                                      
+C27      Type 1                                                                                                                   
+D27      Occupied                                                                                                                 
+F27      Winkelman, Laura                                                                                                         
+G27      MH TOH SITE RENT                                                                                                         
+H27      WHA Lot                                                                                                                  
+I27      942                                                                                                                      
+K27      942                                                          =I27+J27                                                    
+P27      0                                                            =N27+O27+L27                                                
+A28      26                                                                                                                       
+B28      C15                                                                                                                      
+C28      Type 1                                                                                                                   
+D28      Occupied                                                                                                                 
+F28      Carlson, Joseph                                                                                                          
+G28      MH TOH SITE RENT                                                                                                         
+H28      WHA Lot                                                                                                                  
+I28      942                                                                                                                      
+K28      942                                                          =I28+J28                                                    
+P28      0                                                            =N28+O28+L28                                                
+A29      27                                                                                                                       
+B29      C16                                                                                                                      
+C29      Type 1                                                                                                                   
+D29      Occupied                                                                                                                 
+F29      Eddy, Jerry                                                                                                              
+G29      MH TOH SITE RENT                                                                                                         
+H29      WHA Lot                                                                                                                  
+I29      968                                                                                                                      
+K29      968                                                          =I29+J29                                                    
+P29      0                                                            =N29+O29+L29                                                
+A30      28                                                                                                                       
+B30      EL01                                                                                                                     
+C30      Type 1                                                                                                                   
+D30      Occupied                                                                                                                 
+F30      Smith, William                                                                                                           
+G30      MH TOH SITE RENT                                                                                                         
+H30      WHA Lot                                                                                                                  
+I30      942                                                                                                                      
+K30      942                                                          =I30+J30                                                    
+P30      0                                                            =N30+O30+L30                                                
+A31      29                                                                                                                       
+B31      EL03                                                                                                                     
+C31      Type 1                                                                                                                   
+D31      Occupied                                                                                                                 
+F31      Dressell, Michael                                                                                                        
+G31      MH TOH SITE RENT                                                                                                         
+H31      WHA Lot                                                                                                                  
+I31      942                                                                                                                      
+K31      942                                                          =I31+J31                                                    
+P31      0                                                            =N31+O31+L31                                                
+A32      30                                                                                                                       
+B32      I01                                                                                                                      
+C32      Type 1                                                                                                                   
+D32      Occupied                                                                                                                 
+F32      Garton, Louis                                                                                                            
+G32      MH TOH SITE RENT                                                                                                         
+H32      WHA Lot                                                                                                                  
+I32      984                                                                                                                      
+K32      984                                                          =I32+J32                                                    
+P32      0                                                            =N32+O32+L32                                                
+A33      31                                                           =A32+1                                                      
+B33      I02                                                                                                                      
+C33      Type 1                                                                                                                   
+D33      Occupied                                                                                                                 
+F33      McClelland, Nancy                                                                                                        
+G33      MH TOH SITE RENT                                                                                                         
+H33      WHA Lot                                                                                                                  
+I33      984                                                                                                                      
+K33      984                                                          =I33+J33                                                    
+P33      0                                                            =N33+O33+L33                                                
+A34      32                                                           =A33+1                                                      
+B34      I03                                                                                                                      
+C34      Type 1                                                                                                                   
+D34      Occupied                                                                                                                 
+F34      Iapalucci, Anna                                                                                                          
+G34      MH TOH SITE RENT                                                                                                         
+H34      WHA Lot                                                                                                                  
+I34      984                                                                                                                      
+K34      984                                                          =I34+J34                                                    
+P34      0                                                            =N34+O34+L34                                                
+A35      33                                                           =A34+1                                                      
+B35      I05                                                                                                                      
+C35      Type 1                                                                                                                   
+D35      Occupied                                                                                                                 
+F35      Gaylor, Jacqueline                                                                                                       
+G35      MH TOH SITE RENT                                                                                                         
+H35      WHA Lot                                                                                                                  
+I35      984                                                                                                                      
+K35      984                                                          =I35+J35                                                    
+P35      0                                                            =N35+O35+L35                                                
+A36      34                                                           =A35+1                                                      
+B36      I06                                                                                                                      
+C36      Type 1                                                                                                                   
+D36      Occupied                                                                                                                 
+F36      Newman, Bill                                                                                                             
+G36      MH TOH SITE RENT                                                                                                         
+H36      WHA Lot                                                                                                                  
+I36      984                                                                                                                      
+K36      984                                                          =I36+J36                                                    
+P36      0                                                            =N36+O36+L36                                                
+A37      35                                                           =A36+1                                                      
+B37      I07                                                                                                                      
+C37      Type 1                                                                                                                   
+D37      Occupied                                                                                                                 
+F37      Harrington, Ken                                                                                                          
+G37      MH TOH SITE RENT                                                                                                         
+H37      WHA Lot                                                                                                                  
+I37      984                                                                                                                      
+K37      984                                                          =I37+J37                                                    
+P37      0                                                            =N37+O37+L37                                                
+A38      36                                                           =A37+1                                                      
+B38      I08                                                                                                                      
+C38      Type 1                                                                                                                   
+D38      Occupied                                                                                                                 
+F38      Hoffman, Cheryl                                                                                                          
+G38      MH TOH SITE RENT                                                                                                         
+H38      WHA Lot                                                                                                                  
+I38      984                                                                                                                      
+K38      984                                                          =I38+J38                                                    
+P38      0                                                            =N38+O38+L38                                                
+A39      37                                                           =A38+1                                                      
+B39      I09                                                                                                                      
+C39      Type 1                                                                                                                   
+D39      Occupied                                                                                                                 
+F39      Caldeira, Ken                                                                                                            
+G39      MH TOH SITE RENT                                                                                                         
+H39      WHA Lot                                                                                                                  
+I39      984                                                                                                                      
+K39      984                                                          =I39+J39                                                    
+P39      0                                                            =N39+O39+L39                                                
+A40      38                                                           =A39+1                                                      
+B40      I10                                                                                                                      
+C40      Type 1                                                                                                                   
+D40      Occupied                                                                                                                 
+F40      Mills, Marian                                                                                                            
+G40      MH TOH SITE RENT                                                                                                         
+H40      WHA Lot                                                                                                                  
+I40      984                                                                                                                      
+K40      984                                                          =I40+J40                                                    
+P40      0                                                            =N40+O40+L40                                                
+A41      39                                                           =A40+1                                                      
+B41      I11                                                                                                                      
+C41      Type 1                                                                                                                   
+D41      Occupied                                                                                                                 
+F41      Elfstrom, Gary                                                                                                           
+G41      MH TOH SITE RENT                                                                                                         
+H41      WHA Lot                                                                                                                  
+I41      984                                                                                                                      
+K41      984                                                          =I41+J41                                                    
+P41      0                                                            =N41+O41+L41                                                
+A42      40                                                           =A41+1                                                      
+B42      I12                                                                                                                      
+C42      Type 1                                                                                                                   
+D42      Occupied                                                                                                                 
+F42      Larrabee, Theresa                                                                                                        
+G42      MH TOH SITE RENT                                                                                                         
+H42      WHA Lot                                                                                                                  
+I42      984                                                                                                                      
+K42      984                                                          =I42+J42                                                    
+P42      0                                                            =N42+O42+L42                                                
+A43      41                                                           =A42+1                                                      
+B43      I14                                                                                                                      
+C43      Type 1                                                                                                                   
+D43      Occupied                                                                                                                 
+F43      Caldeira, Ken                                                                                                            
+G43      MH TOH SITE RENT                                                                                                         
+H43      WHA Lot                                                                                                                  
+I43      984                                                                                                                      
+K43      984                                                          =I43+J43                                                    
+P43      0                                                            =N43+O43+L43                                                
+A44      42                                                           =A43+1                                                      
+B44      M01                                                                                                                      
+C44      Type 1                                                                                                                   
+D44      Occupied                                                                                                                 
+F44      Laws, Jeremy                                                                                                             
+G44      MH TOH SITE RENT                                                                                                         
+H44      WHA Lot                                                                                                                  
+I44      1021                                                                                                                     
+K44      1021                                                         =I44+J44                                                    
+P44      0                                                            =N44+O44+L44                                                
+A45      43                                                           =A44+1                                                      
+B45      M02                                                                                                                      
+C45      Type 1                                                                                                                   
+D45      Occupied                                                                                                                 
+F45      Graham-Freshwater, Deborah                                                                                               
+G45      MH TOH SITE RENT                                                                                                         
+H45      WHA Lot                                                                                                                  
+I45      1021                                                                                                                     
+K45      1021                                                         =I45+J45                                                    
+P45      0                                                            =N45+O45+L45                                                
+A46      44                                                           =A45+1                                                      
+B46      M03                                                                                                                      
+C46      Type 1                                                                                                                   
+D46      Occupied                                                                                                                 
+F46      Potter, Jeremy                                                                                                           
+G46      MH TOH SITE RENT                                                                                                         
+H46      WHA Lot                                                                                                                  
+I46      889                                                                                                                      
+K46      889                                                          =I46+J46                                                    
+P46      0                                                            =N46+O46+L46                                                
+A47      45                                                           =A46+1                                                      
+B47      M04                                                                                                                      
+C47      Type 1                                                                                                                   
+D47      Occupied                                                                                                                 
+F47      Sprague, Nelson                                                                                                          
+G47      MH TOH SITE RENT                                                                                                         
+H47      WHA Lot                                                                                                                  
+I47      942                                                                                                                      
+K47      942                                                          =I47+J47                                                    
+P47      0                                                            =N47+O47+L47                                                
+A48      46                                                           =A47+1                                                      
+B48      MLB02                                                                                                                    
+C48      Type 1                                                                                                                   
+D48      Occupied                                                                                                                 
+F48      McNeely, Don                                                                                                             
+G48      MH TOH SITE RENT                                                                                                         
+H48      WHA Lot                                                                                                                  
+I48      720                                                                                                                      
+K48      720                                                          =I48+J48                                                    
+P48      0                                                            =N48+O48+L48                                                
+A49      47                                                           =A48+1                                                      
+B49      OL09                                                                                                                     
+C49      Type 1                                                                                                                   
+D49      Occupied                                                                                                                 
+F49      Hart, Lawrence & Deanna                                                                                                  
+G49      MH TOH SITE RENT                                                                                                         
+H49      WHA Lot                                                                                                                  
+I49      889                                                                                                                      
+K49      889                                                          =I49+J49                                                    
+P49      0                                                            =N49+O49+L49                                                
+A50      48                                                           =A49+1                                                      
+B50      OV02                                                                                                                     
+C50      Type 1                                                                                                                   
+D50      Occupied                                                                                                                 
+F50      McAnelly, Ronald                                                                                                         
+G50      MH TOH SITE RENT                                                                                                         
+H50      WHA Lot                                                                                                                  
+I50      984                                                                                                                      
+K50      984                                                          =I50+J50                                                    
+P50      0                                                            =N50+O50+L50                                                
+A51      49                                                           =A50+1                                                      
+B51      OV03                                                                                                                     
+C51      Type 1                                                                                                                   
+D51      Occupied                                                                                                                 
+F51      Robert, Gracious                                                                                                         
+G51      MH TOH SITE RENT                                                                                                         
+H51      WHA Lot                                                                                                                  
+I51      984                                                                                                                      
+K51      984                                                          =I51+J51                                                    
+P51      0                                                            =N51+O51+L51                                                
+A52      50                                                           =A51+1                                                      
+B52      OV04                                                                                                                     
+C52      Type 1                                                                                                                   
+D52      Occupied                                                                                                                 
+F52      Lindsay, Dennis                                                                                                          
+G52      MH TOH SITE RENT                                                                                                         
+H52      WHA Lot                                                                                                                  
+I52      984                                                                                                                      
+K52      984                                                          =I52+J52                                                    
+P52      0                                                            =N52+O52+L52                                                
+A53      51                                                           =A52+1                                                      
+B53      OV05                                                                                                                     
+C53      Type 1                                                                                                                   
+D53      Occupied                                                                                                                 
+F53      Davidson, Eugene and Denise                                                                                              
+G53      MH TOH SITE RENT                                                                                                         
+H53      WHA Lot                                                                                                                  
+I53      984                                                                                                                      
+K53      984                                                          =I53+J53                                                    
+P53      0                                                            =N53+O53+L53                                                
+A54      52                                                           =A53+1                                                      
+B54      OV06                                                                                                                     
+C54      Type 1                                                                                                                   
+D54      Occupied                                                                                                                 
+F54      Vetter, Harry                                                                                                            
+G54      MH TOH SITE RENT                                                                                                         
+H54      WHA Lot                                                                                                                  
+I54      984                                                                                                                      
+K54      984                                                          =I54+J54                                                    
+P54      0                                                            =N54+O54+L54                                                
+A55      53                                                           =A54+1                                                      
+B55      OV07                                                                                                                     
+C55      Type 1                                                                                                                   
+D55      Occupied                                                                                                                 
+F55      Trading, Quicker                                                                                                         
+G55      MH TOH SITE RENT                                                                                                         
+H55      WHA Lot                                                                                                                  
+I55      984                                                                                                                      
+K55      984                                                          =I55+J55                                                    
+P55      0                                                            =N55+O55+L55                                                
+A56      54                                                           =A55+1                                                      
+B56      OV08                                                                                                                     
+C56      Type 1                                                                                                                   
+D56      Occupied                                                                                                                 
+F56      Windle, Wesley                                                                                                           
+G56      MH TOH SITE RENT                                                                                                         
+H56      WHA Lot                                                                                                                  
+I56      984                                                                                                                      
+K56      984                                                          =I56+J56                                                    
+P56      0                                                            =N56+O56+L56                                                
+A57      55                                                           =A56+1                                                      
+B57      OV09                                                                                                                     
+C57      Type 1                                                                                                                   
+D57      Occupied                                                                                                                 
+F57      Decker, Renee                                                                                                            
+G57      MH TOH SITE RENT                                                                                                         
+H57      WHA Lot                                                                                                                  
+I57      929                                                                                                                      
+K57      929                                                          =I57+J57                                                    
+P57      0                                                            =N57+O57+L57                                                
+A58      56                                                           =A57+1                                                      
+B58      OV09A                                                                                                                    
+C58      Type 1                                                                                                                   
+D58      Occupied                                                                                                                 
+F58      Grifantini, Carlos                                                                                                       
+G58      MH TOH SITE RENT                                                                                                         
+H58      WHA Lot                                                                                                                  
+I58      984                                                                                                                      
+K58      984                                                          =I58+J58                                                    
+P58      0                                                            =N58+O58+L58                                                
+A59      57                                                           =A58+1                                                      
+B59      OV10                                                                                                                     
+C59      Type 1                                                                                                                   
+D59      Occupied                                                                                                                 
+F59      Ray, Amanda                                                                                                              
+G59      MH TOH SITE RENT                                                                                                         
+H59      WHA Lot                                                                                                                  
+I59      984                                                                                                                      
+K59      984                                                          =I59+J59                                                    
+P59      0                                                            =N59+O59+L59                                                
+A60      58                                                           =A59+1                                                      
+B60      OV11                                                                                                                     
+C60      Type 1                                                                                                                   
+D60      Occupied                                                                                                                 
+F60      Stephen, Julie                                                                                                           
+G60      MH TOH SITE RENT                                                                                                         
+H60      WHA Lot                                                                                                                  
+I60      984                                                                                                                      
+K60      984                                                          =I60+J60                                                    
+P60      0                                                            =N60+O60+L60                                                
+A61      59                                                           =A60+1                                                      
+B61      OV12                                                                                                                     
+C61      Type 1                                                                                                                   
+D61      Occupied                                                                                                                 
+F61      Castleberry, Lori                                                                                                        
+G61      MH TOH SITE RENT                                                                                                         
+H61      WHA Lot                                                                                                                  
+I61      929                                                                                                                      
+K61      929                                                          =I61+J61                                                    
+P61      0                                                            =N61+O61+L61                                                
+A62      60                                                           =A61+1                                                      
+B62      OV13                                                                                                                     
+C62      Type 1                                                                                                                   
+D62      Occupied                                                                                                                 
+F62      Robin, Laura                                                                                                             
+G62      MH TOH SITE RENT                                                                                                         
+H62      WHA Lot                                                                                                                  
+I62      984                                                                                                                      
+K62      984                                                          =I62+J62                                                    
+P62      0                                                            =N62+O62+L62                                                
+A63      61                                                           =A62+1                                                      
+B63      S01                                                                                                                      
+C63      Type 1                                                                                                                   
+D63      Occupied                                                                                                                 
+F63      Davidson, Eugene and Denise                                                                                              
+G63      MH TOH SITE RENT                                                                                                         
+H63      WHA Lot                                                                                                                  
+I63      984                                                                                                                      
+K63      984                                                          =I63+J63                                                    
+P63      0                                                            =N63+O63+L63                                                
+A64      62                                                           =A63+1                                                      
+B64      S02                                                                                                                      
+C64      Type 1                                                                                                                   
+D64      Occupied                                                                                                                 
+F64      Duarte, Doreen                                                                                                           
+G64      MH TOH SITE RENT                                                                                                         
+H64      WHA Lot                                                                                                                  
+I64      1082                                                                                                                     
+K64      1082                                                         =I64+J64                                                    
+P64      0                                                            =N64+O64+L64                                                
+A65      63                                                           =A64+1                                                      
+B65      S03                                                                                                                      
+C65      Type 1                                                                                                                   
+D65      Occupied                                                                                                                 
+F65      De Ryk, Ronald                                                                                                           
+G65      MH TOH SITE RENT                                                                                                         
+H65      WHA Lot                                                                                                                  
+I65      1039                                                                                                                     
+K65      1039                                                         =I65+J65                                                    
+P65      0                                                            =N65+O65+L65                                                
+A66      64                                                           =A65+1                                                      
+B66      S05                                                                                                                      
+C66      Type 1                                                                                                                   
+D66      Occupied                                                                                                                 
+F66      Powers, Tazz                                                                                                             
+G66      MH TOH SITE RENT                                                                                                         
+H66      WHA Lot                                                                                                                  
+I66      1039                                                                                                                     
+K66      1039                                                         =I66+J66                                                    
+P66      0                                                            =N66+O66+L66                                                
+A67      65                                                           =A66+1                                                      
+B67      S06                                                                                                                      
+C67      Type 1                                                                                                                   
+D67      Occupied                                                                                                                 
+F67      Carlton, Tim                                                                                                             
+G67      MH TOH SITE RENT                                                                                                         
+H67      WHA Lot                                                                                                                  
+I67      1018                                                                                                                     
+K67      1018                                                         =I67+J67                                                    
+P67      0                                                            =N67+O67+L67                                                
+A68      66                                                           =A67+1                                                      
+B68      S07                                                                                                                      
+C68      Type 1                                                                                                                   
+D68      Occupied                                                                                                                 
+F68      Bellamy, Mary Elizabeth                                                                                                  
+G68      MH TOH SITE RENT                                                                                                         
+H68      WHA Lot                                                                                                                  
+I68      929                                                                                                                      
+K68      929                                                          =I68+J68                                                    
+P68      0                                                            =N68+O68+L68                                                
+A69      67                                                           =A68+1                                                      
+B69      T01                                                                                                                      
+C69      Type 1                                                                                                                   
+D69      Occupied                                                                                                                 
+F69      Hess, Scott (Michael)                                                                                                    
+G69      MH TOH SITE RENT                                                                                                         
+H69      WHA Lot                                                                                                                  
+I69      984                                                                                                                      
+K69      984                                                          =I69+J69                                                    
+P69      0                                                            =N69+O69+L69                                                
+A70      68                                                           =A69+1                                                      
+B70      T02                                                                                                                      
+C70      Type 1                                                                                                                   
+D70      Occupied                                                                                                                 
+F70      Johnson, Bonnie                                                                                                          
+G70      MH TOH SITE RENT                                                                                                         
+H70      WHA Lot                                                                                                                  
+I70      984                                                                                                                      
+K70      984                                                          =I70+J70                                                    
+P70      0                                                            =N70+O70+L70                                                
+A71      69                                                           =A70+1                                                      
+B71      T03                                                                                                                      
+C71      Type 1                                                                                                                   
+D71      Occupied                                                                                                                 
+F71      Russell, Anne                                                                                                            
+G71      MH TOH SITE RENT                                                                                                         
+H71      WHA Lot                                                                                                                  
+I71      929                                                                                                                      
+K71      929                                                          =I71+J71                                                    
+P71      0                                                            =N71+O71+L71                                                
+A72      70                                                           =A71+1                                                      
+B72      T04                                                                                                                      
+C72      Type 1                                                                                                                   
+D72      Occupied                                                                                                                 
+F72      Risley, Shellie                                                                                                          
+G72      MH TOH SITE RENT                                                                                                         
+H72      WHA Lot                                                                                                                  
+I72      984                                                                                                                      
+K72      984                                                          =I72+J72                                                    
+P72      0                                                            =N72+O72+L72                                                
+A73      71                                                           =A72+1                                                      
+B73      T05                                                                                                                      
+C73      Type 1                                                                                                                   
+D73      Occupied                                                                                                                 
+F73      Gates, Julie                                                                                                             
+G73      MH TOH SITE RENT                                                                                                         
+H73      WHA Lot                                                                                                                  
+I73      984                                                                                                                      
+K73      984                                                          =I73+J73                                                    
+P73      0                                                            =N73+O73+L73                                                
+A74      72                                                           =A73+1                                                      
+B74      T06                                                                                                                      
+C74      Type 1                                                                                                                   
+D74      Occupied                                                                                                                 
+F74      Wilson, Kenneth                                                                                                          
+G74      MH TOH SITE RENT                                                                                                         
+H74      WHA Lot                                                                                                                  
+I74      984                                                                                                                      
+K74      984                                                          =I74+J74                                                    
+P74      0                                                            =N74+O74+L74                                                
+A75      73                                                           =A74+1                                                      
+B75      T08                                                                                                                      
+C75      Type 1                                                                                                                   
+D75      Occupied                                                                                                                 
+F75      Seldon, Wendy                                                                                                            
+G75      MH TOH SITE RENT                                                                                                         
+H75      WHA Lot                                                                                                                  
+I75      984                                                                                                                      
+K75      984                                                          =I75+J75                                                    
+P75      0                                                            =N75+O75+L75                                                
+A76      74                                                           =A75+1                                                      
+B76      T10                                                                                                                      
+C76      Type 1                                                                                                                   
+D76      Occupied                                                                                                                 
+F76      Hall, Dana                                                                                                               
+G76      MH TOH SITE RENT                                                                                                         
+H76      WHA Lot                                                                                                                  
+I76      984                                                                                                                      
+K76      984                                                          =I76+J76                                                    
+P76      0                                                            =N76+O76+L76                                                
+A77      75                                                           =A76+1                                                      
+B77      T12                                                                                                                      
+C77      Type 1                                                                                                                   
+D77      Occupied                                                                                                                 
+F77      Rummell, Vicky                                                                                                           
+G77      MH TOH SITE RENT                                                                                                         
+H77      WHA Lot                                                                                                                  
+I77      984                                                                                                                      
+K77      984                                                          =I77+J77                                                    
+P77      0                                                            =N77+O77+L77                                                
+A78      76                                                           =A77+1                                                      
+B78      T13                                                                                                                      
+C78      Type 1                                                                                                                   
+D78      Occupied                                                                                                                 
+F78      Nedopak, Kaedyn                                                                                                          
+G78      MH TOH SITE RENT                                                                                                         
+H78      WHA Lot                                                                                                                  
+I78      984                                                                                                                      
+K78      984                                                          =I78+J78                                                    
+P78      0                                                            =N78+O78+L78                                                
+A79      77                                                           =A78+1                                                      
+B79      T14                                                                                                                      
+C79      Type 1                                                                                                                   
+D79      Occupied                                                                                                                 
+F79      Luhrsen, Sandra                                                                                                          
+G79      MH TOH SITE RENT                                                                                                         
+H79      WHA Lot                                                                                                                  
+I79      984                                                                                                                      
+K79      984                                                          =I79+J79                                                    
+P79      0                                                            =N79+O79+L79                                                
+A80      78                                                           =A79+1                                                      
+B80      T15                                                                                                                      
+C80      Type 1                                                                                                                   
+D80      Occupied                                                                                                                 
+F80      Hartman, Mike                                                                                                            
+G80      MH TOH SITE RENT                                                                                                         
+H80      WHA Lot                                                                                                                  
+I80      984                                                                                                                      
+K80      984                                                          =I80+J80                                                    
+P80      0                                                            =N80+O80+L80                                                
+A81      79                                                           =A80+1                                                      
+B81      T16                                                                                                                      
+C81      Type 1                                                                                                                   
+D81      Occupied                                                                                                                 
+F81      Lian, Joseph                                                                                                             
+G81      MH TOH SITE RENT                                                                                                         
+H81      WHA Lot                                                                                                                  
+I81      984                                                                                                                      
+K81      984                                                          =I81+J81                                                    
+P81      0                                                            =N81+O81+L81                                                
+A82      80                                                           =A81+1                                                      
+B82      T17                                                                                                                      
+C82      Type 1                                                                                                                   
+D82      Occupied                                                                                                                 
+F82      Caldwell, Fred                                                                                                           
+G82      MH TOH SITE RENT                                                                                                         
+H82      WHA Lot                                                                                                                  
+I82      984                                                                                                                      
+K82      984                                                          =I82+J82                                                    
+P82      0                                                            =N82+O82+L82                                                
+A83      81                                                           =A82+1                                                      
+B83      U01                                                                                                                      
+C83      Type 1                                                                                                                   
+D83      Occupied                                                                                                                 
+F83      Silva/Frost, Pauline & Wayne                                                                                             
+G83      MH TOH SITE RENT                                                                                                         
+H83      WHA Lot                                                                                                                  
+I83      984                                                                                                                      
+K83      984                                                          =I83+J83                                                    
+P83      0                                                            =N83+O83+L83                                                
+A84      82                                                           =A83+1                                                      
+B84      U02                                                                                                                      
+C84      Type 1                                                                                                                   
+D84      Occupied                                                                                                                 
+F84      Whitcomb, John                                                                                                           
+G84      MH TOH SITE RENT                                                                                                         
+H84      WHA Lot                                                                                                                  
+I84      984                                                                                                                      
+K84      984                                                          =I84+J84                                                    
+P84      0                                                            =N84+O84+L84                                                
+A85      83                                                           =A84+1                                                      
+B85      U03                                                                                                                      
+C85      Type 1                                                                                                                   
+D85      Occupied                                                                                                                 
+F85      McKenna, Mollie                                                                                                          
+G85      MH TOH SITE RENT                                                                                                         
+H85      WHA Lot                                                                                                                  
+I85      984                                                                                                                      
+K85      984                                                          =I85+J85                                                    
+P85      0                                                            =N85+O85+L85                                                
+A86      84                                                           =A85+1                                                      
+B86      U04                                                                                                                      
+C86      Type 1                                                                                                                   
+D86      Occupied                                                                                                                 
+F86      Kawal, Ray                                                                                                               
+G86      MH TOH SITE RENT                                                                                                         
+H86      WHA Lot                                                                                                                  
+I86      984                                                                                                                      
+K86      984                                                          =I86+J86                                                    
+P86      0                                                            =N86+O86+L86                                                
+A87      85                                                           =A86+1                                                      
+B87      U05                                                                                                                      
+C87      Type 1                                                                                                                   
+D87      Occupied                                                                                                                 
+F87      Daniel, Taylor                                                                                                           
+G87      MH TOH SITE RENT                                                                                                         
+H87      WHA Lot                                                                                                                  
+I87      984                                                                                                                      
+K87      984                                                          =I87+J87                                                    
+P87      0                                                            =N87+O87+L87                                                
+A88      86                                                           =A87+1                                                      
+B88      U06                                                                                                                      
+C88      Type 1                                                                                                                   
+D88      Occupied                                                                                                                 
+F88      Lecy, Irene                                                                                                              
+G88      MH TOH SITE RENT                                                                                                         
+H88      WHA Lot                                                                                                                  
+I88      984                                                                                                                      
+K88      984                                                          =I88+J88                                                    
+P88      0                                                            =N88+O88+L88                                                
+A89      87                                                           =A88+1                                                      
+B89      U07                                                                                                                      
+C89      Type 1                                                                                                                   
+D89      Occupied                                                                                                                 
+F89      Weiss, Sherrie                                                                                                           
+G89      MH TOH SITE RENT                                                                                                         
+H89      WHA Lot                                                                                                                  
+I89      929                                                                                                                      
+K89      929                                                          =I89+J89                                                    
+P89      0                                                            =N89+O89+L89                                                
+A90      88                                                           =A89+1                                                      
+B90      U08                                                                                                                      
+C90      Type 1                                                                                                                   
+D90      Occupied                                                                                                                 
+F90      Hook, Family Trust                                                                                                       
+G90      MH TOH SITE RENT                                                                                                         
+H90      WHA Lot                                                                                                                  
+I90      984                                                                                                                      
+K90      984                                                          =I90+J90                                                    
+P90      0                                                            =N90+O90+L90                                                
+A91      89                                                           =A90+1                                                      
+B91      U09                                                                                                                      
+C91      Type 1                                                                                                                   
+D91      Occupied                                                                                                                 
+F91      Nelson, Bryan                                                                                                            
+G91      MH TOH SITE RENT                                                                                                         
+H91      WHA Lot                                                                                                                  
+I91      984                                                                                                                      
+K91      984                                                          =I91+J91                                                    
+P91      0                                                            =N91+O91+L91                                                
+A92      90                                                           =A91+1                                                      
+B92      U10                                                                                                                      
+C92      Type 1                                                                                                                   
+D92      Occupied                                                                                                                 
+F92      Kolthoff, Karl                                                                                                           
+G92      MH TOH SITE RENT                                                                                                         
+H92      WHA Lot                                                                                                                  
+I92      984                                                                                                                      
+K92      984                                                          =I92+J92                                                    
+P92      0                                                            =N92+O92+L92                                                
+A93      91                                                           =A92+1                                                      
+B93      U11                                                                                                                      
+C93      Type 1                                                                                                                   
+D93      Occupied                                                                                                                 
+F93      Ela, Suma                                                                                                                
+G93      MH TOH SITE RENT                                                                                                         
+H93      WHA Lot                                                                                                                  
+I93      984                                                                                                                      
+K93      984                                                          =I93+J93                                                    
+P93      0                                                            =N93+O93+L93                                                
+A94      92                                                           =A93+1                                                      
+B94      U12                                                                                                                      
+C94      Type 1                                                                                                                   
+D94      Occupied                                                                                                                 
+F94      Morrissey, Frances                                                                                                       
+G94      MH TOH SITE RENT                                                                                                         
+H94      WHA Lot                                                                                                                  
+I94      984                                                                                                                      
+K94      984                                                          =I94+J94                                                    
+P94      0                                                            =N94+O94+L94                                                
+A95      93                                                           =A94+1                                                      
+B95      U13                                                                                                                      
+C95      Type 1                                                                                                                   
+D95      Occupied                                                                                                                 
+F95      Caldeira, Ken                                                                                                            
+G95      MH TOH SITE RENT                                                                                                         
+H95      WHA Lot                                                                                                                  
+I95      984                                                                                                                      
+K95      984                                                          =I95+J95                                                    
+P95      0                                                            =N95+O95+L95                                                
+A96      94                                                           =A95+1                                                      
+B96      U14                                                                                                                      
+C96      Type 1                                                                                                                   
+D96      Occupied                                                                                                                 
+F96      Studio, Johnson& Johnson                                                                                                 
+G96      MH TOH SITE RENT                                                                                                         
+H96      WHA Lot                                                                                                                  
+I96      984                                                                                                                      
+K96      984                                                          =I96+J96                                                    
+P96      0                                                            =N96+O96+L96                                                
+A97      95                                                           =A96+1                                                      
+B97      U15                                                                                                                      
+C97      Type 1                                                                                                                   
+D97      Occupied                                                                                                                 
+F97      Laraia, Robert                                                                                                           
+G97      MH TOH SITE RENT                                                                                                         
+H97      WHA Lot                                                                                                                  
+I97      929                                                                                                                      
+K97      929                                                          =I97+J97                                                    
+P97      0                                                            =N97+O97+L97                                                
+A98      96                                                           =A97+1                                                      
+B98      U16                                                                                                                      
+C98      Type 1                                                                                                                   
+D98      Occupied                                                                                                                 
+F98      Greer, Calene                                                                                                            
+G98      MH TOH SITE RENT                                                                                                         
+H98      WHA Lot                                                                                                                  
+I98      948                                                                                                                      
+K98      948                                                          =I98+J98                                                    
+P98      0                                                            =N98+O98+L98                                                
+A99      97                                                           =A98+1                                                      
+B99      U17                                                                                                                      
+C99      Type 1                                                                                                                   
+D99      Occupied                                                                                                                 
+F99      Laws, Jeremy                                                                                                             
+G99      MH TOH SITE RENT                                                                                                         
+H99      WHA Lot                                                                                                                  
+I99      1082                                                                                                                     
+K99      1082                                                         =I99+J99                                                    
+P99      0                                                            =N99+O99+L99                                                
+A100     98                                                           =A99+1                                                      
+B100     U18                                                                                                                      
+C100     Type 1                                                                                                                   
+D100     Occupied                                                                                                                 
+F100     Swenson, Cheryl                                                                                                          
+G100     MH TOH SITE RENT                                                                                                         
+H100     WHA Lot                                                                                                                  
+I100     984                                                                                                                      
+K100     984                                                          =I100+J100                                                  
+P100     0                                                            =N100+O100+L100                                             
+A101     99                                                           =A100+1                                                     
+B101     U19                                                                                                                      
+C101     Type 1                                                                                                                   
+D101     Occupied                                                                                                                 
+F101     Irish, Sally                                                                                                             
+G101     MH TOH SITE RENT                                                                                                         
+H101     WHA Lot                                                                                                                  
+I101     993                                                                                                                      
+K101     993                                                          =I101+J101                                                  
+P101     0                                                            =N101+O101+L101                                             
+A102     100                                                          =A101+1                                                     
+B102     U20                                                                                                                      
+C102     Type 1                                                                                                                   
+D102     Occupied                                                                                                                 
+F102     Sanford, Jim                                                                                                             
+G102     MH TOH SITE RENT                                                                                                         
+H102     WHA Lot                                                                                                                  
+I102     984                                                                                                                      
+K102     984                                                          =I102+J102                                                  
+P102     0                                                            =N102+O102+L102                                             
+A103     101                                                          =A102+1                                                     
+B103     U21                                                                                                                      
+C103     Type 1                                                                                                                   
+D103     Occupied                                                                                                                 
+F103     Cano, Ramon                                                                                                              
+G103     MH TOH SITE RENT                                                                                                         
+H103     WHA Lot                                                                                                                  
+I103     984                                                                                                                      
+K103     984                                                          =I103+J103                                                  
+P103     0                                                            =N103+O103+L103                                             
+A104     102                                                          =A103+1                                                     
+B104     U22                                                                                                                      
+C104     Type 1                                                                                                                   
+D104     Occupied                                                                                                                 
+F104     Miller, Shirley                                                                                                          
+G104     MH TOH SITE RENT                                                                                                         
+H104     WHA Lot                                                                                                                  
+I104     984                                                                                                                      
+K104     984                                                          =I104+J104                                                  
+P104     0                                                            =N104+O104+L104                                             
+A105     103                                                          =A104+1                                                     
+B105     U23                                                                                                                      
+C105     Type 1                                                                                                                   
+D105     Occupied                                                                                                                 
+F105     Hanley, Tom                                                                                                              
+G105     MH TOH SITE RENT                                                                                                         
+H105     WHA Lot                                                                                                                  
+I105     984                                                                                                                      
+K105     984                                                          =I105+J105                                                  
+P105     0                                                            =N105+O105+L105                                             
+A106     104                                                          =A105+1                                                     
+B106     U24                                                                                                                      
+C106     Type 1                                                                                                                   
+D106     Occupied                                                                                                                 
+F106     Amodeo, Jaspen                                                                                                           
+G106     MH TOH SITE RENT                                                                                                         
+H106     WHA Lot                                                                                                                  
+I106     984                                                                                                                      
+K106     984                                                          =I106+J106                                                  
+P106     0                                                            =N106+O106+L106                                             
+A107     105                                                          =A106+1                                                     
+B107     U25                                                                                                                      
+C107     Type 1                                                                                                                   
+D107     Occupied                                                                                                                 
+F107     Hall, Shari                                                                                                              
+G107     MH TOH SITE RENT                                                                                                         
+H107     WHA Lot                                                                                                                  
+I107     984                                                                                                                      
+K107     984                                                          =I107+J107                                                  
+P107     0                                                            =N107+O107+L107                                             
+A108     106                                                          =A107+1                                                     
+B108     U26                                                                                                                      
+C108     Type 1                                                                                                                   
+D108     Occupied                                                                                                                 
+F108     Knight, David                                                                                                            
+G108     MH TOH SITE RENT                                                                                                         
+H108     WHA Lot                                                                                                                  
+I108     984                                                                                                                      
+K108     984                                                          =I108+J108                                                  
+P108     0                                                            =N108+O108+L108                                             
+A109     107                                                          =A108+1                                                     
+C109     Type 3                                                                                                                   
+D109     Occupied                                                                                                                 
+G109     Long Term RV Lot Rent                                                                                                    
+I109     738.8333333333334                                                                                                        
+K109     738.8333333333334                                            =I109+J109                                                  
+P109     0                                                            =N109+O109+L109                                             
+A110     108                                                          =A109+1                                                     
+C110     Type 3                                                                                                                   
+D110     Occupied                                                                                                                 
+G110     Long Term RV Lot Rent                                                                                                    
+I110     738.8333333333334                                                                                                        
+K110     738.8333333333334                                            =I110+J110                                                  
+P110     0                                                            =N110+O110+L110                                             
+A111     109                                                          =A110+1                                                     
+C111     Type 3                                                                                                                   
+D111     Occupied                                                                                                                 
+G111     Long Term RV Lot Rent                                                                                                    
+I111     738.8333333333334                                                                                                        
+K111     738.8333333333334                                            =I111+J111                                                  
+P111     0                                                            =N111+O111+L111                                             
+A112     110                                                          =A111+1                                                     
+C112     Type 3                                                                                                                   
+D112     Occupied                                                                                                                 
+G112     Long Term RV Lot Rent                                                                                                    
+I112     738.8333333333334                                                                                                        
+K112     738.8333333333334                                            =I112+J112                                                  
+P112     0                                                            =N112+O112+L112                                             
+A113     111                                                          =A112+1                                                     
+C113     Type 3                                                                                                                   
+D113     Occupied                                                                                                                 
+G113     Long Term RV Lot Rent                                                                                                    
+I113     738.8333333333334                                                                                                        
+K113     738.8333333333334                                            =I113+J113                                                  
+P113     0                                                            =N113+O113+L113                                             
+A114     112                                                          =A113+1                                                     
+C114     Type 3                                                                                                                   
+D114     Occupied                                                                                                                 
+G114     Long Term RV Lot Rent                                                                                                    
+I114     738.8333333333334                                                                                                        
+K114     738.8333333333334                                            =I114+J114                                                  
+P114     0                                                            =N114+O114+L114                                             
+A115     113                                                          =A114+1                                                     
+C115     Type 3                                                                                                                   
+D115     Occupied                                                                                                                 
+G115     Long Term RV Lot Rent                                                                                                    
+I115     738.8333333333334                                                                                                        
+K115     738.8333333333334                                            =I115+J115                                                  
+P115     0                                                            =N115+O115+L115                                             
+A116     114                                                          =A115+1                                                     
+C116     Type 3                                                                                                                   
+D116     Occupied                                                                                                                 
+G116     Long Term RV Lot Rent                                                                                                    
+I116     738.8333333333334                                                                                                        
+K116     738.8333333333334                                            =I116+J116                                                  
+P116     0                                                            =N116+O116+L116                                             
+A117     115                                                          =A116+1                                                     
+C117     Type 3                                                                                                                   
+D117     Occupied                                                                                                                 
+G117     Long Term RV Lot Rent                                                                                                    
+I117     738.8333333333334                                                                                                        
+K117     738.8333333333334                                            =I117+J117                                                  
+P117     0                                                            =N117+O117+L117                                             
+A118     116                                                          =A117+1                                                     
+C118     Type 3                                                                                                                   
+D118     Occupied                                                                                                                 
+G118     Long Term RV Lot Rent                                                                                                    
+I118     738.8333333333334                                                                                                        
+K118     738.8333333333334                                            =I118+J118                                                  
+P118     0                                                            =N118+O118+L118                                             
+A119     117                                                          =A118+1                                                     
+C119     Type 3                                                                                                                   
+D119     Occupied                                                                                                                 
+G119     Long Term RV Lot Rent                                                                                                    
+I119     738.8333333333334                                                                                                        
+K119     738.8333333333334                                            =I119+J119                                                  
+P119     0                                                            =N119+O119+L119                                             
+A120     118                                                          =A119+1                                                     
+C120     Type 3                                                                                                                   
+D120     Occupied                                                                                                                 
+G120     Long Term RV Lot Rent                                                                                                    
+I120     738.8333333333334                                                                                                        
+K120     738.8333333333334                                            =I120+J120                                                  
+P120     0                                                            =N120+O120+L120                                             
+A121     119                                                          =A120+1                                                     
+C121     Type 3                                                                                                                   
+D121     Occupied                                                                                                                 
+G121     Long Term RV Lot Rent                                                                                                    
+I121     738.8333333333334                                                                                                        
+K121     738.8333333333334                                            =I121+J121                                                  
+P121     0                                                            =N121+O121+L121                                             
+A122     120                                                          =A121+1                                                     
+C122     Type 3                                                                                                                   
+D122     Occupied                                                                                                                 
+G122     Long Term RV Lot Rent                                                                                                    
+I122     738.8333333333334                                                                                                        
+K122     738.8333333333334                                            =I122+J122                                                  
+P122     0                                                            =N122+O122+L122                                             
+A123     121                                                          =A122+1                                                     
+C123     Type 3                                                                                                                   
+D123     Occupied                                                                                                                 
+G123     Long Term RV Lot Rent                                                                                                    
+I123     738.8333333333334                                                                                                        
+K123     738.8333333333334                                            =I123+J123                                                  
+P123     0                                                            =N123+O123+L123                                             
+A124     122                                                          =A123+1                                                     
+C124     Type 3                                                                                                                   
+D124     Occupied                                                                                                                 
+G124     Long Term RV Lot Rent                                                                                                    
+I124     738.8333333333334                                                                                                        
+K124     738.8333333333334                                            =I124+J124                                                  
+P124     0                                                            =N124+O124+L124                                             
+A125     123                                                          =A124+1                                                     
+C125     Type 3                                                                                                                   
+D125     Occupied                                                                                                                 
+G125     Long Term RV Lot Rent                                                                                                    
+I125     738.8333333333334                                                                                                        
+K125     738.8333333333334                                            =I125+J125                                                  
+P125     0                                                            =N125+O125+L125                                             
+A126     124                                                          =A125+1                                                     
+C126     Type 3                                                                                                                   
+D126     Occupied                                                                                                                 
+G126     Long Term RV Lot Rent                                                                                                    
+I126     738.8333333333334                                                                                                        
+K126     738.8333333333334                                            =I126+J126                                                  
+P126     0                                                            =N126+O126+L126                                             
+A127     125                                                          =A126+1                                                     
+B127     REST                                                                                                                     
+C127     Type 4                                                                                                                   
+D127     Occupied                                                                                                                 
+G127     Retail                                                                                                                   
+H127     Commercial Space                                                                                                         
+I127     1300                                                                                                                     
+K127     1300                                                         =I127+J127                                                  
+P127     0                                                            =N127+O127+L127                                             
+A128     126                                                          =A127+1                                                     
+C128     Type 1                                                                                                                   
+D128     Vacant                                                                                                                   
+G128     Vacant lots                                                                                                              
+I128     964                                                                                                                      
+K128     964                                                          =I128+J128                                                  
+P128     0                                                            =N128+O128+L128                                             
+A129     127                                                          =A128+1                                                     
+C129     Type 1                                                                                                                   
+D129     Vacant                                                                                                                   
+G129     Vacant lots                                                                                                              
+I129     964                                                                                                                      
+K129     964                                                          =I129+J129                                                  
+P129     0                                                            =N129+O129+L129                                             
+A130     128                                                          =A129+1                                                     
+C130     Type 1                                                                                                                   
+D130     Vacant                                                                                                                   
+G130     Vacant lots                                                                                                              
+I130     964                                                                                                                      
+K130     964                                                          =I130+J130                                                  
+P130     0                                                            =N130+O130+L130                                             
+A131     129                                                          =A130+1                                                     
+C131     Type 1                                                                                                                   
+D131     Vacant                                                                                                                   
+G131     Vacant lots                                                                                                              
+I131     964                                                                                                                      
+K131     964                                                          =I131+J131                                                  
+P131     0                                                            =N131+O131+L131                                             
+A132     130                                                          =A131+1                                                     
+C132     Type 1                                                                                                                   
+D132     Vacant                                                                                                                   
+G132     Vacant lots                                                                                                              
+I132     964                                                                                                                      
+K132     964                                                          =I132+J132                                                  
+P132     0                                                            =N132+O132+L132                                             
+A133     131                                                          =A132+1                                                     
+C133     Type 1                                                                                                                   
+D133     Vacant                                                                                                                   
+G133     Vacant lots                                                                                                              
+I133     964                                                                                                                      
+K133     964                                                          =I133+J133                                                  
+P133     0                                                            =N133+O133+L133                                             
+A134     132                                                          =A133+1                                                     
+C134     Type 1                                                                                                                   
+D134     Vacant                                                                                                                   
+G134     Vacant lots                                                                                                              
+I134     964                                                                                                                      
+K134     964                                                          =I134+J134                                                  
+P134     0                                                            =N134+O134+L134                                             
+A135     133                                                          =A134+1                                                     
+C135     Type 1                                                                                                                   
+D135     Vacant                                                                                                                   
+G135     Vacant lots                                                                                                              
+I135     964                                                                                                                      
+K135     964                                                          =I135+J135                                                  
+P135     0                                                            =N135+O135+L135                                             
+A136     134                                                          =A135+1                                                     
+C136     Type 1                                                                                                                   
+D136     Vacant                                                                                                                   
+G136     Vacant lots                                                                                                              
+I136     964                                                                                                                      
+K136     964                                                          =I136+J136                                                  
+P136     0                                                            =N136+O136+L136                                             
+A137     135                                                          =A136+1                                                     
+C137     Type 1                                                                                                                   
+D137     Vacant                                                                                                                   
+G137     Vacant lots                                                                                                              
+I137     964                                                                                                                      
+K137     964                                                          =I137+J137                                                  
+P137     0                                                            =N137+O137+L137                                             
+A138     136                                                          =A137+1                                                     
+C138     Type 1                                                                                                                   
+D138     Vacant                                                                                                                   
+G138     Vacant lots                                                                                                              
+I138     964                                                                                                                      
+K138     964                                                          =I138+J138                                                  
+P138     0                                                            =N138+O138+L138                                             
+A139     137                                                          =A138+1                                                     
+C139     Type 1                                                                                                                   
+D139     Vacant                                                                                                                   
+G139     Vacant lots                                                                                                              
+I139     964                                                                                                                      
+J139     286                                                          =1250-I139                                                  
+K139     1250                                                         =I139+J139                                                  
+P139     0                                                            =N139+O139+L139                                             
+A140     138                                                          =A139+1                                                     
+C140     Type 2                                                                                                                   
+D140     Vacant                                                                                                                   
+G140     Infilled Units                                                                                                           
+I140     964                                                                                                                      
+J140     286                                                          =1250-I140                                                  
+K140     1250                                                         =I140+J140                                                  
+P140     0                                                            =N140+O140+L140                                             
+A141     139                                                          =A140+1                                                     
+C141     Type 2                                                                                                                   
+D141     Vacant                                                                                                                   
+G141     Infilled Units                                                                                                           
+I141     964                                                                                                                      
+J141     286                                                          =1250-I141                                                  
+K141     1250                                                         =I141+J141                                                  
+P141     0                                                            =N141+O141+L141                                             
+A142     140                                                          =A141+1                                                     
+C142     Type 2                                                                                                                   
+D142     Vacant                                                                                                                   
+G142     Infilled Units                                                                                                           
+I142     964                                                                                                                      
+J142     286                                                          =1250-I142                                                  
+K142     1250                                                         =I142+J142                                                  
+P142     0                                                            =N142+O142+L142                                             
+A143     141                                                          =A142+1                                                     
+C143     Type 2                                                                                                                   
+D143     Vacant                                                                                                                   
+G143     Infilled Units                                                                                                           
+I143     964                                                                                                                      
+J143     286                                                          =1250-I143                                                  
+K143     1250                                                         =I143+J143                                                  
+P143     0                                                            =N143+O143+L143                                             
+A144     142                                                          =A143+1                                                     
+C144     Type 2                                                                                                                   
+D144     Vacant                                                                                                                   
+G144     Infilled Units                                                                                                           
+I144     964                                                                                                                      
+J144     286                                                          =1250-I144                                                  
+K144     1250                                                         =I144+J144                                                  
+P144     0                                                            =N144+O144+L144                                             
+A145     143                                                          =A144+1                                                     
+C145     Type 2                                                                                                                   
+D145     Vacant                                                                                                                   
+G145     Infilled Units                                                                                                           
+I145     964                                                                                                                      
+J145     286                                                          =1250-I145                                                  
+K145     1250                                                         =I145+J145                                                  
+P145     0                                                            =N145+O145+L145                                             
+A146     144                                                          =A145+1                                                     
+C146     Type 2                                                                                                                   
+D146     Vacant                                                                                                                   
+G146     Infilled Units                                                                                                           
+I146     964                                                                                                                      
+J146     286                                                          =1250-I146                                                  
+K146     1250                                                         =I146+J146                                                  
+P146     0                                                            =N146+O146+L146                                             
+A147     145                                                          =A146+1                                                     
+C147     Type 2                                                                                                                   
+D147     Vacant                                                                                                                   
+G147     Infilled Units                                                                                                           
+I147     964                                                                                                                      
+J147     286                                                          =1250-I147                                                  
+K147     1250                                                         =I147+J147                                                  
+P147     0                                                            =N147+O147+L147                                             
+A148     146                                                          =A147+1                                                     
+C148     Type 2                                                                                                                   
+D148     Vacant                                                                                                                   
+G148     Infilled Units                                                                                                           
+I148     964                                                                                                                      
+J148     286                                                          =1250-I148                                                  
+K148     1250                                                         =I148+J148                                                  
+P148     0                                                            =N148+O148+L148                                             
+A149     147                                                          =A148+1                                                     
+C149     Type 2                                                                                                                   
+D149     Vacant                                                                                                                   
+G149     Infilled Units                                                                                                           
+I149     964                                                                                                                      
+J149     286                                                          =1250-I149                                                  
+K149     1250                                                         =I149+J149                                                  
+P149     0                                                            =N149+O149+L149                                             
+A150     148                                                          =A149+1                                                     
+C150     Type 2                                                                                                                   
+D150     Vacant                                                                                                                   
+G150     Infilled Units                                                                                                           
+I150     964                                                                                                                      
+J150     286                                                          =1250-I150                                                  
+K150     1250                                                         =I150+J150                                                  
+P150     0                                                            =N150+O150+L150                                             
+I151     138989.9999999999                                            =SUM(I3:I150)                                               
+J151     3432                                                         =SUM(J3:J150)                                               
+K151     142421.9999999999                                            =SUM(K3:K150)                                               
+L151     0                                                            =SUM(L3:L150)                                               
+M151     0                                                            =SUM(M3:M150)                                               
+N151     0                                                            =SUM(N3:N150)                                               
+O151     0                                                            =SUM(O3:O150)                                               
+P151     0                                                            =SUM(P3:P150)                                               
+Q151     0                                                            =SUM(Q3:Q150)                                               
+R151     0                                                            =SUM(R3:R150)                                               
+S151     0                                                            =SUM(S3:S150)                                               
+T151     0                                                            =SUM(T3:T150)                                               
+U151     N/A                                                                                                                      
+V151     N/A                                                                                                                      
+W151     0                                                            =SUM(W3:W150)                                               
+F153     Annual                                                                                                                   
+I153     1667879.999999999                                            =I151*12                                                    
+J153     41184                                                        =J151*12                                                    
+K153     1709063.999999999                                            =K151*12                                                    
+Q153     0                                                            =Q151*12                                                    
+R153     0                                                            =R151*12                                                    

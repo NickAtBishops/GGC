@@ -1,0 +1,1429 @@
+SHEET: 'Waterfall (5-yr) '
+Dimensions: 277 rows x 14 cols
+====================================================================================================
+CELL     VALUE (resolved)                                             FORMULA / RAW                                               
+====================================================================================================
+B2       PARTNERSHIP LEVEL RETURNS - EQUITY WATERFALL (IRR & EQUITY                                                               
+B4       Promote Hurdle Method                                                                                                    
+D4       IRR                                                                                                                      
+E4       GP Catch Up?                                                                                                             
+B5       # of Tiers                                                                                                               
+D5       3-Tier                                                                                                                   
+A6       False                                                        =AND(E6="Yes", H15<Equity_Share_GP)                         
+B6       Return of Capital                                                                                                        
+D6       Pari Passu                                                   =IF(H15<Equity_Share_GP,"LP 1st","Pari Passu")              
+E6       Yes                                                                                                                      
+B8       Equity Contributions                                                                                                     
+C8       %                                                                                                                        
+D8       Amount                                                                                                                   
+B9       General Partner (GP)                                                                                                     
+C9       0.0489940121839365                                           ='Sources and Uses'!E8                                      
+D9       330000                                                       =Equity_Share_GP*Total_Equity                               
+K9       Error Check:                                                                                                             
+B10      Limited Partner (LP)                                                                                                     
+C10      0.9510059878160635                                           =1-C9                                                       
+D10      6405516.959931605                                            =Total_Equity*Equity_Share_LP                               
+K10      Profit Dist.:                                                                                                            
+B11      Total Equity                                                                                                             
+D11      6735516.959931605                                            =-SUMIF(F51:K51,"<0")                                       
+K11      Net BTCF:                                                                                                                
+B13      Hurdle Rate Method Used:                                                                                                 
+C13      IRR                                                          =IF(D4="IRR","IRR",IF(D4="Equity Multiple","Equity Multipl  
+F13      Promote Structure Incentive Breakdown                                                                                    
+H13      Distribution as %                                                                                                        
+B14      Partnership Distribution Assumptions (IRR Hurdles)           =IF(D4="Equity Multiple","Partnership Distribution Assumpt  
+H14      GP %                                                                                                                     
+I14      LP %                                                                                                                     
+J14      Notes                                                                                                                    
+B15      Tier 1 (Pref + Return of Capital)                                                                                        
+C15      Equity Multiple                                                                                                          
+D15      IRR                                                                                                                      
+E15      0.08                                                         =IF($D$4="Equity Multiple",C16,D16)                         
+F15      GP Promote                                                                                                               
+H15      0.0489940121839365                                           =Equity_Share_GP                                            
+I15      0.9510059878160635                                           =1-H15                                                      
+J15      Pref prorata to LP/GP, then Pro rata return of capital       =IF(I15=Equity_Share_LP,"Pref prorata to LP/GP, then Pro r  
+B16      Tier 2 (Promote)                                                                                                         
+C16      1                                                                                                                        
+D16      0.08                                                                                                                     
+E16      0.12                                                         =IF($D$4="Equity Multiple",IF(B277<3,"",C17),IF(B277<3,"",  
+F16      0.25                                                                                                                     
+H16      0.2867455091379524                                           =1-(Equity_Share_LP*(1-F16))                                
+I16      0.7132544908620476                                           =1-H16                                                      
+J16      Prorata to LP/GP to 8.0%, then 71.3%/28.7% to 12.0%          =IF(Equity_Share_GP<>H15,TEXT(I15,"0.0%")&"/"&TEXT(H15,"0.  
+B17      Tier 3 (Promote)                                             =IF(B277<3,"NOT USED","Tier 3 (Promote)")                   
+C17      1.5                                                                                                                      
+D17      0.12                                                                                                                     
+E17      None                                                         =IF($D$4="Equity Multiple",IF(B277<4,"",C18),IF(B277<4,"",  
+F17      0.4                                                                                                                      
+H17      0.4293964073103619                                           =1-(Equity_Share_LP*(1-F17))                                
+I17      0.5706035926896381                                           =1-H17                                                      
+J17      71.3%/28.7% to 12.0%, then 57.1%/42.9% to                    =TEXT(I16,"0.0%")&"/"&TEXT(H16,"0.0%")&" to "&(IF(D4="IRR"  
+B18      NOT USED                                                     =IF(B277<4,"NOT USED","Tier 4 (Promote)")                   
+C18      2                                                                                                                        
+D18      0.15                                                                                                                     
+E18      None                                                         =IF($D$4="Equity Multiple",IF(B277<5,"",C19),IF(B277<5,"",  
+F18      0.4                                                                                                                      
+H18      0.4293964073103619                                           =1-(Equity_Share_LP*(1-F18))                                
+I18      0.5706035926896381                                           =1-H18                                                      
+J18      57.1%/42.9% to , then 57.1%/42.9% thereafter                 =TEXT(I17,"0.0%")&"/"&TEXT(H17,"0.0%")&" to "&(IF(D4="IRR"  
+B19      NOT USED                                                     =IF(B277<5,"NOT USED","Tier 5 (Promote)")                   
+C19      2.5                                                                                                                      
+D19      0.18                                                                                                                     
+F19      0.5                                                                                                                      
+H19      0.5244970060919683                                           =1-(Equity_Share_LP*(1-F19))                                
+I19      0.47550299390803175                                          =1-H19                                                      
+J19      57.1%/42.9% to , then 47.6%/52.4% thereafter                 =TEXT(I18,"0.0%")&"/"&TEXT(H18,"0.0%")&" to "&(IF(D6="IRR"  
+B21      Summary of Partnership-Level Returns                                                                                     
+D21      Analysis Period                                                                                                          
+E21      5                                                            =MAX(F21:K21)                                               
+F21      0                                                                                                                        
+G21      1                                                            =IF(G47="","",F21+1)                                        
+H21      2                                                            =IF(H47="","",G21+1)                                        
+I21      3                                                            =IF(I47="","",H21+1)                                        
+J21      4                                                            =IF(J47="","",I21+1)                                        
+K21      5                                                            =IF(K47="","",J21+1)                                        
+B22      Limited Partner (LP) Returns                                                                                             
+C23      Check                                                                                                                    
+B24      Preferred Return                                                                                                         
+C24      OK                                                           =IF(ROUND(D24,0)=ROUND(SUM(F24:K24),0),"OK","ERROR")        
+D24      2558893.3725302294                                           =(C13="IRR")*(SUM(F97:K97)-D25)+(C13="Equity Multiple")*(S  
+F24      0                                                            =IF(F21="","",MIN($D24-SUM($E24:E24),F27))                  
+G24      479902.0616565117                                            =IF(G21="","",MIN($D24-SUM($E24:F24),G27))                  
+H24      551412.9766711121                                            =IF(H21="","",MIN($D24-SUM($E24:G24),H27))                  
+I24      511805.8650368454                                            =IF(I21="","",MIN($D24-SUM($E24:H24),I27))                  
+J24      575289.064206309                                             =IF(J21="","",MIN($D24-SUM($E24:I24),J27))                  
+K24      440483.40495945094                                           =IF(K21="","",MIN($D24-SUM($E24:J24),K27))                  
+B25      Return of Capital                                                                                                        
+C25      OK                                                           =IF(ROUND(D25,0)=ROUND(SUM(F25:K25),0),"OK","ERROR")        
+D25      6405516.959931605                                            =MIN(D28,D27)                                               
+F25      0                                                            =IF(F21="","",MIN($D25-SUM($E25:E25),F27-F24))              
+G25      0                                                            =IF(G21="","",MIN($D25-SUM($E25:F25),G27-G24))              
+H25      0                                                            =IF(H21="","",MIN($D25-SUM($E25:G25),H27-H24))              
+I25      0                                                            =IF(I21="","",MIN($D25-SUM($E25:H25),I27-I24))              
+J25      0                                                            =IF(J21="","",MIN($D25-SUM($E25:I25),J27-J24))              
+K25      6405516.959931605                                            =IF(K21="","",MIN($D25-SUM($E25:J25),K27-K24))              
+B26      Excess Cash Flow                                                                                                         
+C26      OK                                                           =IF(ROUND(D26,0)=ROUND(SUM(F26:K26),0),"OK","ERROR")        
+D26      2407086.7912382707                                           =D27-D25-D24                                                
+F26      0                                                            =IF(F21="","",F27-F25-F24)                                  
+G26      0                                                            =IF(G21="","",G27-G25-G24)                                  
+H26      0                                                            =IF(H21="","",H27-H25-H24)                                  
+I26      0                                                            =IF(I21="","",I27-I25-I24)                                  
+J26      0                                                            =IF(J21="","",J27-J25-J24)                                  
+K26      2407086.791238271                                            =IF(K21="","",K27-K25-K24)                                  
+B27      Total LP Distributions                                                                                                   
+D27      11371497.123700105                                           =SUM(F27:K27)                                               
+F27      0                                                            =IF(F$21="","",($C$13="IRR")*F68+($C$13="Equity Multiple")  
+G27      479902.0616565117                                            =IF(G$21="","",($C$13="IRR")*G68+($C$13="Equity Multiple")  
+H27      551412.9766711121                                            =IF(H$21="","",($C$13="IRR")*H68+($C$13="Equity Multiple")  
+I27      511805.8650368454                                            =IF(I$21="","",($C$13="IRR")*I68+($C$13="Equity Multiple")  
+J27      575289.064206309                                             =IF(J$21="","",($C$13="IRR")*J68+($C$13="Equity Multiple")  
+K27      9253087.156129327                                            =IF(K$21="","",($C$13="IRR")*K68+($C$13="Equity Multiple")  
+B28      Total LP Contributions                                                                                                   
+D28      6405516.959931605                                            =SUM(F28:K28)                                               
+F28      6405516.959931605                                            =F96                                                        
+G28      0                                                            =G96                                                        
+H28      0                                                            =H96                                                        
+I28      0                                                            =I96                                                        
+J28      0                                                            =J96                                                        
+K28      0                                                            =K96                                                        
+B29      Total LP Profit                                                                                                          
+D29      4965980.1637685                                              =D27-D28                                                    
+B30      LP IRR                                                                                                                   
+D30      0.13720358773736074                                          =IRR(F30:K30)                                               
+F30      -6405516.959931605                                           =IF(F21="","",(-F28)+F27)                                   
+G30      479902.0616565117                                            =IF(G21="","",(-G28)+G27)                                   
+H30      551412.9766711121                                            =IF(H21="","",(-H28)+H27)                                   
+I30      511805.8650368454                                            =IF(I21="","",(-I28)+I27)                                   
+J30      575289.064206309                                             =IF(J21="","",(-J28)+J27)                                   
+K30      9253087.156129327                                            =IF(K21="","",(-K28)+K27)                                   
+B31      LP Equity Multiple                                                                                                       
+D31      1.7752661018356783                                           =D27/D28                                                    
+G31      0.07492011412325351                                          =IF($D$4="IRR", G30/G93,G30/G201)                           
+H31      0.0856489839207143                                           =IF($D$4="IRR", H30/H93,H30/H201)                           
+I31      0.07994858273648227                                          =IF($D$4="IRR", I30/I93,I30/I201)                           
+J31      0.08986059705104762                                          =IF($D$4="IRR", J30/J93,J30/J201)                           
+K31      1.4597332158889977                                           =IF($D$4="IRR", K30/K93,K30/K201)                           
+B33      GP Returns                                                                                                               
+B34      Preferred Return                                                                                                         
+C34      OK                                                           =IF(ROUND(D34,0)=ROUND(SUM(F34:K34),0),"OK","ERROR")        
+D34      131829.2993707087                                            =(C13="IRR")*(SUM(F105:K105)-D35)+(C13="Equity Multiple")*  
+F34      0                                                            =IF(F21="","",MIN($D34-SUM($E34:E34),F38))                  
+G34      24723.637660673656                                           =IF(G21="","",MIN($D34-SUM($E34:F34),G38))                  
+H34      28407.74342488197                                            =IF(H21="","",MIN($D34-SUM($E34:G34),H38))                  
+I34      26367.26067835786                                            =IF(I21="","",MIN($D34-SUM($E34:H34),I38))                  
+J34      29637.793854207368                                           =IF(J21="","",MIN($D34-SUM($E34:I34),J38))                  
+K34      22692.86375258786                                            =IF(K21="","",MIN($D34-SUM($E34:J34),K38))                  
+B35      Return of Capital                                                                                                        
+C35      OK                                                           =IF(ROUND(D35,0)=ROUND(SUM(F35:K35),0),"OK","ERROR")        
+D35      330000                                                       =MIN(D38,D40)                                               
+F35      0                                                            =IF(F21="","",MIN($D35-SUM($E35:E35),F38-F34))              
+G35      0                                                            =IF(G21="","",MIN($D35-SUM($E35:F35),G38-G34))              
+H35      0                                                            =IF(H21="","",MIN($D35-SUM($E35:G35),H38-H34))              
+I35      0                                                            =IF(I21="","",MIN($D35-SUM($E35:H35),I38-I34))              
+J35      0                                                            =IF(J21="","",MIN($D35-SUM($E35:I35),J38-J34))              
+K35      330000                                                       =IF(K21="","",MIN($D35-SUM($E35:J35),K38-K34))              
+B36      Promote                                                                                                                  
+C36      OK                                                           =IF(ROUND(D36,0)=ROUND(SUM(F36:K36),0),"OK","ERROR")        
+D36      1117282.8883997954                                           =D38-D35-D37-D34                                            
+F36      0                                                            =IF(F21="","",F38-F37-F35-F34)                              
+G36      0                                                            =IF(G21="","",G38-G37-G35-G34)                              
+H36      0                                                            =IF(H21="","",H38-H37-H35-H34)                              
+I36      0                                                            =IF(I21="","",I38-I37-I35-I34)                              
+J36      0                                                            =IF(J21="","",J38-J37-J35-J34)                              
+K36      1117282.8883997952                                           =IF(K21="","",K38-K37-K35-K34)                              
+B37      Excess Cash Flow                                                                                                         
+C37      OK                                                           =IF(ROUND(D37,0)=ROUND(SUM(F37:K37),0),"OK","ERROR")        
+D37      124008.5142350651                                            =D26/Equity_Share_LP*Equity_Share_GP                        
+F37      0                                                            =IF(F21="","",F26/Equity_Share_LP*Equity_Share_GP)          
+G37      0                                                            =IF(G21="","",G26/Equity_Share_LP*Equity_Share_GP)          
+H37      0                                                            =IF(H21="","",H26/Equity_Share_LP*Equity_Share_GP)          
+I37      0                                                            =IF(I21="","",I26/Equity_Share_LP*Equity_Share_GP)          
+J37      0                                                            =IF(J21="","",J26/Equity_Share_LP*Equity_Share_GP)          
+K37      124008.51423506513                                           =IF(K21="","",K26/Equity_Share_LP*Equity_Share_GP)          
+B38      Total GP Distributions                                                                                                   
+D38      1703120.7020055691                                           =SUM(F38:K38)                                               
+F38      0                                                            =IF(F$21="","",($C$13="IRR")*F75+($C$13="Equity Multiple")  
+G38      24723.637660673656                                           =IF(G$21="","",($C$13="IRR")*G75+($C$13="Equity Multiple")  
+H38      28407.74342488197                                            =IF(H$21="","",($C$13="IRR")*H75+($C$13="Equity Multiple")  
+I38      26367.26067835786                                            =IF(I$21="","",($C$13="IRR")*I75+($C$13="Equity Multiple")  
+J38      29637.793854207368                                           =IF(J$21="","",($C$13="IRR")*J75+($C$13="Equity Multiple")  
+K38      1593984.2663874482                                           =IF(K$21="","",($C$13="IRR")*K75+($C$13="Equity Multiple")  
+B39      Total GP Fees                                                                                                            
+D39      330000                                                       =SUM(F39:K39)                                               
+F39      330000                                                       =IF(F21="","",SUM(F48:F49))                                 
+G39      0                                                            =IF(G21="","",SUM(G48:G49))                                 
+H39      0                                                            =IF(H21="","",SUM(H48:H49))                                 
+I39      0                                                            =IF(I21="","",SUM(I48:I49))                                 
+J39      0                                                            =IF(J21="","",SUM(J48:J49))                                 
+K39      0                                                            =IF(K21="","",SUM(K48:K49))                                 
+B40      Total GP Contributions                                                                                                   
+D40      330000                                                       =SUM(F40:K40)                                               
+F40      330000                                                       =F104                                                       
+G40      0                                                            =G104                                                       
+H40      0                                                            =H104                                                       
+I40      0                                                            =I104                                                       
+J40      0                                                            =J104                                                       
+K40      0                                                            =K104                                                       
+B41      Total GP Profit (Including Fees)                                                                                         
+D41      1703120.7020055691                                           =+D38+D39-D40                                               
+B42      GP IRR                                                                                                                   
+D42      NA                                                           =IFERROR(IRR(F42:K42),"NA")                                 
+F42      0                                                            =IF(F21="","",(-F40)+F38+F39)                               
+G42      24723.637660673656                                           =IF(G21="","",(-G40)+G38+G39)                               
+H42      28407.74342488197                                            =IF(H21="","",(-H40)+H38+H39)                               
+I42      26367.26067835786                                            =IF(I21="","",(-I40)+I38+I39)                               
+J42      29637.793854207368                                           =IF(J21="","",(-J40)+J38+J39)                               
+K42      1593984.2663874482                                           =IF(K21="","",(-K40)+K38+K39)                               
+B43      GP Equity Multiple                                                                                                       
+D43      5.160971824259301                                            =IFERROR(D38/D40,"NA")                                      
+B45      Property-Level Cash and GP Fees                                                                                          
+F45      Year 0                                                                                                                   
+G45      1                                                            =G$21                                                       
+H45      2                                                            =H$21                                                       
+I45      3                                                            =I$21                                                       
+J45      4                                                            =J$21                                                       
+K45      5                                                            =K$21                                                       
+E46      Year Ending                                                                                                              
+F46      2024-12-31 00:00:00                                                                                                      
+G46      2025-12-31 00:00:00                                          =IF(G45="","",EOMONTH(F46,12))                              
+H46      2026-12-31 00:00:00                                          =IF(H45="","",EOMONTH(G46,12))                              
+I46      2027-12-31 00:00:00                                          =IF(I45="","",EOMONTH(H46,12))                              
+J46      2028-12-31 00:00:00                                          =IF(J45="","",EOMONTH(I46,12))                              
+K46      2029-12-31 00:00:00                                          =IF(K45="","",EOMONTH(J46,12))                              
+B47      Net Property-Level Cash Flow                                                                                             
+F47      -6405516.959931605                                           =-'Sources and Uses'!C7-'Sources and Uses'!C8+'Sources and  
+G47      504625.6993171853                                            ='GGC Pro Forma'!H84                                        
+H47      579820.7200959941                                            ='GGC Pro Forma'!I84                                        
+I47      538173.1257152032                                            ='GGC Pro Forma'!J84                                        
+J47      604926.8580605164                                            ='GGC Pro Forma'!K84                                        
+K47      10847071.422516774                                           ='GGC Pro Forma'!L84                                        
+B48      Asset Management Fees                                                                                                    
+F48      0                                                                                                                        
+G48      0                                                                                                                        
+H48      0                                                                                                                        
+I48      0                                                                                                                        
+J48      0                                                                                                                        
+K48      0                                                                                                                        
+B49      Acquisition/Disposition Fees                                                                                             
+F49      330000                                                       ='Sources and Uses'!C15                                     
+G49      0                                                                                                                        
+H49      0                                                                                                                        
+I49      0                                                                                                                        
+J49      0                                                                                                                        
+K49      0                                                                                                                        
+B51      Adjusted Net Property-Level Cash Flow                                                                                    
+F51      -6735516.959931605                                           =IF(F45="","",F47-F48-F49)                                  
+G51      504625.6993171853                                            =IF(G45="","",G47-G48-G49)                                  
+H51      579820.7200959941                                            =IF(H45="","",H47-H48-H49)                                  
+I51      538173.1257152032                                            =IF(I45="","",I47-I48-I49)                                  
+J51      604926.8580605164                                            =IF(J45="","",J47-J48-J49)                                  
+K51      10847071.422516774                                           =IF(K45="","",K47-K48-K49)                                  
+B52      Levered IRR                                                                                                              
+F52      0.15896884414485157                                          =IRR(F51:K51)                                               
+B53      Equity Multiple                                                                                                          
+F53      1.9411454092513247                                           =SUMIF(F51:K51,">0")/-SUMIF(F51:K51,"<0")                   
+B56      PARTNERSHIP LEVEL RETURNS - IRR EQUITY WATERFALL                                                                         
+D57      IRR                                                          =$D$4                                                       
+F58      Promote Structure Incentive Breakdown                                                                                    
+H58      Distribution as %                                                                                                        
+B59      Partnership Distribution Assumptions (IRR Hurdles)           =IF(D57="Equity Multiple","Partnership Distribution Assump  
+H59      GP %                                                                                                                     
+I59      LP %                                                                                                                     
+J59      Notes                                                                                                                    
+B60      Tier 1 (Pref + Return of Capital)                            =B15                                                        
+E60      0.08                                                         =D61                                                        
+F60      GP Promote                                                                                                               
+H60      0.0489940121839365                                           =H15                                                        
+I60      0.9510059878160635                                           =1-H60                                                      
+J60      Pref prorata to LP/GP, then Pro rata return of capital       =IF(I60=Equity_Share_LP,"Pref prorata to LP/GP, then Pro r  
+B61      Tier 2 (Promote)                                             =B16                                                        
+D61      0.08                                                         =D16                                                        
+E61      0.12                                                         =IF($B$277<3,9.99,D62)                                      
+F61      0.25                                                         =F16                                                        
+H61      0.2867455091379524                                           =H16                                                        
+I61      0.7132544908620476                                           =1-H61                                                      
+J61      Prorata to LP/GP to 8.0%, then 71.3%/28.7% to 12.0%          =IF(Equity_Share_GP<>H60,TEXT(I60,"0.0%")&"/"&TEXT(H60,"0.  
+B62      Tier 3 (Promote)                                             =B17                                                        
+D62      0.12                                                         =D17                                                        
+E62      9.99                                                         =IF($B$277<4,9.99,D63)                                      
+F62      0.4                                                          =F17                                                        
+H62      0.4293964073103619                                           =H17                                                        
+I62      0.5706035926896381                                           =1-H62                                                      
+J62      71.3%/28.7% to 12.0%, then 57.1%/42.9% to 999.0%             =TEXT(I61,"0.0%")&"/"&TEXT(H61,"0.0%")&" to "&(IF(D57="IRR  
+B63      NOT USED                                                     =B18                                                        
+D63      0.15                                                         =D18                                                        
+E63      9.99                                                         =IF($B$277<5,9.99,D64)                                      
+F63      0.4                                                          =F18                                                        
+H63      0.4293964073103619                                           =H18                                                        
+I63      0.5706035926896381                                           =1-H63                                                      
+J63      57.1%/42.9% to 10.0X, then 57.1%/42.9% to 10.0X              =TEXT(I62,"0.0%")&"/"&TEXT(H62,"0.0%")&" to "&(IF(D58="IRR  
+B64      NOT USED                                                     =B19                                                        
+D64      0.18                                                         =D19                                                        
+F64      0.5                                                          =F19                                                        
+H64      0.5244970060919683                                           =H19                                                        
+I64      0.47550299390803175                                          =1-H64                                                      
+J64      57.1%/42.9% to 10.0X, then 47.6%/52.4% to 0.0X               =TEXT(I63,"0.0%")&"/"&TEXT(H63,"0.0%")&" to "&(IF(D59="IRR  
+B66      Summary of Partnership-Level Returns                                                                                     
+F66      0                                                                                                                        
+G66      1                                                            =IF(G84="","",F66+1)                                        
+H66      2                                                            =IF(H84="","",G66+1)                                        
+I66      3                                                            =IF(I84="","",H66+1)                                        
+J66      4                                                            =IF(J84="","",I66+1)                                        
+K66      5                                                            =IF(K84="","",J66+1)                                        
+B67      Limited Partner (LP) Returns                                                                                             
+B68      Total LP Distributions                                                                                                   
+D68      11371497.123700105                                           =SUM(F68:K68)                                               
+F68      0                                                            =IF(F66="","",F100+F122+F137+F152+F159)                     
+G68      479902.0616565117                                            =IF(G66="","",G100+G122+G137+G152+G159)                     
+H68      551412.9766711121                                            =IF(H66="","",H100+H122+H137+H152+H159)                     
+I68      511805.8650368454                                            =IF(I66="","",I100+I122+I137+I152+I159)                     
+J68      575289.064206309                                             =IF(J66="","",J100+J122+J137+J152+J159)                     
+K68      9253087.156129327                                            =IF(K66="","",K100+K122+K137+K152+K159)                     
+B69      Total LP Contributions                                                                                                   
+D69      6405516.959931605                                            =SUM(F69:K69)                                               
+F69      6405516.959931605                                            =F96                                                        
+G69      0                                                            =G96                                                        
+H69      0                                                            =H96                                                        
+I69      0                                                            =I96                                                        
+J69      0                                                            =J96                                                        
+K69      0                                                            =K96                                                        
+B70      Total LP Profit                                                                                                          
+D70      4965980.1637685                                              =D68-D69                                                    
+B71      LP IRR                                                                                                                   
+D71      0.13720358773736074                                          =IRR(F71:K71)                                               
+F71      -6405516.959931605                                           =IF(F66="","",(-F69)+F68)                                   
+G71      479902.0616565117                                            =IF(G66="","",(-G69)+G68)                                   
+H71      551412.9766711121                                            =IF(H66="","",(-H69)+H68)                                   
+I71      511805.8650368454                                            =IF(I66="","",(-I69)+I68)                                   
+J71      575289.064206309                                             =IF(J66="","",(-J69)+J68)                                   
+K71      9253087.156129327                                            =IF(K66="","",(-K69)+K68)                                   
+B72      LP Equity Multiple                                                                                                       
+D72      1.7752661018356783                                           =D68/D69                                                    
+B74      GP Returns                                                                                                               
+B75      Total GP Distributions                                                                                                   
+D75      1703120.7020055691                                           =SUM(F75:K75)                                               
+F75      0                                                            =IF(F66="","",F105+F123+F138+F153+F160)                     
+G75      24723.637660673656                                           =IF(G66="","",G105+G123+G138+G153+G160)                     
+H75      28407.74342488197                                            =IF(H66="","",H105+H123+H138+H153+H160)                     
+I75      26367.26067835786                                            =IF(I66="","",I105+I123+I138+I153+I160)                     
+J75      29637.793854207368                                           =IF(J66="","",J105+J123+J138+J153+J160)                     
+K75      1593984.2663874482                                           =IF(K66="","",K105+K123+K138+K153+K160)                     
+B76      Total GP Fees                                                                                                            
+D76      330000                                                       =SUM(F76:K76)                                               
+F76      330000                                                       =IF(F66="","",SUM(F85:F86))                                 
+G76      0                                                            =IF(G66="","",SUM(G85:G86))                                 
+H76      0                                                            =IF(H66="","",SUM(H85:H86))                                 
+I76      0                                                            =IF(I66="","",SUM(I85:I86))                                 
+J76      0                                                            =IF(J66="","",SUM(J85:J86))                                 
+K76      0                                                            =IF(K66="","",SUM(K85:K86))                                 
+B77      Total GP Contributions                                                                                                   
+D77      330000                                                       =SUM(F77:K77)                                               
+F77      330000                                                       =IF(F66="","",-(MIN(F87,0)+F96))                            
+G77      0                                                            =IF(G66="","",-(MIN(G87,0)+G96))                            
+H77      0                                                            =IF(H66="","",-(MIN(H87,0)+H96))                            
+I77      0                                                            =IF(I66="","",-(MIN(I87,0)+I96))                            
+J77      0                                                            =IF(J66="","",-(MIN(J87,0)+J96))                            
+K77      0                                                            =IF(K66="","",-(MIN(K87,0)+K96))                            
+B78      Total GP Profit                                                                                                          
+D78      1703120.7020055691                                           =+D75+D76-D77                                               
+B79      GP IRR                                                                                                                   
+D79      NA                                                           =IFERROR(IRR(F79:K79),"NA")                                 
+F79      0                                                            =IF(F66="","",(-F77)+F75+F76)                               
+G79      24723.637660673656                                           =IF(G66="","",(-G77)+G75+G76)                               
+H79      28407.74342488197                                            =IF(H66="","",(-H77)+H75+H76)                               
+I79      26367.26067835786                                            =IF(I66="","",(-I77)+I75+I76)                               
+J79      29637.793854207368                                           =IF(J66="","",(-J77)+J75+J76)                               
+K79      1593984.2663874482                                           =IF(K66="","",(-K77)+K75+K76)                               
+B80      GP Equity Multiple                                                                                                       
+D80      5.160971824259301                                            =IFERROR(D75/D77,"NA")                                      
+B82      Property-Level Cash and GP Fees                                                                                          
+F82      Year 0                                                                                                                   
+G82      1                                                            =G$21                                                       
+H82      2                                                            =H$21                                                       
+I82      3                                                            =I$21                                                       
+J82      4                                                            =J$21                                                       
+K82      5                                                            =K$21                                                       
+E83      Year Ending                                                                                                              
+F83      2024-12-31 00:00:00                                          =IF(F46="","",F46)                                          
+G83      2025-12-31 00:00:00                                          =IF(G46="","",G46)                                          
+H83      2026-12-31 00:00:00                                          =IF(H46="","",H46)                                          
+I83      2027-12-31 00:00:00                                          =IF(I46="","",I46)                                          
+J83      2028-12-31 00:00:00                                          =IF(J46="","",J46)                                          
+K83      2029-12-31 00:00:00                                          =IF(K46="","",K46)                                          
+B84      Net Property-Level Cash Flow                                                                                             
+F84      -6405516.959931605                                           =IF(F47="","",F47)                                          
+G84      504625.6993171853                                            =IF(G47="","",G47)                                          
+H84      579820.7200959941                                            =IF(H47="","",H47)                                          
+I84      538173.1257152032                                            =IF(I47="","",I47)                                          
+J84      604926.8580605164                                            =IF(J47="","",J47)                                          
+K84      10847071.422516774                                           =IF(K47="","",K47)                                          
+B85      Asset Management Fees                                        =IF(B48="","",B48)                                          
+F85      0                                                            =IF(F48="","",F48)                                          
+G85      0                                                            =IF(G48="","",G48)                                          
+H85      0                                                            =IF(H48="","",H48)                                          
+I85      0                                                            =IF(I48="","",I48)                                          
+J85      0                                                            =IF(J48="","",J48)                                          
+K85      0                                                            =IF(K48="","",K48)                                          
+B86      Acquisition/Disposition Fees                                 =IF(B49="","",B49)                                          
+F86      330000                                                       =IF(F49="","",F49)                                          
+G86      0                                                            =IF(G49="","",G49)                                          
+H86      0                                                            =IF(H49="","",H49)                                          
+I86      0                                                            =IF(I49="","",I49)                                          
+J86      0                                                            =IF(J49="","",J49)                                          
+K86      0                                                            =IF(K49="","",K49)                                          
+B87      Adjusted Net Property-Level Cash Flow                                                                                    
+F87      -6735516.959931605                                           =IF(F82="","",F84-F85-F86)                                  
+G87      504625.6993171853                                            =IF(G82="","",G84-G85-G86)                                  
+H87      579820.7200959941                                            =IF(H82="","",H84-H85-H86)                                  
+I87      538173.1257152032                                            =IF(I82="","",I84-I85-I86)                                  
+J87      604926.8580605164                                            =IF(J82="","",J84-J85-J86)                                  
+K87      10847071.422516774                                           =IF(K82="","",K84-K85-K86)                                  
+B88      Levered IRR                                                                                                              
+F88      0.15896884414485157                                          =IRR(F87:K87)                                               
+B89      Equity Multiple                                                                                                          
+F89      1.9411454092513247                                           =SUMIF(F87:K87,">0")/-SUMIF(F87:K87,"<0")                   
+B91      Tier 1 - Preferred Return + Return of Capital                                                                            
+B92      Return Threshold - Up to:                                                                                                
+C92      0.08                                                         =E60                                                        
+F92      Year 0                                                                                                                   
+G92      1                                                            =G$21                                                       
+H92      2                                                            =H$21                                                       
+I92      3                                                            =I$21                                                       
+J92      4                                                            =J$21                                                       
+K92      5                                                            =K$21                                                       
+B93      Beginning Balance (LP Capital Account)                                                                                   
+F93      0                                                            =IF(F92="","",E98)                                          
+G93      6405516.959931605                                            =IF(G92="","",F98)                                          
+H93      6438056.255069622                                            =IF(H92="","",G98)                                          
+I93      6401687.77880408                                             =IF(I92="","",H98)                                          
+J93      6402016.936071561                                            =IF(J92="","",I98)                                          
+K93      6338889.226750977                                            =IF(K92="","",J98)                                          
+B94      LP Return of Capital                                                                                                     
+F94      All Capital Returned                                         =IF(ROUND(SUM(G94:K94),0)=ROUND(SUM(F96:K96),0),"All Capit  
+G94      -32539.295138016692                                          =IF(G92="","",G100-G95)                                     
+H94      36368.476265542384                                           =IF(H92="","",H100-H95)                                     
+I94      -329.1572674809722                                           =IF(I92="","",I100-I95)                                     
+J94      63127.70932058414                                            =IF(J92="","",J100-J95)                                     
+K94      6338889.226750977                                            =IF(K92="","",K100-K95)                                     
+B95      Req'd Return by LP to hit Hurdle 1                                                                                       
+F95      0                                                            =IF(F92="","",IF($D$57="Equity Multiple",E96*$C92-E96,F93*  
+G95      512441.3567945284                                            =IF(G92="","",IF($D$57="Equity Multiple",F96*$C92-F96,G93*  
+H95      515044.50040556974                                           =IF(H92="","",IF($D$57="Equity Multiple",G96*$C92-G96,H93*  
+I95      512135.02230432635                                           =IF(I92="","",IF($D$57="Equity Multiple",H96*$C92-H96,I93*  
+J95      512161.3548857249                                            =IF(J92="","",IF($D$57="Equity Multiple",I96*$C92-I96,J93*  
+K95      507111.1381400782                                            =IF(K92="","",IF($D$57="Equity Multiple",J96*$C92-J96,K93*  
+B96      Contributions from LP                                                                                                    
+F96      6405516.959931605                                            =IF(F92="","",-MIN(0,F87*Equity_Share_LP))                  
+G96      0                                                            =IF(G92="","",-MIN(0,G87*Equity_Share_LP))                  
+H96      0                                                            =IF(H92="","",-MIN(0,H87*Equity_Share_LP))                  
+I96      0                                                            =IF(I92="","",-MIN(0,I87*Equity_Share_LP))                  
+J96      0                                                            =IF(J92="","",-MIN(0,J87*Equity_Share_LP))                  
+K96      0                                                            =IF(K92="","",-MIN(0,K87*Equity_Share_LP))                  
+B97      Distributions to LP (Hurdle 1)                                                                                           
+F97      0                                                            =IF(F92="","",MIN(F93+F95,MAX(F87,0)*$I$15))                
+G97      479902.0616565117                                            =IF(G92="","",MIN(G93+G95,MAX(G87,0)*$I$15))                
+H97      551412.9766711121                                            =IF(H92="","",MIN(H93+H95,MAX(H87,0)*$I$15))                
+I97      511805.8650368454                                            =IF(I92="","",MIN(I93+I95,MAX(I87,0)*$I$15))                
+J97      575289.064206309                                             =IF(J92="","",MIN(J93+J95,MAX(J87,0)*$I$15))                
+K97      6846000.364891056                                            =IF(K92="","",MIN(K93+K95,MAX(K87,0)*$I$15))                
+B98      Ending Balance (LP Capital Account)                                                                                      
+F98      6405516.959931605                                            =IF(F92="","",F93+F95+F96-F97)                              
+G98      6438056.255069622                                            =IF(G92="","",G93+G95+G96-G97)                              
+H98      6401687.77880408                                             =IF(H92="","",H93+H95+H96-H97)                              
+I98      6402016.936071561                                            =IF(I92="","",I93+I95+I96-I97)                              
+J98      6338889.226750977                                            =IF(J92="","",J93+J95+J96-J97)                              
+K98      0                                                            =IF(K92="","",K93+K95+K96-K97)                              
+B99      LP IRR Check                                                 =IF(D57="Equity Multiple", "LP EMx Check","LP IRR Check")   
+E99      0.08000000000000007                                          =IF($D$57="IRR",IRR(F99:K99),SUMIF(F99:K99,">0")/-SUMIF(F9  
+F99      -6405516.959931605                                           =IF(F92="","",-F96+F97)                                     
+G99      479902.0616565117                                            =IF(G92="","",-G96+G97)                                     
+H99      551412.9766711121                                            =IF(H92="","",-H96+H97)                                     
+I99      511805.8650368454                                            =IF(I92="","",-I96+I97)                                     
+J99      575289.064206309                                             =IF(J92="","",-J96+J97)                                     
+K99      6846000.364891056                                            =IF(K92="","",-K96+K97)                                     
+B100     Distribution to LP                                                                                                       
+F100     0                                                            =IF(F92="","",MIN(F93+F95,MAX(F87,0)*$I$15))                
+G100     479902.0616565117                                            =IF(G92="","",MIN(G93+G95,MAX(G87,0)*$I$15))                
+H100     551412.9766711121                                            =IF(H92="","",MIN(H93+H95,MAX(H87,0)*$I$15))                
+I100     511805.8650368454                                            =IF(I92="","",MIN(I93+I95,MAX(I87,0)*$I$15))                
+J100     575289.064206309                                             =IF(J92="","",MIN(J93+J95,MAX(J87,0)*$I$15))                
+K100     6846000.364891056                                            =IF(K92="","",MIN(K93+K95,MAX(K87,0)*$I$15))                
+B102     Beginning Balance (GP Capital Account)                                                                                   
+F102     0                                                            =IF(F92="","",E106)                                         
+G102     330000                                                       =IF(G92="","",F106)                                         
+H102     331676.36233932636                                           =IF(H92="","",G106)                                         
+I102     329802.7279015905                                            =IF(I92="","",H106)                                         
+J102     329819.6854553599                                            =IF(J92="","",I106)                                         
+K102     326567.46643758134                                           =IF(K92="","",J106)                                         
+B103     Req'd Return by GP (Pref)                                                                                                
+F103     0                                                            =IF(F92="","",IF($D$57="Equity Multiple",E104*$C92-E104,F1  
+G103     26400                                                        =IF(G102="","",IF($D$57="Equity Multiple",F104*$C92-F104,G  
+H103     26534.108987146108                                           =IF(H102="","",IF($D$57="Equity Multiple",G104*$C92-G104,H  
+I103     26384.21823212724                                            =IF(I102="","",IF($D$57="Equity Multiple",H104*$C92-H104,I  
+J103     26385.574836428794                                           =IF(J102="","",IF($D$57="Equity Multiple",I104*$C92-I104,J  
+K103     26125.397315006507                                           =IF(K102="","",IF($D$57="Equity Multiple",J104*$C92-J104,K  
+B104     Contributions from GP                                                                                                    
+F104     330000                                                       =IF(F92="","",-MIN(0,F87*Equity_Share_GP))                  
+G104     0                                                            =IF(G92="","",-MIN(0,G87*Equity_Share_GP))                  
+H104     0                                                            =IF(H92="","",-MIN(0,H87*Equity_Share_GP))                  
+I104     0                                                            =IF(I92="","",-MIN(0,I87*Equity_Share_GP))                  
+J104     0                                                            =IF(J92="","",-MIN(0,J87*Equity_Share_GP))                  
+K104     0                                                            =IF(K92="","",-MIN(0,K87*Equity_Share_GP))                  
+B105     Distribution to GP                                                                                                       
+F105     0                                                            =IF(F92="","",IF(CU?,MAX(MIN(F87-F100,F102+F103+F104),0),F  
+G105     24723.637660673656                                           =IF(G92="","",IF(CU?,MAX(MIN(G87-G100,G102+G103+G104),0),G  
+H105     28407.74342488197                                            =IF(H92="","",IF(CU?,MAX(MIN(H87-H100,H102+H103+H104),0),H  
+I105     26367.26067835786                                            =IF(I92="","",IF(CU?,MAX(MIN(I87-I100,I102+I103+I104),0),I  
+J105     29637.793854207368                                           =IF(J92="","",IF(CU?,MAX(MIN(J87-J100,J102+J103+J104),0),J  
+K105     352692.8637525879                                            =IF(K92="","",IF(CU?,MAX(MIN(K87-K100,K102+K103+K104),0),K  
+B106     Ending Balance (GP Capital Account)                                                                                      
+F106     330000                                                       =IF(F92="","",F102+F103+F104-F105)                          
+G106     331676.36233932636                                           =IF(G92="","",G102+G103+G104-G105)                          
+H106     329802.7279015905                                            =IF(H92="","",H102+H103+H104-H105)                          
+I106     329819.6854553599                                            =IF(I92="","",I102+I103+I104-I105)                          
+J106     326567.46643758134                                           =IF(J92="","",J102+J103+J104-J105)                          
+K106     0                                                            =IF(K92="","",K102+K103+K104-K105)                          
+B107     GP IRR Check                                                 =IF(D57="Equity Multiple", "GP EMx Check","GP IRR Check")   
+E107     0.08000000000000007                                          =IF($D$57="IRR",IFERROR(IRR(F107:K107),"NA"),SUMIF(F107:K1  
+F107     -330000                                                      =IF(F92="","",-F104+F105)                                   
+G107     24723.637660673656                                           =IF(G92="","",-G104+G105)                                   
+H107     28407.74342488197                                            =IF(H92="","",-H104+H105)                                   
+I107     26367.26067835786                                            =IF(I92="","",-I104+I105)                                   
+J107     29637.793854207368                                           =IF(J92="","",-J104+J105)                                   
+K107     352692.8637525879                                            =IF(K92="","",-K104+K105)                                   
+B109     Total Distributions (Tier 1 - Preferred Return + Return of   ="Total Distributions ("&B91&")"                            
+F109     0                                                            =IF(F92="","",F105+F100)                                    
+G109     504625.6993171853                                            =IF(G92="","",G105+G100)                                    
+H109     579820.7200959941                                            =IF(H92="","",H105+H100)                                    
+I109     538173.1257152032                                            =IF(I92="","",I105+I100)                                    
+J109     604926.8580605164                                            =IF(J92="","",J105+J100)                                    
+K109     7198693.228643644                                            =IF(K92="","",K105+K100)                                    
+B110     Cash Flow Remaining                                                                                                      
+F110     0                                                            =IF(F92="","",MAX(F87-F109,0))                              
+G110     0                                                            =IF(G92="","",MAX(G87-G109,0))                              
+H110     0                                                            =IF(H92="","",MAX(H87-H109,0))                              
+I110     0                                                            =IF(I92="","",MAX(I87-I109,0))                              
+J110     0                                                            =IF(J92="","",MAX(J87-J109,0))                              
+K110     3648378.1938731307                                           =IF(K92="","",MAX(K87-K109,0))                              
+B112     Tier 2                                                                                                                   
+F112     Year 0                                                                                                                   
+G112     1                                                            =G$21                                                       
+H112     2                                                            =H$21                                                       
+I112     3                                                            =I$21                                                       
+J112     4                                                            =J$21                                                       
+K112     5                                                            =K$21                                                       
+B113     Return Threshold - Up to:                                                                                                
+C113     0.12                                                         =E61                                                        
+B114     Beginning Balance (LP Capital Account)                                                                                   
+F114     0                                                            =IF(F112="","",E119)                                        
+G114     6405516.959931605                                            =IF(G112="","",F119)                                        
+H114     6694276.933466886                                            =IF(H112="","",G119)                                        
+I114     6946177.1888118                                              =IF(I112="","",H119)                                        
+J114     7267912.586432371                                            =IF(J112="","",I119)                                        
+K114     7564773.032597947                                            =IF(K112="","",J119)                                        
+B115     Req'd Return by LP to hit Hurdle 2                                                                                       
+F115     0                                                            =IF(F112="","",IF($D$57="Equity Multiple",E116*$C113-E116,  
+G115     768662.0351917925                                            =IF(G112="","",IF($D$57="Equity Multiple",F116*$C113-F116,  
+H115     803313.2320160263                                            =IF(H112="","",IF($D$57="Equity Multiple",G116*$C113-G116,  
+I115     833541.262657416                                             =IF(I112="","",IF($D$57="Equity Multiple",H116*$C113-H116,  
+J115     872149.5103718846                                            =IF(J112="","",IF($D$57="Equity Multiple",I116*$C113-I116,  
+K115     907772.7639117535                                            =IF(K112="","",IF($D$57="Equity Multiple",J116*$C113-J116,  
+B116     Contributions from LP                                                                                                    
+F116     6405516.959931605                                            =IF(F112="","",-MIN(0,F$51*Equity_Share_LP))                
+G116     0                                                            =IF(G112="","",-MIN(0,G$51*Equity_Share_LP))                
+H116     0                                                            =IF(H112="","",-MIN(0,H$51*Equity_Share_LP))                
+I116     0                                                            =IF(I112="","",-MIN(0,I$51*Equity_Share_LP))                
+J116     0                                                            =IF(J112="","",-MIN(0,J$51*Equity_Share_LP))                
+K116     0                                                            =IF(K112="","",-MIN(0,K$51*Equity_Share_LP))                
+B117     Prior Distributions                                                                                                      
+F117     0                                                            =F100                                                       
+G117     479902.0616565117                                            =G100                                                       
+H117     551412.9766711121                                            =H100                                                       
+I117     511805.8650368454                                            =I100                                                       
+J117     575289.064206309                                             =J100                                                       
+K117     6846000.364891056                                            =K100                                                       
+B118     Distributions to LP Tier 2                                   ="Distributions to LP "&B112                                
+F118     0                                                            =IF(F112="","",MIN(F114+F115-F117,F110*$I$16))              
+G118     0                                                            =IF(G112="","",MIN(G114+G115-G117,G110*$I$16))              
+H118     0                                                            =IF(H112="","",MIN(H114+H115-H117,H110*$I$16))              
+I118     0                                                            =IF(I112="","",MIN(I114+I115-I117,I110*$I$16))              
+J118     0                                                            =IF(J112="","",MIN(J114+J115-J117,J110*$I$16))              
+K118     1626545.431618644                                            =IF(K112="","",MIN(K114+K115-K117,K110*$I$16))              
+B119     Ending Balance (LP Capital Account)                                                                                      
+F119     6405516.959931605                                            =IF(F112="","",F114+F115+F116-F117-F118)                    
+G119     6694276.933466886                                            =IF(G112="","",G114+G115+G116-G117-G118)                    
+H119     6946177.1888118                                              =IF(H112="","",H114+H115+H116-H117-H118)                    
+I119     7267912.586432371                                            =IF(I112="","",I114+I115+I116-I117-I118)                    
+J119     7564773.032597947                                            =IF(J112="","",J114+J115+J116-J117-J118)                    
+K119     0                                                            =IF(K112="","",K114+K115+K116-K117-K118)                    
+B120     0.12                                                         =C113                                                       
+E120     0.11999999999999988                                          =IF($D$57="IRR",IRR(F120:K120),SUMIF(F120:K120,">0")/-SUMI  
+F120     -6405516.959931605                                           =IF(F112="","",-F116+F117+F118)                             
+G120     479902.0616565117                                            =IF(G112="","",-G116+G117+G118)                             
+H120     551412.9766711121                                            =IF(H112="","",-H116+H117+H118)                             
+I120     511805.8650368454                                            =IF(I112="","",-I116+I117+I118)                             
+J120     575289.064206309                                             =IF(J112="","",-J116+J117+J118)                             
+K120     8472545.7965097                                              =IF(K112="","",-K116+K117+K118)                             
+B122     Distribution to LP                                                                                                       
+F122     0                                                            =IF(F112="","",F118)                                        
+G122     0                                                            =IF(G112="","",G118)                                        
+H122     0                                                            =IF(H112="","",H118)                                        
+I122     0                                                            =IF(I112="","",I118)                                        
+J122     0                                                            =IF(J112="","",J118)                                        
+K122     1626545.431618644                                            =IF(K112="","",K118)                                        
+B123     Distribution to GP                                                                                                       
+F123     0                                                            =IF(F112="","",F122/$I$16*$H$16)                            
+G123     0                                                            =IF(G112="","",G122/$I$16*$H$16)                            
+H123     0                                                            =IF(H112="","",H122/$I$16*$H$16)                            
+I123     0                                                            =IF(I112="","",I122/$I$16*$H$16)                            
+J123     0                                                            =IF(J112="","",J122/$I$16*$H$16)                            
+K123     653910.4960444014                                            =IF(K112="","",K122/$I$16*$H$16)                            
+B124     Total Distributions (Tier 2)                                 ="Total Distributions ("&B112&")"                           
+F124     0                                                            =IF(F112="","",F122+F123)                                   
+G124     0                                                            =IF(G112="","",G122+G123)                                   
+H124     0                                                            =IF(H112="","",H122+H123)                                   
+I124     0                                                            =IF(I112="","",I122+I123)                                   
+J124     0                                                            =IF(J112="","",J122+J123)                                   
+K124     2280455.9276630455                                           =IF(K112="","",K122+K123)                                   
+B125     Cash Flow Remaining                                                                                                      
+F125     0                                                            =IF(F112="","",MAX(F$51-F109-F124,0))                       
+G125     0                                                            =IF(G112="","",MAX(G$51-G109-G124,0))                       
+H125     0                                                            =IF(H112="","",MAX(H$51-H109-H124,0))                       
+I125     0                                                            =IF(I112="","",MAX(I$51-I109-I124,0))                       
+J125     0                                                            =IF(J112="","",MAX(J$51-J109-J124,0))                       
+K125     1367922.2662100852                                           =IF(K112="","",MAX(K$51-K109-K124,0))                       
+B127     Tier 3                                                                                                                   
+F127     Year 0                                                                                                                   
+G127     1                                                            =G$21                                                       
+H127     2                                                            =H$21                                                       
+I127     3                                                            =I$21                                                       
+J127     4                                                            =J$21                                                       
+K127     5                                                            =K$21                                                       
+B128     Return Threshold - Up to:                                                                                                
+C128     9.99                                                         =E62                                                        
+B129     Beginning Balance (LP Capital Account)                                                                                   
+F129     0                                                            =IF(F127="","",E134)                                        
+G129     6405516.959931605                                            =IF(G127="","",F134)                                        
+H129     69916729.32799183                                            =IF(H127="","",G134)                                        
+I129     767833442.3379592                                            =IF(I127="","",H134)                                        
+J129     8437977725.429134                                            =IF(J127="","",I134)                                        
+K129     92732799913.40198                                            =IF(K127="","",J134)                                        
+B130     Req'd Return by LP to hit Hurdle 3                                                                                       
+F130     0                                                            =IF(F127="","",IF($D$57="Equity Multiple",E131*$C128-E131,  
+G130     63991114.42971673                                            =IF(G127="","",IF($D$57="Equity Multiple",F131*$C128-F131,  
+H130     698468125.9866384                                            =IF(H127="","",IF($D$57="Equity Multiple",G131*$C128-G131,  
+I130     7670656088.956212                                            =IF(I127="","",IF($D$57="Equity Multiple",H131*$C128-H131,  
+J130     84295397477.03705                                            =IF(J127="","",IF($D$57="Equity Multiple",I131*$C128-I131,  
+K130     926400671134.8857                                            =IF(K127="","",IF($D$57="Equity Multiple",J131*$C128-J131,  
+B131     Contributions from LP                                                                                                    
+F131     6405516.959931605                                            =IF(F127="","",-MIN(0,F$51*Equity_Share_LP))                
+G131     0                                                            =IF(G127="","",-MIN(0,G$51*Equity_Share_LP))                
+H131     0                                                            =IF(H127="","",-MIN(0,H$51*Equity_Share_LP))                
+I131     0                                                            =IF(I127="","",-MIN(0,I$51*Equity_Share_LP))                
+J131     0                                                            =IF(J127="","",-MIN(0,J$51*Equity_Share_LP))                
+K131     0                                                            =IF(K127="","",-MIN(0,K$51*Equity_Share_LP))                
+B132     Prior Distributions                                                                                                      
+F132     0                                                            =IF(F127="","",F122+F100)                                   
+G132     479902.0616565117                                            =IF(G127="","",G122+G100)                                   
+H132     551412.9766711121                                            =IF(H127="","",H122+H100)                                   
+I132     511805.8650368454                                            =IF(I127="","",I122+I100)                                   
+J132     575289.064206309                                             =IF(J127="","",J122+J100)                                   
+K132     8472545.7965097                                              =IF(K127="","",K122+K100)                                   
+B133     Distributions to LP Tier 3                                   ="Distributions to LP "&B127                                
+F133     0                                                            =IF(F127="","",MIN(F129+F130-F132,F125*$I$17))              
+G133     0                                                            =IF(G127="","",MIN(G129+G130-G132,G125*$I$17))              
+H133     0                                                            =IF(H127="","",MIN(H129+H130-H132,H125*$I$17))              
+I133     0                                                            =IF(I127="","",MIN(I129+I130-I132,I125*$I$17))              
+J133     0                                                            =IF(J127="","",MIN(J129+J130-J132,J125*$I$17))              
+K133     780541.3596196262                                            =IF(K127="","",MIN(K129+K130-K132,K125*$I$17))              
+B134     Ending Balance (LP Capital Account)                                                                                      
+F134     6405516.959931605                                            =IF(F127="","",F129+F130+F131-F132-F133)                    
+G134     69916729.32799183                                            =IF(G127="","",G129+G130+G131-G132-G133)                    
+H134     767833442.3379592                                            =IF(H127="","",H129+H130+H131-H132-H133)                    
+I134     8437977725.429134                                            =IF(I127="","",I129+I130+I131-I132-I133)                    
+J134     92732799913.40198                                            =IF(J127="","",J129+J130+J131-J132-J133)                    
+K134     1019124217961.1316                                           =IF(K127="","",K129+K130+K131-K132-K133)                    
+B135     9.99                                                         =C128                                                       
+E135     0.13720358773736074                                          =IF($D$57="IRR",IRR(F135:K135),SUMIF(F135:K135,">0")/-SUMI  
+F135     -6405516.959931605                                           =IF(F127="","",-F131+F132+F133)                             
+G135     479902.0616565117                                            =IF(G127="","",-G131+G132+G133)                             
+H135     551412.9766711121                                            =IF(H127="","",-H131+H132+H133)                             
+I135     511805.8650368454                                            =IF(I127="","",-I131+I132+I133)                             
+J135     575289.064206309                                             =IF(J127="","",-J131+J132+J133)                             
+K135     9253087.156129327                                            =IF(K127="","",-K131+K132+K133)                             
+B137     Distribution to LP                                                                                                       
+F137     0                                                            =IF(F127="","",F133)                                        
+G137     0                                                            =IF(G127="","",G133)                                        
+H137     0                                                            =IF(H127="","",H133)                                        
+I137     0                                                            =IF(I127="","",I133)                                        
+J137     0                                                            =IF(J127="","",J133)                                        
+K137     780541.3596196262                                            =IF(K127="","",K133)                                        
+B138     Distribution to GP                                                                                                       
+F138     0                                                            =IF(F127="","",F137/$I$17*$H$17)                            
+G138     0                                                            =IF(G127="","",G137/$I$17*$H$17)                            
+H138     0                                                            =IF(H127="","",H137/$I$17*$H$17)                            
+I138     0                                                            =IF(I127="","",I137/$I$17*$H$17)                            
+J138     0                                                            =IF(J127="","",J137/$I$17*$H$17)                            
+K138     587380.906590459                                             =IF(K127="","",K137/$I$17*$H$17)                            
+B139     Total Distributions (Tier 3)                                 ="Total Distributions ("&B127&")"                           
+F139     0                                                            =IF(F127="","",F137+F138)                                   
+G139     0                                                            =IF(G127="","",G137+G138)                                   
+H139     0                                                            =IF(H127="","",H137+H138)                                   
+I139     0                                                            =IF(I127="","",I137+I138)                                   
+J139     0                                                            =IF(J127="","",J137+J138)                                   
+K139     1367922.2662100852                                           =IF(K127="","",K137+K138)                                   
+B140     Cash Flow Remaining                                                                                                      
+F140     0                                                            =IF(F127="","",MAX(F$51-F109-F124-F139,0))                  
+G140     0                                                            =IF(G127="","",MAX(G$51-G109-G124-G139,0))                  
+H140     0                                                            =IF(H127="","",MAX(H$51-H109-H124-H139,0))                  
+I140     0                                                            =IF(I127="","",MAX(I$51-I109-I124-I139,0))                  
+J140     0                                                            =IF(J127="","",MAX(J$51-J109-J124-J139,0))                  
+K140     0                                                            =IF(K127="","",MAX(K$51-K109-K124-K139,0))                  
+B142     Tier 4                                                                                                                   
+F142     Year 0                                                                                                                   
+G142     1                                                            =G$21                                                       
+H142     2                                                            =H$21                                                       
+I142     3                                                            =I$21                                                       
+J142     4                                                            =J$21                                                       
+K142     5                                                            =K$21                                                       
+B143     Return Threshold - Up to:                                                                                                
+C143     9.99                                                         =E63                                                        
+B144     Beginning Balance (LP Capital Account)                                                                                   
+F144     0                                                            =IF(F142="","",E149)                                        
+G144     6405516.959931605                                            =IF(G142="","",F149)                                        
+H144     69916729.32799183                                            =IF(H142="","",G149)                                        
+I144     767833442.3379592                                            =IF(I142="","",H149)                                        
+J144     8437977725.429134                                            =IF(J142="","",I149)                                        
+K144     92732799913.40198                                            =IF(K142="","",J149)                                        
+B145     Req'd Return by LP to hit Hurdle 4                                                                                       
+F145     0                                                            =IF(F142="","",IF($D$57="Equity Multiple",E146*$C143-E146,  
+G145     63991114.42971673                                            =IF(G142="","",IF($D$57="Equity Multiple",F146*$C143-F146,  
+H145     698468125.9866384                                            =IF(H142="","",IF($D$57="Equity Multiple",G146*$C143-G146,  
+I145     7670656088.956212                                            =IF(I142="","",IF($D$57="Equity Multiple",H146*$C143-H146,  
+J145     84295397477.03705                                            =IF(J142="","",IF($D$57="Equity Multiple",I146*$C143-I146,  
+K145     926400671134.8857                                            =IF(K142="","",IF($D$57="Equity Multiple",J146*$C143-J146,  
+B146     Contributions from LP                                                                                                    
+F146     6405516.959931605                                            =IF(F142="","",-MIN(0,F$51*Equity_Share_LP))                
+G146     0                                                            =IF(G142="","",-MIN(0,G$51*Equity_Share_LP))                
+H146     0                                                            =IF(H142="","",-MIN(0,H$51*Equity_Share_LP))                
+I146     0                                                            =IF(I142="","",-MIN(0,I$51*Equity_Share_LP))                
+J146     0                                                            =IF(J142="","",-MIN(0,J$51*Equity_Share_LP))                
+K146     0                                                            =IF(K142="","",-MIN(0,K$51*Equity_Share_LP))                
+B147     Prior Distributions                                                                                                      
+F147     0                                                            =IF(F142="","",F122+F100+F137)                              
+G147     479902.0616565117                                            =IF(G142="","",G122+G100+G137)                              
+H147     551412.9766711121                                            =IF(H142="","",H122+H100+H137)                              
+I147     511805.8650368454                                            =IF(I142="","",I122+I100+I137)                              
+J147     575289.064206309                                             =IF(J142="","",J122+J100+J137)                              
+K147     9253087.156129327                                            =IF(K142="","",K122+K100+K137)                              
+B148     Distributions to LP Tier 4                                   ="Distributions to LP "&B142                                
+F148     0                                                            =IF(F142="","",MIN(F144+F145-F147,F140*$I$18))              
+G148     0                                                            =IF(G142="","",MIN(G144+G145-G147,G140*$I$18))              
+H148     0                                                            =IF(H142="","",MIN(H144+H145-H147,H140*$I$18))              
+I148     0                                                            =IF(I142="","",MIN(I144+I145-I147,I140*$I$18))              
+J148     0                                                            =IF(J142="","",MIN(J144+J145-J147,J140*$I$18))              
+K148     0                                                            =IF(K142="","",MIN(K144+K145-K147,K140*$I$18))              
+B149     Ending Balance (LP Capital Account)                                                                                      
+F149     6405516.959931605                                            =IF(F142="","",F144+F145+F146-F147-F148)                    
+G149     69916729.32799183                                            =IF(G142="","",G144+G145+G146-G147-G148)                    
+H149     767833442.3379592                                            =IF(H142="","",H144+H145+H146-H147-H148)                    
+I149     8437977725.429134                                            =IF(I142="","",I144+I145+I146-I147-I148)                    
+J149     92732799913.40198                                            =IF(J142="","",J144+J145+J146-J147-J148)                    
+K149     1019124217961.1316                                           =IF(K142="","",K144+K145+K146-K147-K148)                    
+B150     9.99                                                         =C143                                                       
+E150     0.13720358773736074                                          =IF($D$57="IRR",IRR(F150:K150),SUMIF(F150:K150,">0")/-SUMI  
+F150     -6405516.959931605                                           =IF(F142="","",-F146+F147+F148)                             
+G150     479902.0616565117                                            =IF(G142="","",-G146+G147+G148)                             
+H150     551412.9766711121                                            =IF(H142="","",-H146+H147+H148)                             
+I150     511805.8650368454                                            =IF(I142="","",-I146+I147+I148)                             
+J150     575289.064206309                                             =IF(J142="","",-J146+J147+J148)                             
+K150     9253087.156129327                                            =IF(K142="","",-K146+K147+K148)                             
+B152     Distribution to LP                                                                                                       
+F152     0                                                            =IF(F142="","",F148)                                        
+G152     0                                                            =IF(G142="","",G148)                                        
+H152     0                                                            =IF(H142="","",H148)                                        
+I152     0                                                            =IF(I142="","",I148)                                        
+J152     0                                                            =IF(J142="","",J148)                                        
+K152     0                                                            =IF(K142="","",K148)                                        
+B153     Distribution to GP                                                                                                       
+F153     0                                                            =IF(F142="","",F152/$I$18*$H$18)                            
+G153     0                                                            =IF(G142="","",G152/$I$18*$H$18)                            
+H153     0                                                            =IF(H142="","",H152/$I$18*$H$18)                            
+I153     0                                                            =IF(I142="","",I152/$I$18*$H$18)                            
+J153     0                                                            =IF(J142="","",J152/$I$18*$H$18)                            
+K153     0                                                            =IF(K142="","",K152/$I$18*$H$18)                            
+B154     Total Distributions (Tier 4)                                 ="Total Distributions ("&B142&")"                           
+F154     0                                                            =IF(F142="","",F152+F153)                                   
+G154     0                                                            =IF(G142="","",G152+G153)                                   
+H154     0                                                            =IF(H142="","",H152+H153)                                   
+I154     0                                                            =IF(I142="","",I152+I153)                                   
+J154     0                                                            =IF(J142="","",J152+J153)                                   
+K154     0                                                            =IF(K142="","",K152+K153)                                   
+B155     Cash Flow Remaining                                                                                                      
+F155     0                                                            =IF(F142="","",MAX(F$51-F109-F124-F139-F154,0))             
+G155     0                                                            =IF(G142="","",MAX(G$51-G109-G124-G139-G154,0))             
+H155     0                                                            =IF(H142="","",MAX(H$51-H109-H124-H139-H154,0))             
+I155     0                                                            =IF(I142="","",MAX(I$51-I109-I124-I139-I154,0))             
+J155     0                                                            =IF(J142="","",MAX(J$51-J109-J124-J139-J154,0))             
+K155     0                                                            =IF(K142="","",MAX(K$51-K109-K124-K139-K154,0))             
+B157     Tier 5                                                                                                                   
+F157     Year 0                                                                                                                   
+G157     1                                                            =G$21                                                       
+H157     2                                                            =H$21                                                       
+I157     3                                                            =I$21                                                       
+J157     4                                                            =J$21                                                       
+K157     5                                                            =K$21                                                       
+B158     Return Threshold - Greater than:                                                                                         
+C158     9.99                                                         =C143                                                       
+B159     Distribution to LP                                                                                                       
+F159     0                                                            =IF(F157="","",F155*$I$19)                                  
+G159     0                                                            =IF(G157="","",G155*$I$19)                                  
+H159     0                                                            =IF(H157="","",H155*$I$19)                                  
+I159     0                                                            =IF(I157="","",I155*$I$19)                                  
+J159     0                                                            =IF(J157="","",J155*$I$19)                                  
+K159     0                                                            =IF(K157="","",K155*$I$19)                                  
+B160     Distribution to GP                                                                                                       
+F160     0                                                            =IF(F157="","",F155-F159)                                   
+G160     0                                                            =IF(G157="","",G155-G159)                                   
+H160     0                                                            =IF(H157="","",H155-H159)                                   
+I160     0                                                            =IF(I157="","",I155-I159)                                   
+J160     0                                                            =IF(J157="","",J155-J159)                                   
+K160     0                                                            =IF(K157="","",K155-K159)                                   
+B161     Total Distributions (Tier 5)                                 ="Total Distributions ("&B157&")"                           
+F161     0                                                            =IF(F157="","",F159+F160)                                   
+G161     0                                                            =IF(G157="","",G159+G160)                                   
+H161     0                                                            =IF(H157="","",H159+H160)                                   
+I161     0                                                            =IF(I157="","",I159+I160)                                   
+J161     0                                                            =IF(J157="","",J159+J160)                                   
+K161     0                                                            =IF(K157="","",K159+K160)                                   
+B162     Cash Flow Remaining                                                                                                      
+F162     0                                                            =IF(F157="","",F155-F161)                                   
+G162     0                                                            =IF(G157="","",G155-G161)                                   
+H162     0                                                            =IF(H157="","",H155-H161)                                   
+I162     0                                                            =IF(I157="","",I155-I161)                                   
+J162     0                                                            =IF(J157="","",J155-J161)                                   
+K162     0                                                            =IF(K157="","",K155-K161)                                   
+B164     PARTNERSHIP LEVEL RETURNS - EMx EQUITY WATERFALL                                                                         
+D165     Equity Multiple                                                                                                          
+F166     Promote Structure Incentive Breakdown                                                                                    
+H166     Distribution as %                                                                                                        
+B167     Partnership Distribution Assumptions (Equity Multiple Hurd   =IF(D165="Equity Multiple","Partnership Distribution Assum  
+H167     GP %                                                                                                                     
+I167     LP %                                                                                                                     
+J167     Notes                                                                                                                    
+B168     Tier 1 (Pref + Return of Capital)                            =B15                                                        
+C168     Equity Multiple                                                                                                          
+E168     1                                                            =C169                                                       
+H168     0.0489940121839365                                           =IF(H15="","",H15)                                          
+I168     0.9510059878160635                                           =1-H168                                                     
+J168     Pref prorata to LP/GP, then Pro rata return of capital       =IF(I168=Equity_Share_LP,"Pref prorata to LP/GP, then Pro   
+B169     Tier 2 (Promote)                                             =B16                                                        
+C169     1                                                            =C16                                                        
+E169     1.5                                                          =IF($B$277<3,99,C170)                                       
+H169     0.2867455091379524                                           =IF(H16="","",H16)                                          
+I169     0.7132544908620476                                           =1-H169                                                     
+J169     Prorata to LP/GP to 1.0X, then 71.3%/28.7% to 1.5X           =IF(Equity_Share_GP<>H168,TEXT(I168,"0.0%")&"/"&TEXT(H168,  
+B170     Tier 3 (Promote)                                             =B17                                                        
+C170     1.5                                                          =C17                                                        
+E170     99                                                           =IF($B$277<4,99,C171)                                       
+H170     0.4293964073103619                                           =IF(H17="","",H17)                                          
+I170     0.5706035926896381                                           =1-H170                                                     
+J170     71.3%/28.7% to 1.5X, then 57.1%/42.9% to 99.0X               =TEXT(I169,"0.0%")&"/"&TEXT(H169,"0.0%")&" to "&(IF(D165="  
+B171     NOT USED                                                     =B18                                                        
+C171     2                                                            =C18                                                        
+E171     99                                                           =IF($B$277<5,99,C172)                                       
+H171     0.4293964073103619                                           =IF(H18="","",H18)                                          
+I171     0.5706035926896381                                           =1-H171                                                     
+J171     57.1%/42.9% to 99.0X, then 57.1%/42.9% to 99.0X              =TEXT(I170,"0.0%")&"/"&TEXT(H170,"0.0%")&" to "&(IF(D166="  
+B172     NOT USED                                                     =B19                                                        
+C172     2.5                                                          =C19                                                        
+H172     0.5244970060919683                                           =IF(H19="","",H19)                                          
+I172     0.47550299390803175                                          =1-H172                                                     
+J172     57.1%/42.9% to 99.0X, then 47.6%/52.4% to 0.0X               =TEXT(I171,"0.0%")&"/"&TEXT(H171,"0.0%")&" to "&(IF(D167="  
+B174     Summary of Partnership-Level Returns                                                                                     
+F174     0                                                                                                                        
+G174     1                                                            =IF(G192="","",F174+1)                                      
+H174     2                                                            =IF(H192="","",G174+1)                                      
+I174     3                                                            =IF(I192="","",H174+1)                                      
+J174     4                                                            =IF(J192="","",I174+1)                                      
+K174     5                                                            =IF(K192="","",J174+1)                                      
+B175     Limited Partner (LP) Returns                                                                                             
+B176     Total LP Distributions                                                                                                   
+D176     10663182.384357445                                           =SUM(F176:K176)                                             
+F176     0                                                            =IF(F174="","",F208+F230+F245+F260+F267)                    
+G176     479902.0616565117                                            =IF(G174="","",G208+G230+G245+G260+G267)                    
+H176     551412.9766711121                                            =IF(H174="","",H208+H230+H245+H260+H267)                    
+I176     511805.8650368454                                            =IF(I174="","",I208+I230+I245+I260+I267)                    
+J176     575289.064206309                                             =IF(J174="","",J208+J230+J245+J260+J267)                    
+K176     8544772.416786667                                            =IF(K174="","",K208+K230+K245+K260+K267)                    
+B177     Total LP Contributions                                                                                                   
+D177     6405516.959931605                                            =SUM(F177:K177)                                             
+F177     6405516.959931605                                            =F204                                                       
+G177     0                                                            =G204                                                       
+H177     0                                                            =H204                                                       
+I177     0                                                            =I204                                                       
+J177     0                                                            =J204                                                       
+K177     0                                                            =K204                                                       
+B178     Total LP Profit                                                                                                          
+D178     4257665.42442584                                             =D176-D177                                                  
+B179     LP IRR                                                                                                                   
+D179     0.12164001204074282                                          =IRR(F179:K179)                                             
+F179     -6405516.959931605                                           =IF(F174="","",(-F177)+F176)                                
+G179     479902.0616565117                                            =IF(G174="","",(-G177)+G176)                                
+H179     551412.9766711121                                            =IF(H174="","",(-H177)+H176)                                
+I179     511805.8650368454                                            =IF(I174="","",(-I177)+I176)                                
+J179     575289.064206309                                             =IF(J174="","",(-J177)+J176)                                
+K179     8544772.416786667                                            =IF(K174="","",(-K177)+K176)                                
+B180     LP Equity Multiple                                                                                                       
+D180     1.664687245550795                                            =D176/D177                                                  
+B182     GP Returns                                                                                                               
+B183     Total GP Distributions                                                                                                   
+D183     2411435.441348229                                            =SUM(F183:K183)                                             
+F183     0                                                            =IF(F174="","",F213+F231+F246+F261+F268)                    
+G183     24723.637660673656                                           =IF(G174="","",G213+G231+G246+G261+G268)                    
+H183     28407.74342488197                                            =IF(H174="","",H213+H231+H246+H261+H268)                    
+I183     26367.26067835786                                            =IF(I174="","",I213+I231+I246+I261+I268)                    
+J183     29637.793854207368                                           =IF(J174="","",J213+J231+J246+J261+J268)                    
+K183     2302299.0057301084                                           =IF(K174="","",K213+K231+K246+K261+K268)                    
+B184     Total GP Fees                                                                                                            
+D184     330000                                                       =SUM(F184:K184)                                             
+F184     330000                                                       =IF(F174="","",SUM(F193:F194))                              
+G184     0                                                            =IF(G174="","",SUM(G193:G194))                              
+H184     0                                                            =IF(H174="","",SUM(H193:H194))                              
+I184     0                                                            =IF(I174="","",SUM(I193:I194))                              
+J184     0                                                            =IF(J174="","",SUM(J193:J194))                              
+K184     0                                                            =IF(K174="","",SUM(K193:K194))                              
+B185     Total GP Contributions                                                                                                   
+D185     330000                                                       =SUM(F185:K185)                                             
+F185     330000                                                       =IF(F174="","",-(MIN(F195,0)+F204))                         
+G185     0                                                            =IF(G174="","",-(MIN(G195,0)+G204))                         
+H185     0                                                            =IF(H174="","",-(MIN(H195,0)+H204))                         
+I185     0                                                            =IF(I174="","",-(MIN(I195,0)+I204))                         
+J185     0                                                            =IF(J174="","",-(MIN(J195,0)+J204))                         
+K185     0                                                            =IF(K174="","",-(MIN(K195,0)+K204))                         
+B186     Total GP Profit                                                                                                          
+D186     2411435.441348229                                            =+D183+D184-D185                                            
+B187     GP IRR                                                                                                                   
+D187     NA                                                           =IFERROR(IRR(F187:K187),"NA")                               
+F187     0                                                            =IF(F174="","",(-F185)+F183+F184)                           
+G187     24723.637660673656                                           =IF(G174="","",(-G185)+G183+G184)                           
+H187     28407.74342488197                                            =IF(H174="","",(-H185)+H183+H184)                           
+I187     26367.26067835786                                            =IF(I174="","",(-I185)+I183+I184)                           
+J187     29637.793854207368                                           =IF(J174="","",(-J185)+J183+J184)                           
+K187     2302299.0057301084                                           =IF(K174="","",(-K185)+K183+K184)                           
+B188     GP Equity Multiple                                                                                                       
+D188     7.307380125297664                                            =IFERROR(D183/D185,"NA")                                    
+B190     Property-Level Cash and GP Fees                                                                                          
+F190     Year 0                                                                                                                   
+G190     1                                                            =G$21                                                       
+H190     2                                                            =H$21                                                       
+I190     3                                                            =I$21                                                       
+J190     4                                                            =J$21                                                       
+K190     5                                                            =K$21                                                       
+E191     Year Ending                                                                                                              
+F191     2024-12-31 00:00:00                                          =IF(F46="","",F46)                                          
+G191     2025-12-31 00:00:00                                          =IF(G46="","",G46)                                          
+H191     2026-12-31 00:00:00                                          =IF(H46="","",H46)                                          
+I191     2027-12-31 00:00:00                                          =IF(I46="","",I46)                                          
+J191     2028-12-31 00:00:00                                          =IF(J46="","",J46)                                          
+K191     2029-12-31 00:00:00                                          =IF(K46="","",K46)                                          
+B192     Net Property-Level Cash Flow                                                                                             
+F192     -6405516.959931605                                           =IF(F47="","",F47)                                          
+G192     504625.6993171853                                            =IF(G47="","",G47)                                          
+H192     579820.7200959941                                            =IF(H47="","",H47)                                          
+I192     538173.1257152032                                            =IF(I47="","",I47)                                          
+J192     604926.8580605164                                            =IF(J47="","",J47)                                          
+K192     10847071.422516774                                           =IF(K47="","",K47)                                          
+B193     Asset Management Fees                                        =IF(B48="","",B48)                                          
+F193     0                                                            =IF(F48="","",F48)                                          
+G193     0                                                            =IF(G48="","",G48)                                          
+H193     0                                                            =IF(H48="","",H48)                                          
+I193     0                                                            =IF(I48="","",I48)                                          
+J193     0                                                            =IF(J48="","",J48)                                          
+K193     0                                                            =IF(K48="","",K48)                                          
+B194     Acquisition/Disposition Fees                                 =IF(B49="","",B49)                                          
+F194     330000                                                       =IF(F49="","",F49)                                          
+G194     0                                                            =IF(G49="","",G49)                                          
+H194     0                                                            =IF(H49="","",H49)                                          
+I194     0                                                            =IF(I49="","",I49)                                          
+J194     0                                                            =IF(J49="","",J49)                                          
+K194     0                                                            =IF(K49="","",K49)                                          
+B195     Adjusted Net Property-Level Cash Flow                                                                                    
+F195     -6735516.959931605                                           =IF(F190="","",F192-F193-F194)                              
+G195     504625.6993171853                                            =IF(G190="","",G192-G193-G194)                              
+H195     579820.7200959941                                            =IF(H190="","",H192-H193-H194)                              
+I195     538173.1257152032                                            =IF(I190="","",I192-I193-I194)                              
+J195     604926.8580605164                                            =IF(J190="","",J192-J193-J194)                              
+K195     10847071.422516774                                           =IF(K190="","",K192-K193-K194)                              
+B196     Levered IRR                                                                                                              
+F196     0.15896884414485157                                          =IRR(F195:K195)                                             
+B197     Equity Multiple                                                                                                          
+F197     1.9411454092513247                                           =SUMIF(F195:K195,">0")/-SUMIF(F195:K195,"<0")               
+B199     Tier 1 - Preferred Return + Return of Capital                                                                            
+B200     Return Threshold - Up to:                                                                                                
+C200     1                                                            =E168                                                       
+F200     Year 0                                                                                                                   
+G200     1                                                            =G$21                                                       
+H200     2                                                            =H$21                                                       
+I200     3                                                            =I$21                                                       
+J200     4                                                            =J$21                                                       
+K200     5                                                            =K$21                                                       
+B201     Beginning Balance (LP Capital Account)                                                                                   
+F201     0                                                            =IF(F200="","",E206)                                        
+G201     6405516.959931605                                            =IF(G200="","",F206)                                        
+H201     5925614.898275093                                            =IF(H200="","",G206)                                        
+I201     5374201.921603981                                            =IF(I200="","",H206)                                        
+J201     4862396.056567136                                            =IF(J200="","",I206)                                        
+K201     4287106.9923608275                                           =IF(K200="","",J206)                                        
+B202     LP Return of Capital                                                                                                     
+F202     All Capital Returned                                         =IF(ROUND(SUM(G202:K202),0)=ROUND(SUM(F204:K204),0),"All C  
+G202     479902.0616565117                                            =IF(G200="","",G208-G203)                                   
+H202     551412.9766711121                                            =IF(H200="","",H208-H203)                                   
+I202     511805.8650368454                                            =IF(I200="","",I208-I203)                                   
+J202     575289.064206309                                             =IF(J200="","",J208-J203)                                   
+K202     4287106.9923608275                                           =IF(K200="","",K208-K203)                                   
+B203     Req'd Return by LP to hit Hurdle 1                                                                                       
+F203     0                                                            =IF(F200="","",IF($D$165="Equity Multiple",E204*$C200-E204  
+G203     0                                                            =IF(G200="","",IF($D$165="Equity Multiple",F204*$C200-F204  
+H203     0                                                            =IF(H200="","",IF($D$165="Equity Multiple",G204*$C200-G204  
+I203     0                                                            =IF(I200="","",IF($D$165="Equity Multiple",H204*$C200-H204  
+J203     0                                                            =IF(J200="","",IF($D$165="Equity Multiple",I204*$C200-I204  
+K203     0                                                            =IF(K200="","",IF($D$165="Equity Multiple",J204*$C200-J204  
+B204     Contributions from LP                                                                                                    
+F204     6405516.959931605                                            =IF(F200="","",-MIN(0,F195*Equity_Share_LP))                
+G204     0                                                            =IF(G200="","",-MIN(0,G195*Equity_Share_LP))                
+H204     0                                                            =IF(H200="","",-MIN(0,H195*Equity_Share_LP))                
+I204     0                                                            =IF(I200="","",-MIN(0,I195*Equity_Share_LP))                
+J204     0                                                            =IF(J200="","",-MIN(0,J195*Equity_Share_LP))                
+K204     0                                                            =IF(K200="","",-MIN(0,K195*Equity_Share_LP))                
+B205     Distributions to LP (Hurdle 1)                                                                                           
+F205     0                                                            =IF(F200="","",MIN(F201+F203,MAX(F195,0)*$I$15))            
+G205     479902.0616565117                                            =IF(G200="","",MIN(G201+G203,MAX(G195,0)*$I$15))            
+H205     551412.9766711121                                            =IF(H200="","",MIN(H201+H203,MAX(H195,0)*$I$15))            
+I205     511805.8650368454                                            =IF(I200="","",MIN(I201+I203,MAX(I195,0)*$I$15))            
+J205     575289.064206309                                             =IF(J200="","",MIN(J201+J203,MAX(J195,0)*$I$15))            
+K205     4287106.9923608275                                           =IF(K200="","",MIN(K201+K203,MAX(K195,0)*$I$15))            
+B206     Ending Balance (LP Capital Account)                                                                                      
+F206     6405516.959931605                                            =IF(F200="","",F201+F203+F204-F205)                         
+G206     5925614.898275093                                            =IF(G200="","",G201+G203+G204-G205)                         
+H206     5374201.921603981                                            =IF(H200="","",H201+H203+H204-H205)                         
+I206     4862396.056567136                                            =IF(I200="","",I201+I203+I204-I205)                         
+J206     4287106.9923608275                                           =IF(J200="","",J201+J203+J204-J205)                         
+K206     0                                                            =IF(K200="","",K201+K203+K204-K205)                         
+B207     LP EMx Check                                                 =IF(D165="Equity Multiple", "LP EMx Check","LP IRR Check")  
+E207     1.0000000000000002                                           =IF($D$165="IRR",IRR(F207:K207),SUMIF(F207:K207,">0")/-SUM  
+F207     -6405516.959931605                                           =IF(F200="","",-F204+F205)                                  
+G207     479902.0616565117                                            =IF(G200="","",-G204+G205)                                  
+H207     551412.9766711121                                            =IF(H200="","",-H204+H205)                                  
+I207     511805.8650368454                                            =IF(I200="","",-I204+I205)                                  
+J207     575289.064206309                                             =IF(J200="","",-J204+J205)                                  
+K207     4287106.9923608275                                           =IF(K200="","",-K204+K205)                                  
+B208     Distribution to LP                                                                                                       
+F208     0                                                            =IF(F200="","",MIN(F201+F203,MAX(F195,0)*$I$15))            
+G208     479902.0616565117                                            =IF(G200="","",MIN(G201+G203,MAX(G195,0)*$I$15))            
+H208     551412.9766711121                                            =IF(H200="","",MIN(H201+H203,MAX(H195,0)*$I$15))            
+I208     511805.8650368454                                            =IF(I200="","",MIN(I201+I203,MAX(I195,0)*$I$15))            
+J208     575289.064206309                                             =IF(J200="","",MIN(J201+J203,MAX(J195,0)*$I$15))            
+K208     4287106.9923608275                                           =IF(K200="","",MIN(K201+K203,MAX(K195,0)*$I$15))            
+B210     Beginning Balance (GP Capital Account)                                                                                   
+F210     0                                                            =IF(F200="","",E214)                                        
+G210     330000                                                       =IF(G200="","",F214)                                        
+H210     305276.36233932636                                           =IF(H200="","",G214)                                        
+I210     276868.6189144444                                            =IF(I200="","",H214)                                        
+J210     250501.35823608655                                           =IF(J200="","",I214)                                        
+K210     220863.56438187917                                           =IF(K200="","",J214)                                        
+B211     Req'd Return by GP (Pref)                                                                                                
+F211     0                                                            =IF(F200="","",IF($D$165="Equity Multiple",E212*$C200-E212  
+G211     0                                                            =IF(G200="","",IF($D$165="Equity Multiple",F212*$C200-F212  
+H211     0                                                            =IF(H200="","",IF($D$165="Equity Multiple",G212*$C200-G212  
+I211     0                                                            =IF(I200="","",IF($D$165="Equity Multiple",H212*$C200-H212  
+J211     0                                                            =IF(J200="","",IF($D$165="Equity Multiple",I212*$C200-I212  
+K211     0                                                            =IF(K200="","",IF($D$165="Equity Multiple",J212*$C200-J212  
+B212     Contributions from GP                                                                                                    
+F212     330000                                                       =IF(F200="","",-MIN(0,F195*Equity_Share_GP))                
+G212     0                                                            =IF(G200="","",-MIN(0,G195*Equity_Share_GP))                
+H212     0                                                            =IF(H200="","",-MIN(0,H195*Equity_Share_GP))                
+I212     0                                                            =IF(I200="","",-MIN(0,I195*Equity_Share_GP))                
+J212     0                                                            =IF(J200="","",-MIN(0,J195*Equity_Share_GP))                
+K212     0                                                            =IF(K200="","",-MIN(0,K195*Equity_Share_GP))                
+B213     Distribution to GP                                                                                                       
+F213     0                                                            =IF(F200="","",IF(CU?,MAX(MIN(F195-F208,F210+F211+F212),0)  
+G213     24723.637660673656                                           =IF(G200="","",IF(CU?,MAX(MIN(G195-G208,G210+G211+G212),0)  
+H213     28407.74342488197                                            =IF(H200="","",IF(CU?,MAX(MIN(H195-H208,H210+H211+H212),0)  
+I213     26367.26067835786                                            =IF(I200="","",IF(CU?,MAX(MIN(I195-I208,I210+I211+I212),0)  
+J213     29637.793854207368                                           =IF(J200="","",IF(CU?,MAX(MIN(J195-J208,J210+J211+J212),0)  
+K213     220863.56438187917                                           =IF(K200="","",IF(CU?,MAX(MIN(K195-K208,K210+K211+K212),0)  
+B214     Ending Balance (GP Capital Account)                                                                                      
+F214     330000                                                       =IF(F200="","",F210+F211+F212-F213)                         
+G214     305276.36233932636                                           =IF(G200="","",G210+G211+G212-G213)                         
+H214     276868.6189144444                                            =IF(H200="","",H210+H211+H212-H213)                         
+I214     250501.35823608655                                           =IF(I200="","",I210+I211+I212-I213)                         
+J214     220863.56438187917                                           =IF(J200="","",J210+J211+J212-J213)                         
+K214     0                                                            =IF(K200="","",K210+K211+K212-K213)                         
+B215     GP EMx Check                                                 =IF(D165="Equity Multiple", "GP EMx Check","GP IRR Check")  
+E215     1                                                            =IF($D$165="IRR",IFERROR(IRR(F215:K215),"NA"),SUMIF(F215:K  
+F215     -330000                                                      =IF(F200="","",-F212+F213)                                  
+G215     24723.637660673656                                           =IF(G200="","",-G212+G213)                                  
+H215     28407.74342488197                                            =IF(H200="","",-H212+H213)                                  
+I215     26367.26067835786                                            =IF(I200="","",-I212+I213)                                  
+J215     29637.793854207368                                           =IF(J200="","",-J212+J213)                                  
+K215     220863.56438187917                                           =IF(K200="","",-K212+K213)                                  
+B217     Total Distributions (Tier 1 - Preferred Return + Return of   ="Total Distributions ("&B199&")"                           
+F217     0                                                            =IF(F200="","",F213+F208)                                   
+G217     504625.6993171853                                            =IF(G200="","",G213+G208)                                   
+H217     579820.7200959941                                            =IF(H200="","",H213+H208)                                   
+I217     538173.1257152032                                            =IF(I200="","",I213+I208)                                   
+J217     604926.8580605164                                            =IF(J200="","",J213+J208)                                   
+K217     4507970.556742706                                            =IF(K200="","",K213+K208)                                   
+B218     Cash Flow Remaining                                                                                                      
+F218     0                                                            =IF(F200="","",MAX(F195-F217,0))                            
+G218     0                                                            =IF(G200="","",MAX(G195-G217,0))                            
+H218     0                                                            =IF(H200="","",MAX(H195-H217,0))                            
+I218     0                                                            =IF(I200="","",MAX(I195-I217,0))                            
+J218     0                                                            =IF(J200="","",MAX(J195-J217,0))                            
+K218     6339100.865774068                                            =IF(K200="","",MAX(K195-K217,0))                            
+B220     Tier 2                                                                                                                   
+F220     Year 0                                                                                                                   
+G220     1                                                            =G$21                                                       
+H220     2                                                            =H$21                                                       
+I220     3                                                            =I$21                                                       
+J220     4                                                            =J$21                                                       
+K220     5                                                            =K$21                                                       
+B221     Return Threshold - Up to:                                                                                                
+C221     1.5                                                          =E169                                                       
+B222     Beginning Balance (LP Capital Account)                                                                                   
+F222     0                                                            =IF(F220="","",E227)                                        
+G222     6405516.959931605                                            =IF(G220="","",F227)                                        
+H222     9128373.378240895                                            =IF(H220="","",G227)                                        
+I222     8576960.401569782                                            =IF(I220="","",H227)                                        
+J222     8065154.536532937                                            =IF(J220="","",I227)                                        
+K222     7489865.472326628                                            =IF(K220="","",J227)                                        
+B223     Req'd Return by LP to hit Hurdle 2                                                                                       
+F223     0                                                            =IF(F220="","",IF($D$165="Equity Multiple",E224*$C221-E224  
+G223     3202758.4799658023                                           =IF(G220="","",IF($D$165="Equity Multiple",F224*$C221-F224  
+H223     0                                                            =IF(H220="","",IF($D$165="Equity Multiple",G224*$C221-G224  
+I223     0                                                            =IF(I220="","",IF($D$165="Equity Multiple",H224*$C221-H224  
+J223     0                                                            =IF(J220="","",IF($D$165="Equity Multiple",I224*$C221-I224  
+K223     0                                                            =IF(K220="","",IF($D$165="Equity Multiple",J224*$C221-J224  
+B224     Contributions from LP                                                                                                    
+F224     6405516.959931605                                            =IF(F220="","",-MIN(0,F$51*Equity_Share_LP))                
+G224     0                                                            =IF(G220="","",-MIN(0,G$51*Equity_Share_LP))                
+H224     0                                                            =IF(H220="","",-MIN(0,H$51*Equity_Share_LP))                
+I224     0                                                            =IF(I220="","",-MIN(0,I$51*Equity_Share_LP))                
+J224     0                                                            =IF(J220="","",-MIN(0,J$51*Equity_Share_LP))                
+K224     0                                                            =IF(K220="","",-MIN(0,K$51*Equity_Share_LP))                
+B225     Prior Distributions                                                                                                      
+F225     0                                                            =F208                                                       
+G225     479902.0616565117                                            =G208                                                       
+H225     551412.9766711121                                            =H208                                                       
+I225     511805.8650368454                                            =I208                                                       
+J225     575289.064206309                                             =J208                                                       
+K225     4287106.9923608275                                           =K208                                                       
+B226     Distributions to LP Tier 2                                   ="Distributions to LP "&B220                                
+F226     0                                                            =IF(F220="","",MIN(F222+F223-F225,F218*$I$16))              
+G226     0                                                            =IF(G220="","",MIN(G222+G223-G225,G218*$I$16))              
+H226     0                                                            =IF(H220="","",MIN(H222+H223-H225,H218*$I$16))              
+I226     0                                                            =IF(I220="","",MIN(I222+I223-I225,I218*$I$16))              
+J226     0                                                            =IF(J220="","",MIN(J222+J223-J225,J218*$I$16))              
+K226     3202758.4799658004                                           =IF(K220="","",MIN(K222+K223-K225,K218*$I$16))              
+B227     Ending Balance (LP Capital Account)                                                                                      
+F227     6405516.959931605                                            =IF(F220="","",F222+F223+F224-F225-F226)                    
+G227     9128373.378240895                                            =IF(G220="","",G222+G223+G224-G225-G226)                    
+H227     8576960.401569782                                            =IF(H220="","",H222+H223+H224-H225-H226)                    
+I227     8065154.536532937                                            =IF(I220="","",I222+I223+I224-I225-I226)                    
+J227     7489865.472326628                                            =IF(J220="","",J222+J223+J224-J225-J226)                    
+K227     0                                                            =IF(K220="","",K222+K223+K224-K225-K226)                    
+B228     1.5                                                          =C221                                                       
+E228     1.5                                                          =IF($D$165="IRR",IRR(F228:K228),SUMIF(F228:K228,">0")/-SUM  
+F228     -6405516.959931605                                           =IF(F220="","",-F224+F225+F226)                             
+G228     479902.0616565117                                            =IF(G220="","",-G224+G225+G226)                             
+H228     551412.9766711121                                            =IF(H220="","",-H224+H225+H226)                             
+I228     511805.8650368454                                            =IF(I220="","",-I224+I225+I226)                             
+J228     575289.064206309                                             =IF(J220="","",-J224+J225+J226)                             
+K228     7489865.472326628                                            =IF(K220="","",-K224+K225+K226)                             
+B230     Distribution to LP                                                                                                       
+F230     0                                                            =IF(F220="","",F226)                                        
+G230     0                                                            =IF(G220="","",G226)                                        
+H230     0                                                            =IF(H220="","",H226)                                        
+I230     0                                                            =IF(I220="","",I226)                                        
+J230     0                                                            =IF(J220="","",J226)                                        
+K230     3202758.4799658004                                           =IF(K220="","",K226)                                        
+B231     Distribution to GP                                                                                                       
+F231     0                                                            =IF(F220="","",F230/$I$16*$H$16)                            
+G231     0                                                            =IF(G220="","",G230/$I$16*$H$16)                            
+H231     0                                                            =IF(H220="","",H230/$I$16*$H$16)                            
+I231     0                                                            =IF(I220="","",I230/$I$16*$H$16)                            
+J231     0                                                            =IF(J220="","",J230/$I$16*$H$16)                            
+K231     1287586.1599886                                              =IF(K220="","",K230/$I$16*$H$16)                            
+B232     Total Distributions (Tier 2)                                 ="Total Distributions ("&B220&")"                           
+F232     0                                                            =IF(F220="","",F230+F231)                                   
+G232     0                                                            =IF(G220="","",G230+G231)                                   
+H232     0                                                            =IF(H220="","",H230+H231)                                   
+I232     0                                                            =IF(I220="","",I230+I231)                                   
+J232     0                                                            =IF(J220="","",J230+J231)                                   
+K232     4490344.6399544                                              =IF(K220="","",K230+K231)                                   
+B233     Cash Flow Remaining                                                                                                      
+F233     0                                                            =IF(F220="","",MAX(F$51-F217-F232,0))                       
+G233     0                                                            =IF(G220="","",MAX(G$51-G217-G232,0))                       
+H233     0                                                            =IF(H220="","",MAX(H$51-H217-H232,0))                       
+I233     0                                                            =IF(I220="","",MAX(I$51-I217-I232,0))                       
+J233     0                                                            =IF(J220="","",MAX(J$51-J217-J232,0))                       
+K233     1848756.2258196678                                           =IF(K220="","",MAX(K$51-K217-K232,0))                       
+B235     Tier 3                                                                                                                   
+F235     Year 0                                                                                                                   
+G235     1                                                            =G$21                                                       
+H235     2                                                            =H$21                                                       
+I235     3                                                            =I$21                                                       
+J235     4                                                            =J$21                                                       
+K235     5                                                            =K$21                                                       
+B236     Return Threshold - Up to:                                                                                                
+C236     99                                                           =E170                                                       
+B237     Beginning Balance (LP Capital Account)                                                                                   
+F237     0                                                            =IF(F235="","",E242)                                        
+G237     6405516.959931605                                            =IF(G235="","",F242)                                        
+H237     633666276.9715724                                            =IF(H235="","",G242)                                        
+I237     633114863.9949013                                            =IF(I235="","",H242)                                        
+J237     632603058.1298645                                            =IF(J235="","",I242)                                        
+K237     632027769.0656581                                            =IF(K235="","",J242)                                        
+B238     Req'd Return by LP to hit Hurdle 3                                                                                       
+F238     0                                                            =IF(F235="","",IF($D$165="Equity Multiple",E239*$C236-E239  
+G238     627740662.0732973                                            =IF(G235="","",IF($D$165="Equity Multiple",F239*$C236-F239  
+H238     0                                                            =IF(H235="","",IF($D$165="Equity Multiple",G239*$C236-G239  
+I238     0                                                            =IF(I235="","",IF($D$165="Equity Multiple",H239*$C236-H239  
+J238     0                                                            =IF(J235="","",IF($D$165="Equity Multiple",I239*$C236-I239  
+K238     0                                                            =IF(K235="","",IF($D$165="Equity Multiple",J239*$C236-J239  
+B239     Contributions from LP                                                                                                    
+F239     6405516.959931605                                            =IF(F235="","",-MIN(0,F$51*Equity_Share_LP))                
+G239     0                                                            =IF(G235="","",-MIN(0,G$51*Equity_Share_LP))                
+H239     0                                                            =IF(H235="","",-MIN(0,H$51*Equity_Share_LP))                
+I239     0                                                            =IF(I235="","",-MIN(0,I$51*Equity_Share_LP))                
+J239     0                                                            =IF(J235="","",-MIN(0,J$51*Equity_Share_LP))                
+K239     0                                                            =IF(K235="","",-MIN(0,K$51*Equity_Share_LP))                
+B240     Prior Distributions                                                                                                      
+F240     0                                                            =IF(F235="","",F230+F208)                                   
+G240     479902.0616565117                                            =IF(G235="","",G230+G208)                                   
+H240     551412.9766711121                                            =IF(H235="","",H230+H208)                                   
+I240     511805.8650368454                                            =IF(I235="","",I230+I208)                                   
+J240     575289.064206309                                             =IF(J235="","",J230+J208)                                   
+K240     7489865.472326628                                            =IF(K235="","",K230+K208)                                   
+B241     Distributions to LP Tier 3                                   ="Distributions to LP "&B235                                
+F241     0                                                            =IF(F235="","",MIN(F237+F238-F240,F233*$I$17))              
+G241     0                                                            =IF(G235="","",MIN(G237+G238-G240,G233*$I$17))              
+H241     0                                                            =IF(H235="","",MIN(H237+H238-H240,H233*$I$17))              
+I241     0                                                            =IF(I235="","",MIN(I237+I238-I240,I233*$I$17))              
+J241     0                                                            =IF(J235="","",MIN(J237+J238-J240,J233*$I$17))              
+K241     1054906.9444600383                                           =IF(K235="","",MIN(K237+K238-K240,K233*$I$17))              
+B242     Ending Balance (LP Capital Account)                                                                                      
+F242     6405516.959931605                                            =IF(F235="","",F237+F238+F239-F240-F241)                    
+G242     633666276.9715724                                            =IF(G235="","",G237+G238+G239-G240-G241)                    
+H242     633114863.9949013                                            =IF(H235="","",H237+H238+H239-H240-H241)                    
+I242     632603058.1298645                                            =IF(I235="","",I237+I238+I239-I240-I241)                    
+J242     632027769.0656581                                            =IF(J235="","",J237+J238+J239-J240-J241)                    
+K242     623482996.6488714                                            =IF(K235="","",K237+K238+K239-K240-K241)                    
+B243     99                                                           =C236                                                       
+E243     1.664687245550795                                            =IF($D$165="IRR",IRR(F243:K243),SUMIF(F243:K243,">0")/-SUM  
+F243     -6405516.959931605                                           =IF(F235="","",-F239+F240+F241)                             
+G243     479902.0616565117                                            =IF(G235="","",-G239+G240+G241)                             
+H243     551412.9766711121                                            =IF(H235="","",-H239+H240+H241)                             
+I243     511805.8650368454                                            =IF(I235="","",-I239+I240+I241)                             
+J243     575289.064206309                                             =IF(J235="","",-J239+J240+J241)                             
+K243     8544772.416786667                                            =IF(K235="","",-K239+K240+K241)                             
+B245     Distribution to LP                                                                                                       
+F245     0                                                            =IF(F235="","",F241)                                        
+G245     0                                                            =IF(G235="","",G241)                                        
+H245     0                                                            =IF(H235="","",H241)                                        
+I245     0                                                            =IF(I235="","",I241)                                        
+J245     0                                                            =IF(J235="","",J241)                                        
+K245     1054906.9444600383                                           =IF(K235="","",K241)                                        
+B246     Distribution to GP                                                                                                       
+F246     0                                                            =IF(F235="","",F245/$I$17*$H$17)                            
+G246     0                                                            =IF(G235="","",G245/$I$17*$H$17)                            
+H246     0                                                            =IF(H235="","",H245/$I$17*$H$17)                            
+I246     0                                                            =IF(I235="","",I245/$I$17*$H$17)                            
+J246     0                                                            =IF(J235="","",J245/$I$17*$H$17)                            
+K246     793849.2813596295                                            =IF(K235="","",K245/$I$17*$H$17)                            
+B247     Total Distributions (Tier 3)                                 ="Total Distributions ("&B235&")"                           
+F247     0                                                            =IF(F235="","",F245+F246)                                   
+G247     0                                                            =IF(G235="","",G245+G246)                                   
+H247     0                                                            =IF(H235="","",H245+H246)                                   
+I247     0                                                            =IF(I235="","",I245+I246)                                   
+J247     0                                                            =IF(J235="","",J245+J246)                                   
+K247     1848756.2258196678                                           =IF(K235="","",K245+K246)                                   
+B248     Cash Flow Remaining                                                                                                      
+F248     0                                                            =IF(F235="","",MAX(F$51-F217-F232-F247,0))                  
+G248     0                                                            =IF(G235="","",MAX(G$51-G217-G232-G247,0))                  
+H248     0                                                            =IF(H235="","",MAX(H$51-H217-H232-H247,0))                  
+I248     0                                                            =IF(I235="","",MAX(I$51-I217-I232-I247,0))                  
+J248     0                                                            =IF(J235="","",MAX(J$51-J217-J232-J247,0))                  
+K248     0                                                            =IF(K235="","",MAX(K$51-K217-K232-K247,0))                  
+B250     Tier 4                                                                                                                   
+F250     Year 0                                                                                                                   
+G250     1                                                            =G$21                                                       
+H250     2                                                            =H$21                                                       
+I250     3                                                            =I$21                                                       
+J250     4                                                            =J$21                                                       
+K250     5                                                            =K$21                                                       
+B251     Return Threshold - Up to:                                                                                                
+C251     99                                                           =E171                                                       
+B252     Beginning Balance (LP Capital Account)                                                                                   
+F252     0                                                            =IF(F250="","",E257)                                        
+G252     6405516.959931605                                            =IF(G250="","",F257)                                        
+H252     633666276.9715724                                            =IF(H250="","",G257)                                        
+I252     633114863.9949013                                            =IF(I250="","",H257)                                        
+J252     632603058.1298645                                            =IF(J250="","",I257)                                        
+K252     632027769.0656581                                            =IF(K250="","",J257)                                        
+B253     Req'd Return by LP to hit Hurdle 4                                                                                       
+F253     0                                                            =IF(F250="","",IF($D$165="Equity Multiple",E254*$C251-E254  
+G253     627740662.0732973                                            =IF(G250="","",IF($D$165="Equity Multiple",F254*$C251-F254  
+H253     0                                                            =IF(H250="","",IF($D$165="Equity Multiple",G254*$C251-G254  
+I253     0                                                            =IF(I250="","",IF($D$165="Equity Multiple",H254*$C251-H254  
+J253     0                                                            =IF(J250="","",IF($D$165="Equity Multiple",I254*$C251-I254  
+K253     0                                                            =IF(K250="","",IF($D$165="Equity Multiple",J254*$C251-J254  
+B254     Contributions from LP                                                                                                    
+F254     6405516.959931605                                            =IF(F250="","",-MIN(0,F$51*Equity_Share_LP))                
+G254     0                                                            =IF(G250="","",-MIN(0,G$51*Equity_Share_LP))                
+H254     0                                                            =IF(H250="","",-MIN(0,H$51*Equity_Share_LP))                
+I254     0                                                            =IF(I250="","",-MIN(0,I$51*Equity_Share_LP))                
+J254     0                                                            =IF(J250="","",-MIN(0,J$51*Equity_Share_LP))                
+K254     0                                                            =IF(K250="","",-MIN(0,K$51*Equity_Share_LP))                
+B255     Prior Distributions                                                                                                      
+F255     0                                                            =IF(F250="","",F230+F208+F245)                              
+G255     479902.0616565117                                            =IF(G250="","",G230+G208+G245)                              
+H255     551412.9766711121                                            =IF(H250="","",H230+H208+H245)                              
+I255     511805.8650368454                                            =IF(I250="","",I230+I208+I245)                              
+J255     575289.064206309                                             =IF(J250="","",J230+J208+J245)                              
+K255     8544772.416786667                                            =IF(K250="","",K230+K208+K245)                              
+B256     Distributions to LP Tier 4                                   ="Distributions to LP "&B250                                
+F256     0                                                            =IF(F250="","",MIN(F252+F253-F255,F248*$I$18))              
+G256     0                                                            =IF(G250="","",MIN(G252+G253-G255,G248*$I$18))              
+H256     0                                                            =IF(H250="","",MIN(H252+H253-H255,H248*$I$18))              
+I256     0                                                            =IF(I250="","",MIN(I252+I253-I255,I248*$I$18))              
+J256     0                                                            =IF(J250="","",MIN(J252+J253-J255,J248*$I$18))              
+K256     0                                                            =IF(K250="","",MIN(K252+K253-K255,K248*$I$18))              
+B257     Ending Balance (LP Capital Account)                                                                                      
+F257     6405516.959931605                                            =IF(F250="","",F252+F253+F254-F255-F256)                    
+G257     633666276.9715724                                            =IF(G250="","",G252+G253+G254-G255-G256)                    
+H257     633114863.9949013                                            =IF(H250="","",H252+H253+H254-H255-H256)                    
+I257     632603058.1298645                                            =IF(I250="","",I252+I253+I254-I255-I256)                    
+J257     632027769.0656581                                            =IF(J250="","",J252+J253+J254-J255-J256)                    
+K257     623482996.6488714                                            =IF(K250="","",K252+K253+K254-K255-K256)                    
+B258     99                                                           =C251                                                       
+E258     1.664687245550795                                            =IF($D$165="IRR",IRR(F258:K258),SUMIF(F258:K258,">0")/-SUM  
+F258     -6405516.959931605                                           =IF(F250="","",-F254+F255+F256)                             
+G258     479902.0616565117                                            =IF(G250="","",-G254+G255+G256)                             
+H258     551412.9766711121                                            =IF(H250="","",-H254+H255+H256)                             
+I258     511805.8650368454                                            =IF(I250="","",-I254+I255+I256)                             
+J258     575289.064206309                                             =IF(J250="","",-J254+J255+J256)                             
+K258     8544772.416786667                                            =IF(K250="","",-K254+K255+K256)                             
+B260     Distribution to LP                                                                                                       
+F260     0                                                            =IF(F250="","",F256)                                        
+G260     0                                                            =IF(G250="","",G256)                                        
+H260     0                                                            =IF(H250="","",H256)                                        
+I260     0                                                            =IF(I250="","",I256)                                        
+J260     0                                                            =IF(J250="","",J256)                                        
+K260     0                                                            =IF(K250="","",K256)                                        
+B261     Distribution to GP                                                                                                       
+F261     0                                                            =IF(F250="","",F260/$I$18*$H$18)                            
+G261     0                                                            =IF(G250="","",G260/$I$18*$H$18)                            
+H261     0                                                            =IF(H250="","",H260/$I$18*$H$18)                            
+I261     0                                                            =IF(I250="","",I260/$I$18*$H$18)                            
+J261     0                                                            =IF(J250="","",J260/$I$18*$H$18)                            
+K261     0                                                            =IF(K250="","",K260/$I$18*$H$18)                            
+B262     Total Distributions (Tier 4)                                 ="Total Distributions ("&B250&")"                           
+F262     0                                                            =IF(F250="","",F260+F261)                                   
+G262     0                                                            =IF(G250="","",G260+G261)                                   
+H262     0                                                            =IF(H250="","",H260+H261)                                   
+I262     0                                                            =IF(I250="","",I260+I261)                                   
+J262     0                                                            =IF(J250="","",J260+J261)                                   
+K262     0                                                            =IF(K250="","",K260+K261)                                   
+B263     Cash Flow Remaining                                                                                                      
+F263     0                                                            =IF(F250="","",MAX(F$51-F217-F232-F247-F262,0))             
+G263     0                                                            =IF(G250="","",MAX(G$51-G217-G232-G247-G262,0))             
+H263     0                                                            =IF(H250="","",MAX(H$51-H217-H232-H247-H262,0))             
+I263     0                                                            =IF(I250="","",MAX(I$51-I217-I232-I247-I262,0))             
+J263     0                                                            =IF(J250="","",MAX(J$51-J217-J232-J247-J262,0))             
+K263     0                                                            =IF(K250="","",MAX(K$51-K217-K232-K247-K262,0))             
+B265     Tier 5                                                                                                                   
+F265     Year 0                                                                                                                   
+G265     1                                                            =G$21                                                       
+H265     2                                                            =H$21                                                       
+I265     3                                                            =I$21                                                       
+J265     4                                                            =J$21                                                       
+K265     5                                                            =K$21                                                       
+B266     Return Threshold - Greater than:                                                                                         
+C266     99                                                           =C251                                                       
+B267     Distribution to LP                                                                                                       
+F267     0                                                            =IF(F265="","",F263*$I$19)                                  
+G267     0                                                            =IF(G265="","",G263*$I$19)                                  
+H267     0                                                            =IF(H265="","",H263*$I$19)                                  
+I267     0                                                            =IF(I265="","",I263*$I$19)                                  
+J267     0                                                            =IF(J265="","",J263*$I$19)                                  
+K267     0                                                            =IF(K265="","",K263*$I$19)                                  
+B268     Distribution to GP                                                                                                       
+F268     0                                                            =IF(F265="","",F263-F267)                                   
+G268     0                                                            =IF(G265="","",G263-G267)                                   
+H268     0                                                            =IF(H265="","",H263-H267)                                   
+I268     0                                                            =IF(I265="","",I263-I267)                                   
+J268     0                                                            =IF(J265="","",J263-J267)                                   
+K268     0                                                            =IF(K265="","",K263-K267)                                   
+B269     Total Distributions (Tier 5)                                 ="Total Distributions ("&B265&")"                           
+F269     0                                                            =IF(F265="","",F267+F268)                                   
+G269     0                                                            =IF(G265="","",G267+G268)                                   
+H269     0                                                            =IF(H265="","",H267+H268)                                   
+I269     0                                                            =IF(I265="","",I267+I268)                                   
+J269     0                                                            =IF(J265="","",J267+J268)                                   
+K269     0                                                            =IF(K265="","",K267+K268)                                   
+B270     Cash Flow Remaining                                                                                                      
+F270     0                                                            =IF(F265="","",F263-F269)                                   
+G270     0                                                            =IF(G265="","",G263-G269)                                   
+H270     0                                                            =IF(H265="","",H263-H269)                                   
+I270     0                                                            =IF(I265="","",I263-I269)                                   
+J270     0                                                            =IF(J265="","",J263-J269)                                   
+K270     0                                                            =IF(K265="","",K263-K269)                                   
+B273     2-Tier                                                                                                                   
+B274     3-Tier                                                                                                                   
+B275     4-Tier                                                                                                                   
+B276     5-Tier                                                                                                                   
+B277     3                                                            =MATCH(D5,B273:B276)+1                                      

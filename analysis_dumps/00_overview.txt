@@ -1,0 +1,64 @@
+====================================================================================================
+WORKBOOK SHEET OVERVIEW
+====================================================================================================
+
+[0] 'questions'
+    dimensions: 5 rows x 2 cols
+    non-empty cells: 3
+
+[1] 'miscellaneous'
+    dimensions: 1 rows x 1 cols
+    non-empty cells: 0
+
+[2] 'Comps'
+    dimensions: 11 rows x 8 cols
+    non-empty cells: 33
+
+[3] 'Data Consolidation'
+    dimensions: 1157 rows x 66 cols
+    non-empty cells: 1359
+
+[4] 'Rent Roll Input'
+    dimensions: 1039 rows x 131 cols
+    non-empty cells: 1416
+
+[5] 'Collections'
+    dimensions: 40 rows x 112 cols
+    non-empty cells: 188
+
+[6] 'Unit Mix Rent Growth'
+    dimensions: 49 rows x 109 cols
+    non-empty cells: 219
+
+[7] 'Unit Mix Summary'
+    dimensions: 39 rows x 85 cols
+    non-empty cells: 62
+
+[8] 'GGC Underwriting'
+    dimensions: 278 rows x 110 cols
+    non-empty cells: 537
+
+[9] 'GGC Pro Forma'
+    dimensions: 180 rows x 100 cols
+    non-empty cells: 896
+
+[10] 'Investor Return'
+    dimensions: 22 rows x 14 cols
+    non-empty cells: 25
+
+[11] 'Waterfall (10-yr)'
+    dimensions: 277 rows x 19 cols
+    non-empty cells: 2257
+
+[12] 'Waterfall (5-yr) '
+    dimensions: 277 rows x 14 cols
+    non-empty cells: 1424
+
+[13] 'Sources and Uses'
+    dimensions: 27 rows x 10 cols
+    non-empty cells: 50
+
+[14] 'Loan Scenario (acquisition)'
+    dimensions: 1003 rows x 241 cols
+    non-empty cells: 711
+

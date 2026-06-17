@@ -1,0 +1,30 @@
+SHEET: 'Investor Return'
+Dimensions: 22 rows x 14 cols
+====================================================================================================
+CELL     VALUE (resolved)                                             FORMULA / RAW                                               
+====================================================================================================
+M1       Summary/Output                                                                                                           
+C3       Investor Return Summary                                                                                                  
+C4       10  Year Return Summary                                                                                                  
+M4       Send LOI?                                                                                                                
+N4       No                                                                                                                       
+C5       Deal Level                                                                                                               
+D5       Exit Cap Rate 100 bps over in-going                                                                                      
+M5       Reason if No                                                                                                             
+C6       IRR                                                                                                                      
+F6       0.1468597521567998                                           ='Waterfall (10-yr)'!D30                                    
+C7       Equity Multiple                                                                                                          
+F7       3.0325265843277416                                           ='Waterfall (10-yr)'!D31                                    
+G7       x                                                                                                                        
+C8       Cash on Cash Avg Y1-Y9                                                                                                   
+F8       0.112189880099681                                            =AVERAGE('Waterfall (10-yr)'!G31:O31)                       
+C17      5 Year Return Summary                                                                                                    
+C18      Deal Level                                                                                                               
+D18      Exit Cap Rate 100 bps over in-going                                                                                      
+C19      IRR                                                                                                                      
+F19      0.13720358773736074                                          ='Waterfall (5-yr) '!D30                                    
+C20      Equity Multiple                                                                                                          
+F20      1.7752661018356783                                           ='Waterfall (5-yr) '!D31                                    
+G20      x                                                                                                                        
+C21      Cash on Cash Avg Y1-Y4                                                                                                   
+F21      0.08259456945787441                                          =AVERAGE('Waterfall (5-yr) '!G31:J31)                       

@@ -1,0 +1,67 @@
+SHEET: 'Unit Mix Summary'
+Dimensions: 39 rows x 85 cols
+====================================================================================================
+CELL     VALUE (resolved)                                             FORMULA / RAW                                               
+====================================================================================================
+B2       MH/RV Rent Roll                                                                                                          
+C3       # of Occupied Units                                                                                                      
+D3       # of Vacant Units                                                                                                        
+E3       Total Units                                                                                                              
+F3       Occupied Monthly Rent                                                                                                    
+G3       Vacant Monthly Rent                                                                                                      
+H3       Monthly Gross Potential Rent                                                                                             
+B4       TOH MH Site                                                                                                              
+C4       106                                                          =COUNTIFS('Rent Roll Input'!$D$3:$D$150,"Occupied",'Rent R  
+D4       12                                                           =COUNTIFS('Rent Roll Input'!$D$3:$D$150,"Vacant",'Rent Rol  
+E4       118                                                          =SUM(C4:D4)                                                 
+F4       102219                                                       =SUMIFS('Rent Roll Input'!$I$3:$I$150,'Rent Roll Input'!$D  
+G4       11568                                                        =SUMIFS('Rent Roll Input'!$I$3:$I$150,'Rent Roll Input'!$D  
+H4       113787                                                       =F4+G4                                                      
+B5       POH-Infilled units                                                                                                       
+C5       0                                                            =COUNTIFS('Rent Roll Input'!$D$3:$D$150,"Occupied",'Rent R  
+D5       11                                                           =COUNTIFS('Rent Roll Input'!$D$3:$D$150,"Vacant",'Rent Rol  
+E5       11                                                           =SUM(C5:D5)                                                 
+F5       0                                                            =SUMIFS('Rent Roll Input'!$I$3:$I$150,'Rent Roll Input'!$D  
+G5       10604                                                        =SUMIFS('Rent Roll Input'!$I$3:$I$150,'Rent Roll Input'!$D  
+H5       10604                                                        =F5+G5                                                      
+B6       Long term RV Site                                                                                                        
+C6       18                                                           =COUNTIFS('Rent Roll Input'!$D$3:$D$150,"Occupied",'Rent R  
+D6       0                                                            =COUNTIFS('Rent Roll Input'!$D$3:$D$150,"Vacant",'Rent Rol  
+E6       18                                                           =SUM(C6:D6)                                                 
+F6       13299.000000000002                                           =SUMIFS('Rent Roll Input'!$I$3:$I$150,'Rent Roll Input'!$D  
+G6       0                                                            =SUMIFS('Rent Roll Input'!$I$3:$I$150,'Rent Roll Input'!$D  
+H6       13299.000000000002                                           =F6+G6                                                      
+B7       Retail/Comemrcial                                                                                                        
+C7       1                                                            =COUNTIFS('Rent Roll Input'!$D$3:$D$150,"Occupied",'Rent R  
+D7       0                                                            =COUNTIFS('Rent Roll Input'!$D$3:$D$150,"Vacant",'Rent Rol  
+E7       1                                                            =SUM(C7:D7)                                                 
+F7       1300                                                         =SUMIFS('Rent Roll Input'!$I$3:$I$150,'Rent Roll Input'!$D  
+G7       0                                                            =SUMIFS('Rent Roll Input'!$I$3:$I$150,'Rent Roll Input'!$D  
+H7       1300                                                         =F7+G7                                                      
+B8       Total Units                                                                                                              
+C8       125                                                          =SUM(C4:C7)                                                 
+D8       23                                                           =SUM(D4:D7)                                                 
+E8       148                                                          =SUM(E4:E7)                                                 
+B9       Total MH Sites                                                                                                           
+C9       106                                                          =SUM(C4:C5)                                                 
+D9       23                                                           =SUM(D4:D5)                                                 
+E9       129                                                          =SUM(E4:E5)                                                 
+F9       102219                                                       =SUM(F4:F5)                                                 
+G9       22172                                                        =SUM(G4:G5)                                                 
+H9       124391                                                       =SUM(H4:H5)                                                 
+B10      Total POH                                                                                                                
+C10      0                                                            =C5                                                         
+D10      11                                                           =D5                                                         
+E10      11                                                           =E5                                                         
+B11      Annual GPR(MH Lot Rent)                                                                                                  
+C11      1492692                                                      =H9*12                                                      
+B12      Avg Rent                                                                                                                 
+C12      964.2966101694915                                            =H4/E4                                                      
+B13      Occupancy%                                                                                                               
+C13      0.8445945945945946                                           =C8/E8                                                      
+B14      POH%                                                                                                                     
+C14      0.08527131782945736                                          =E10/E9                                                     
+B15      Annual Long term RV                                                                                                      
+C15      159588.00000000003                                           =H6*12                                                      
+B16      Long term RV avg rent                                                                                                    
+C16      738.8333333333335                                            =H6/E6                                                      

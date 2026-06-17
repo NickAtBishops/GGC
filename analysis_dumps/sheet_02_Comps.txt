@@ -1,0 +1,38 @@
+SHEET: 'Comps'
+Dimensions: 11 rows x 8 cols
+====================================================================================================
+CELL     VALUE (resolved)                                             FORMULA / RAW                                               
+====================================================================================================
+D2       Lot Rent                                                                                                                 
+E2       Price                                                                                                                    
+F2       SF                                                                                                                       
+B3       Golden Rogue Mobile Estates,                                                                                             
+C3       6226 E Evans Creek Rd, #12, Rogue River, OR 97537                                                                        
+D3       600                                                                                                                      
+E3       125000                                                                                                                   
+F3       924                                                                                                                      
+G3       55+                                                                                                                      
+H3       https://www.mhvillage.com/homes/3428735                                                                                  
+B4       Valley Center Mobile Park,                                                                                               
+C4       3410 N Pacific Hwy, Medford, OR 97501                                                                                    
+D4       760                                                                                                                      
+E4       54500                                                                                                                    
+F4       1344                                                                                                                     
+G4       ALL AGE                                                                                                                  
+H4       https://www.mhvillage.com/homes/3410375                                                                                  
+B5       Westlake Village                                                                                                         
+C5       313 Winston Drive, Grants Pass, OR 97526                                                                                 
+D5       850                                                                                                                      
+E5       254900                                                                                                                   
+F5       1296                                                                                                                     
+G5       55+                                                                                                                      
+H5       https://www.mhvillage.com/homes/3217429                                                                                  
+B6       Oceanview Mobile Estates                                                                                                 
+C6       15505 Oceanview Dr,Brookings, OR 97415                                                                                   
+D6       N/A                                                                                                                      
+G6       55+                                                                                                                      
+D10      RV NIGHTLY                                                                                                               
+B11      Xaa-wan'-k'wvt (Howonquet) Village & Resort                                                                              
+C11      12420 US-101, Smith River, CA 95567, United States                                                                       
+D11      44                                                                                                                       
+H11      google.com/url?url=http%3A%2F%2Fwww.xvresort.com%2F&sa=t&r                                                               

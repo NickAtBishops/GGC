@@ -1,0 +1,193 @@
+SHEET: 'Collections'
+Dimensions: 40 rows x 112 cols
+====================================================================================================
+CELL     VALUE (resolved)                                             FORMULA / RAW                                               
+====================================================================================================
+A1       GARY GROUP CAPITAL                                                                                                       
+B4       Month                                                                                                                    
+C4       GPR                                                                                                                      
+D4       Vacant                                                                                                                   
+E4       Concessions                                                                                                              
+F4       Bad Debt                                                                                                                 
+G4       Net Rental Income                                                                                                        
+H4       RUBS                                                                                                                     
+I4       HR Income                                                                                                                
+J4       RV Income                                                                                                                
+K4       Parking                                                                                                                  
+L4       Laundry                                                                                                                  
+M4       Other Income                                                                                                             
+N4       EGI                                                                                                                      
+B5       NOV 24                                                       ='Data Consolidation'!J2                                    
+C5       88056                                                        =SUMIFS('Data Consolidation'!J3:J36,'Data Consolidation'!$  
+D5       0                                                            =SUMIFS('Data Consolidation'!$J$3:$J$36,'Data Consolidatio  
+E5       0                                                            =SUMIFS('Data Consolidation'!$J$3:$J$36,'Data Consolidatio  
+F5       -35.6                                                        =SUMIFS('Data Consolidation'!$J$3:$J$36,'Data Consolidatio  
+G5       88020.4                                                      =SUM(C5:F5)                                                 
+H5       5895.17                                                      =SUMIFS('Data Consolidation'!$J$3:$J$36,'Data Consolidatio  
+I5       0                                                            =SUMIFS('Data Consolidation'!$J$3:$J$36,'Data Consolidatio  
+J5       17051                                                        =SUMIFS('Data Consolidation'!$J$3:$J$36,'Data Consolidatio  
+K5       75                                                           =SUMIFS('Data Consolidation'!$J$3:$J$36,'Data Consolidatio  
+L5       0                                                            =SUMIFS('Data Consolidation'!$J$3:$J$36,'Data Consolidatio  
+M5       2563.1800000000003                                           =SUMIFS('Data Consolidation'!$J$3:$J$36,'Data Consolidatio  
+N5       113604.75                                                    =G5+H5+I5+J5+K5+L5+M5                                       
+B6       DEC 24                                                       ='Data Consolidation'!K2                                    
+C6       88063.94                                                     =SUMIFS('Data Consolidation'!K$3:K$36,'Data Consolidation'  
+D6       0                                                            =SUMIFS('Data Consolidation'!$K$3:$K$36,'Data Consolidatio  
+E6       0                                                            =SUMIFS('Data Consolidation'!$K$3:$K$36,'Data Consolidatio  
+F6       -6151.01                                                     =SUMIFS('Data Consolidation'!$K$3:$K$36,'Data Consolidatio  
+G6       81912.93000000001                                            =SUM(C6:F6)                                                 
+H6       7136.87                                                      =SUMIFS('Data Consolidation'!$K$3:$K$36,'Data Consolidatio  
+I6       0                                                            =SUMIFS('Data Consolidation'!$K$3:$K$36,'Data Consolidatio  
+J6       14962                                                        =SUMIFS('Data Consolidation'!$K$3:$K$36,'Data Consolidatio  
+K6       75                                                           =SUMIFS('Data Consolidation'!$K$3:$K$36,'Data Consolidatio  
+L6       0                                                            =SUMIFS('Data Consolidation'!$K$3:$K$36,'Data Consolidatio  
+M6       2347.66                                                      =SUMIFS('Data Consolidation'!$K$3:$K$36,'Data Consolidatio  
+N6       106434.46                                                    =G6+H6+I6+J6+K6+L6+M6                                       
+B7       JAN 25                                                       ='Data Consolidation'!L2                                    
+C7       95245                                                        =SUMIFS('Data Consolidation'!L$3:L$36,'Data Consolidation'  
+D7       0                                                            =SUMIFS('Data Consolidation'!$L$3:$L$36,'Data Consolidatio  
+E7       0                                                            =SUMIFS('Data Consolidation'!$L$3:$L$36,'Data Consolidatio  
+F7       0                                                            =SUMIFS('Data Consolidation'!$L$3:$L$36,'Data Consolidatio  
+G7       95245                                                        =SUM(C7:F7)                                                 
+H7       8138.93                                                      =SUMIFS('Data Consolidation'!$L$3:$L$36,'Data Consolidatio  
+I7       0                                                            =SUMIFS('Data Consolidation'!$L$3:$L$36,'Data Consolidatio  
+J7       15578                                                        =SUMIFS('Data Consolidation'!$L$3:$L$36,'Data Consolidatio  
+K7       75                                                           =SUMIFS('Data Consolidation'!$L$3:$L$36,'Data Consolidatio  
+L7       0                                                            =SUMIFS('Data Consolidation'!$L$3:$L$36,'Data Consolidatio  
+M7       2178.98                                                      =SUMIFS('Data Consolidation'!$L$3:$L$36,'Data Consolidatio  
+N7       121215.90999999999                                           =G7+H7+I7+J7+K7+L7+M7                                       
+B8       FEB 25                                                       ='Data Consolidation'!M2                                    
+C8       96356                                                        =SUMIFS('Data Consolidation'!M$3:M$36,'Data Consolidation'  
+D8       0                                                            =SUMIFS('Data Consolidation'!$M$3:$M$36,'Data Consolidatio  
+E8       0                                                            =SUMIFS('Data Consolidation'!$M$3:$M$36,'Data Consolidatio  
+F8       -1886.84                                                     =SUMIFS('Data Consolidation'!$M$3:$M$36,'Data Consolidatio  
+G8       94469.16                                                     =SUM(C8:F8)                                                 
+H8       7443.4                                                       =SUMIFS('Data Consolidation'!$M$3:$M$36,'Data Consolidatio  
+I8       0                                                            =SUMIFS('Data Consolidation'!$M$3:$M$36,'Data Consolidatio  
+J8       15645                                                        =SUMIFS('Data Consolidation'!$M$3:$M$36,'Data Consolidatio  
+K8       75                                                           =SUMIFS('Data Consolidation'!$M$3:$M$36,'Data Consolidatio  
+L8       0                                                            =SUMIFS('Data Consolidation'!$M$3:$M$36,'Data Consolidatio  
+M8       2632.3                                                       =SUMIFS('Data Consolidation'!$M$3:$M$36,'Data Consolidatio  
+N8       120264.86                                                    =G8+H8+I8+J8+K8+L8+M8                                       
+B9       MAR 25                                                       ='Data Consolidation'!N2                                    
+C9       97084                                                        =SUMIFS('Data Consolidation'!N$3:N$36,'Data Consolidation'  
+D9       0                                                            =SUMIFS('Data Consolidation'!$N$3:$N$36,'Data Consolidatio  
+E9       0                                                            =SUMIFS('Data Consolidation'!$N$3:$N$36,'Data Consolidatio  
+F9       0                                                            =SUMIFS('Data Consolidation'!$N$3:$N$36,'Data Consolidatio  
+G9       97084                                                        =SUM(C9:F9)                                                 
+H9       9404.69                                                      =SUMIFS('Data Consolidation'!$N$3:$N$36,'Data Consolidatio  
+I9       0                                                            =SUMIFS('Data Consolidation'!$N$3:$N$36,'Data Consolidatio  
+J9       14563                                                        =SUMIFS('Data Consolidation'!$N$3:$N$36,'Data Consolidatio  
+K9       75                                                           =SUMIFS('Data Consolidation'!$N$3:$N$36,'Data Consolidatio  
+L9       0                                                            =SUMIFS('Data Consolidation'!$N$3:$N$36,'Data Consolidatio  
+M9       4625.84                                                      =SUMIFS('Data Consolidation'!$N$3:$N$36,'Data Consolidatio  
+N9       125752.53                                                    =G9+H9+I9+J9+K9+L9+M9                                       
+B10      APR 25                                                       ='Data Consolidation'!O2                                    
+C10      97396                                                        =SUMIFS('Data Consolidation'!O$3:O$36,'Data Consolidation'  
+D10      0                                                            =SUMIFS('Data Consolidation'!$O$3:$O$36,'Data Consolidatio  
+E10      0                                                            =SUMIFS('Data Consolidation'!$O$3:$O$36,'Data Consolidatio  
+F10      -3846.97                                                     =SUMIFS('Data Consolidation'!$O$3:$O$36,'Data Consolidatio  
+G10      93549.03                                                     =SUM(C10:F10)                                               
+H10      7438.49                                                      =SUMIFS('Data Consolidation'!$O$3:$O$36,'Data Consolidatio  
+I10      0                                                            =SUMIFS('Data Consolidation'!$O$3:$O$36,'Data Consolidatio  
+J10      14831                                                        =SUMIFS('Data Consolidation'!$O$3:$O$36,'Data Consolidatio  
+K10      75                                                           =SUMIFS('Data Consolidation'!$O$3:$O$36,'Data Consolidatio  
+L10      0                                                            =SUMIFS('Data Consolidation'!$O$3:$O$36,'Data Consolidatio  
+M10      3213.16                                                      =SUMIFS('Data Consolidation'!$O$3:$O$36,'Data Consolidatio  
+N10      119106.68000000001                                           =G10+H10+I10+J10+K10+L10+M10                                
+B11      MAY 25                                                       ='Data Consolidation'!P2                                    
+C11      97648                                                        =SUMIFS('Data Consolidation'!P$3:P$36,'Data Consolidation'  
+D11      0                                                            =SUMIFS('Data Consolidation'!$P$3:$P$36,'Data Consolidatio  
+E11      0                                                            =SUMIFS('Data Consolidation'!$P$3:$P$36,'Data Consolidatio  
+F11      -10326.98                                                    =SUMIFS('Data Consolidation'!$P$3:$P$36,'Data Consolidatio  
+G11      87321.02                                                     =SUM(C11:F11)                                               
+H11      6708.47                                                      =SUMIFS('Data Consolidation'!$P$3:$P$36,'Data Consolidatio  
+I11      0                                                            =SUMIFS('Data Consolidation'!$P$3:$P$36,'Data Consolidatio  
+J11      14090                                                        =SUMIFS('Data Consolidation'!$P$3:$P$36,'Data Consolidatio  
+K11      75                                                           =SUMIFS('Data Consolidation'!$P$3:$P$36,'Data Consolidatio  
+L11      0                                                            =SUMIFS('Data Consolidation'!$P$3:$P$36,'Data Consolidatio  
+M11      5171.84                                                      =SUMIFS('Data Consolidation'!$P$3:$P$36,'Data Consolidatio  
+N11      113366.33                                                    =G11+H11+I11+J11+K11+L11+M11                                
+B12      JUN 25                                                       ='Data Consolidation'!Q2                                    
+C12      97396.53                                                     =SUMIFS('Data Consolidation'!Q$3:Q$36,'Data Consolidation'  
+D12      0                                                            =SUMIFS('Data Consolidation'!$Q$3:$Q$36,'Data Consolidatio  
+E12      0                                                            =SUMIFS('Data Consolidation'!$Q$3:$Q$36,'Data Consolidatio  
+F12      -3814.3                                                      =SUMIFS('Data Consolidation'!$Q$3:$Q$36,'Data Consolidatio  
+G12      93582.23                                                     =SUM(C12:F12)                                               
+H12      6135.98                                                      =SUMIFS('Data Consolidation'!$Q$3:$Q$36,'Data Consolidatio  
+I12      0                                                            =SUMIFS('Data Consolidation'!$Q$3:$Q$36,'Data Consolidatio  
+J12      14090                                                        =SUMIFS('Data Consolidation'!$Q$3:$Q$36,'Data Consolidatio  
+K12      75                                                           =SUMIFS('Data Consolidation'!$Q$3:$Q$36,'Data Consolidatio  
+L12      0                                                            =SUMIFS('Data Consolidation'!$Q$3:$Q$36,'Data Consolidatio  
+M12      5869.830000000001                                            =SUMIFS('Data Consolidation'!$Q$3:$Q$36,'Data Consolidatio  
+N12      119753.04                                                    =G12+H12+I12+J12+K12+L12+M12                                
+B13      JUL 25                                                       ='Data Consolidation'!R2                                    
+C13      96074                                                        =SUMIFS('Data Consolidation'!R$3:R$36,'Data Consolidation'  
+D13      0                                                            =SUMIFS('Data Consolidation'!$R$3:$R$36,'Data Consolidatio  
+E13      0                                                            =SUMIFS('Data Consolidation'!$R$3:$R$36,'Data Consolidatio  
+F13      0                                                            =SUMIFS('Data Consolidation'!$R$3:$R$36,'Data Consolidatio  
+G13      96074                                                        =SUM(C13:F13)                                               
+H13      6004.45                                                      =SUMIFS('Data Consolidation'!$R$3:$R$36,'Data Consolidatio  
+I13      0                                                            =SUMIFS('Data Consolidation'!$R$3:$R$36,'Data Consolidatio  
+J13      13416                                                        =SUMIFS('Data Consolidation'!$R$3:$R$36,'Data Consolidatio  
+K13      75                                                           =SUMIFS('Data Consolidation'!$R$3:$R$36,'Data Consolidatio  
+L13      0                                                            =SUMIFS('Data Consolidation'!$R$3:$R$36,'Data Consolidatio  
+M13      5033.67                                                      =SUMIFS('Data Consolidation'!$R$3:$R$36,'Data Consolidatio  
+N13      120603.12                                                    =G13+H13+I13+J13+K13+L13+M13                                
+B14      AUG 25                                                       ='Data Consolidation'!S2                                    
+C14      97095                                                        =SUMIFS('Data Consolidation'!S$3:S$36,'Data Consolidation'  
+D14      0                                                            =SUMIFS('Data Consolidation'!$S$3:$S$36,'Data Consolidatio  
+E14      0                                                            =SUMIFS('Data Consolidation'!$S$3:$S$36,'Data Consolidatio  
+F14      0                                                            =SUMIFS('Data Consolidation'!$S$3:$S$36,'Data Consolidatio  
+G14      97095                                                        =SUM(C14:F14)                                               
+H14      5116.73                                                      =SUMIFS('Data Consolidation'!$S$3:$S$36,'Data Consolidatio  
+I14      0                                                            =SUMIFS('Data Consolidation'!$S$3:$S$36,'Data Consolidatio  
+J14      12742                                                        =SUMIFS('Data Consolidation'!$S$3:$S$36,'Data Consolidatio  
+K14      75                                                           =SUMIFS('Data Consolidation'!$S$3:$S$36,'Data Consolidatio  
+L14      0                                                            =SUMIFS('Data Consolidation'!$S$3:$S$36,'Data Consolidatio  
+M14      5033.96                                                      =SUMIFS('Data Consolidation'!$S$3:$S$36,'Data Consolidatio  
+N14      120062.69                                                    =G14+H14+I14+J14+K14+L14+M14                                
+B15      SEP 25                                                       ='Data Consolidation'!T2                                    
+C15      97095                                                        =SUMIFS('Data Consolidation'!T$3:T$36,'Data Consolidation'  
+D15      0                                                            =SUMIFS('Data Consolidation'!$T$3:$T$36,'Data Consolidatio  
+E15      0                                                            =SUMIFS('Data Consolidation'!$T$3:$T$36,'Data Consolidatio  
+F15      0                                                            =SUMIFS('Data Consolidation'!$T$3:$T$36,'Data Consolidatio  
+G15      97095                                                        =SUM(C15:F15)                                               
+H15      4779.05                                                      =SUMIFS('Data Consolidation'!$T$3:$T$36,'Data Consolidatio  
+I15      0                                                            =SUMIFS('Data Consolidation'!$T$3:$T$36,'Data Consolidatio  
+J15      12742                                                        =SUMIFS('Data Consolidation'!$T$3:$T$36,'Data Consolidatio  
+K15      75                                                           =SUMIFS('Data Consolidation'!$T$3:$T$36,'Data Consolidatio  
+L15      0                                                            =SUMIFS('Data Consolidation'!$T$3:$T$36,'Data Consolidatio  
+M15      3736                                                         =SUMIFS('Data Consolidation'!$T$3:$T$36,'Data Consolidatio  
+N15      118427.05                                                    =G15+H15+I15+J15+K15+L15+M15                                
+B16      OCT 25                                                       ='Data Consolidation'!U2                                    
+C16      97095                                                        =SUMIFS('Data Consolidation'!U$3:U$36,'Data Consolidation'  
+D16      0                                                            =SUMIFS('Data Consolidation'!$U$3:$U$36,'Data Consolidatio  
+E16      0                                                            =SUMIFS('Data Consolidation'!$U$3:$U$36,'Data Consolidatio  
+F16      0                                                            =SUMIFS('Data Consolidation'!$U$3:$U$36,'Data Consolidatio  
+G16      97095                                                        =SUM(C16:F16)                                               
+H16      4974.79                                                      =SUMIFS('Data Consolidation'!$U$3:$U$36,'Data Consolidatio  
+I16      0                                                            =SUMIFS('Data Consolidation'!$U$3:$U$36,'Data Consolidatio  
+J16      12995.2                                                      =SUMIFS('Data Consolidation'!$U$3:$U$36,'Data Consolidatio  
+K16      75                                                           =SUMIFS('Data Consolidation'!$U$3:$U$36,'Data Consolidatio  
+L16      0                                                            =SUMIFS('Data Consolidation'!$U$3:$U$36,'Data Consolidatio  
+M16      1369.01                                                      =SUMIFS('Data Consolidation'!$U$3:$U$36,'Data Consolidatio  
+N16      116508.99999999999                                           =G16+H16+I16+J16+K16+L16+M16                                
+B20      Avg NRI Analysis                                                                                                         
+D20      % Difference                                                                                                             
+F20      Net Rental Income                                                                                                        
+B21      T1                                                                                                                       
+C21      97095                                                        =G16                                                        
+D21      0                                                            =(C21-C22)/C22                                              
+E21      T1vsT3                                                                                                                   
+B22      T3                                                                                                                       
+C22      97095                                                        =AVERAGE(G14:G16)                                           
+D22      0.025178075791590943                                         =(C22-C23)/C23                                              
+E22      T3vsT6                                                                                                                   
+B23      T6                                                                                                                       
+C23      94710.375                                                    =AVERAGE(G11:G16)                                           
+D23      0.01607603256869643                                          =(C23-C24)/C24                                              
+E23      T6vsT12                                                                                                                  
+B24      T12                                                                                                                      
+C24      93211.8975                                                   =AVERAGE(G5:G16)                                            
+F40      EGI                                                                                                                      

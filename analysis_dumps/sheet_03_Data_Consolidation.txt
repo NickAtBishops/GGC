@@ -1,0 +1,1364 @@
+SHEET: 'Data Consolidation'
+Dimensions: 1157 rows x 66 cols
+====================================================================================================
+CELL     VALUE (resolved)                                             FORMULA / RAW                                               
+====================================================================================================
+A1       Choose Income Category                                                                                                   
+B1       Input Source Data                                                                                                        
+D1       Input Source Data                                                                                                        
+G1       Choose Ann. #                                                                                                            
+H1       3                                                                                                                        
+A2       GGC Catorgy                                                                                                              
+B2       Source Name                                                                                                              
+D2       2022                                                                                                                     
+E2       2024                                                                                                                     
+F2       Broker's Proforma                                                                                                        
+G2       T12 (Oct 2025)                                                                                                           
+H2       Annualization                                                                                                            
+J2       NOV 24                                                                                                                   
+K2       DEC 24                                                                                                                   
+L2       JAN 25                                                                                                                   
+M2       FEB 25                                                                                                                   
+N2       MAR 25                                                                                                                   
+O2       APR 25                                                                                                                   
+P2       MAY 25                                                                                                                   
+Q2       JUN 25                                                                                                                   
+R2       JUL 25                                                                                                                   
+S2       AUG 25                                                                                                                   
+T2       SEP 25                                                                                                                   
+U2       OCT 25                                                                                                                   
+V2       Total                                                                                                                    
+G3       0                                                            =V3                                                         
+H3       0                                                            =((SUM(S3:U3)/$H$1)*12)                                     
+V3       0                                                            =SUM(J3:U3)                                                 
+B4           4100 Rental Income (non-posting)                                                                                     
+G4       0                                                            =V4                                                         
+H4       0                                                            =((SUM(S4:U4)/$H$1)*12)                                     
+V4       0                                                            =(((SUM(J4:U4))))                                           
+A5       Gross Potential Rent                                                                                                     
+B5               4101 Lot Rent                                                                                                    
+E5       1063458.16                                                                                                               
+F5       1391628                                                                                                                  
+G5       1144604.47                                                   =V5                                                         
+H5       1165140                                                      =((SUM(S5:U5)/$H$1)*12)                                     
+J5       88056                                                                                                                    
+K5       88063.94                                                                                                                 
+L5       95245                                                                                                                    
+M5       96356                                                                                                                    
+N5       97084                                                                                                                    
+O5       97396                                                                                                                    
+P5       97648                                                                                                                    
+Q5       97396.53                                                                                                                 
+R5       96074                                                                                                                    
+S5       97095                                                                                                                    
+T5       97095                                                                                                                    
+U5       97095                                                                                                                    
+V5       1144604.47                                                   =SUM(J5:U5)                                                 
+A6       RV Site Rental Income                                                                                                    
+B6               4103 Long Term RV Lot Rent                                                                                       
+E6       213459.8                                                                                                                 
+F6       159588                                                                                                                   
+G6       172705.2                                                     =V6                                                         
+H6       153916.8                                                     =((SUM(S6:U6)/$H$1)*12)                                     
+J6       17051                                                                                                                    
+K6       14962                                                                                                                    
+L6       15578                                                                                                                    
+M6       15645                                                                                                                    
+N6       14563                                                                                                                    
+O6       14831                                                                                                                    
+P6       14090                                                                                                                    
+Q6       14090                                                                                                                    
+R6       13416                                                                                                                    
+S6       12742                                                                                                                    
+T6       12742                                                                                                                    
+U6       12995.2                                                                                                                  
+V6       172705.2                                                     =SUM(J6:U6)                                                 
+A7       Parking Income                                                                                                           
+B7               4108 Storage Unit Rent                                                                                           
+E7       900                                                                                                                      
+F7       900                                                                                                                      
+G7       900                                                          =V7                                                         
+H7       900                                                          =((SUM(S7:U7)/$H$1)*12)                                     
+J7       75                                                                                                                       
+K7       75                                                                                                                       
+L7       75                                                                                                                       
+M7       75                                                                                                                       
+N7       75                                                                                                                       
+O7       75                                                                                                                       
+P7       75                                                                                                                       
+Q7       75                                                                                                                       
+R7       75                                                                                                                       
+S7       75                                                                                                                       
+T7       75                                                                                                                       
+U7       75                                                                                                                       
+V7       900                                                          =SUM(J7:U7)                                                 
+A8       Retail                                                                                                                   
+B8               4110 Retail Unit Rent                                                                                            
+E8       10200                                                                                                                    
+F8       15600                                                                                                                    
+G8       12425.81                                                     =V8                                                         
+H8       14400                                                        =((SUM(S8:U8)/$H$1)*12)                                     
+J8       1200                                                                                                                     
+K8       1200                                                                                                                     
+L8       425.81                                                                                                                   
+M8       0                                                                                                                        
+N8       1200                                                                                                                     
+O8       1200                                                                                                                     
+P8       1200                                                                                                                     
+Q8       1200                                                                                                                     
+R8       1200                                                                                                                     
+S8       1200                                                                                                                     
+T8       1200                                                                                                                     
+U8       1200                                                                                                                     
+V8       12425.81                                                     =SUM(J8:U8)                                                 
+G9       0                                                            =V9                                                         
+H9       0                                                            =((SUM(S9:U9)/$H$1)*12)                                     
+B10          4130 Concession Credits (non-posting)                                                                                
+G10      0                                                            =V10                                                        
+H10      0                                                            =((SUM(S10:U10)/$H$1)*12)                                   
+V10      0                                                            =SUM(J10:U10)                                               
+A11      Omitt Income                                                                                                             
+B11              4131 Move in Specials                                                                                            
+E11      -22817                                                                                                                   
+F11      0                                                                                                                        
+G11      -168                                                         =V11                                                        
+H11      0                                                            =((SUM(S11:U11)/$H$1)*12)                                   
+J11      -84                                                                                                                      
+K11      -84                                                                                                                      
+L11      0                                                                                                                        
+M11      0                                                                                                                        
+N11      0                                                                                                                        
+O11      0                                                                                                                        
+P11      0                                                                                                                        
+Q11      0                                                                                                                        
+R11      0                                                                                                                        
+S11      0                                                                                                                        
+T11      0                                                                                                                        
+U11      0                                                                                                                        
+V11      -168                                                         =SUM(J11:U11)                                               
+G12      0                                                            =V12                                                        
+H12      0                                                            =((SUM(S12:U12)/$H$1)*12)                                   
+B13          4300 Maintenance Income (non-posting)                                                                                
+G13      0                                                            =V13                                                        
+H13      0                                                            =((SUM(S13:U13)/$H$1)*12)                                   
+V13      0                                                            =SUM(J13:U13)                                               
+A14      Other Income                                                                                                             
+B14              4304 Damages                                                                                                     
+F14      1250.65                                                                                                                  
+G14      1250.65                                                      =V14                                                        
+H14      0                                                            =((SUM(S14:U14)/$H$1)*12)                                   
+J14      0                                                                                                                        
+K14      0                                                                                                                        
+L14      0                                                                                                                        
+M14      0                                                                                                                        
+N14      1250.65                                                                                                                  
+O14      0                                                                                                                        
+P14      0                                                                                                                        
+Q14      0                                                                                                                        
+R14      0                                                                                                                        
+S14      0                                                                                                                        
+T14      0                                                                                                                        
+U14      0                                                                                                                        
+V14      1250.65                                                      =SUM(J14:U14)                                               
+G15      0                                                            =V15                                                        
+H15      0                                                            =((SUM(S15:U15)/$H$1)*12)                                   
+B16          4400 Utility Income (non-posting)                                                                                    
+G16      0                                                            =V16                                                        
+H16      0                                                            =((SUM(S16:U16)/$H$1)*12)                                   
+V16      0                                                            =SUM(J16:U16)                                               
+A17      Omitt Income                                                                                                             
+B17              4402 Water & Sewer- non recurring                                                                                
+E17      -17394                                                                                                                   
+F17      0                                                                                                                        
+G17      -1709                                                        =V17                                                        
+H17      0                                                            =((SUM(S17:U17)/$H$1)*12)                                   
+J17      0                                                                                                                        
+K17      0                                                                                                                        
+L17      0                                                                                                                        
+M17      -1709                                                                                                                    
+N17      0                                                                                                                        
+O17      0                                                                                                                        
+P17      0                                                                                                                        
+Q17      0                                                                                                                        
+R17      0                                                                                                                        
+S17      0                                                                                                                        
+T17      0                                                                                                                        
+U17      0                                                                                                                        
+V17      -1709                                                        =SUM(J17:U17)                                               
+A18      Utility Reimbursement                                                                                                    
+B18              4403 Electric                                                                                                    
+E18      81488.13                                                                                                                 
+F18      79147.02                                                                                                                 
+G18      79147.01999999999                                            =V18                                                        
+H18      59362.28                                                     =((SUM(S18:U18)/$H$1)*12)                                   
+J18      5895.17                                                                                                                  
+K18      7136.87                                                                                                                  
+L18      8138.93                                                                                                                  
+M18      7443.4                                                                                                                   
+N18      9404.69                                                                                                                  
+O18      7438.49                                                                                                                  
+P18      6708.47                                                                                                                  
+Q18      6135.98                                                                                                                  
+R18      6004.45                                                                                                                  
+S18      5116.73                                                                                                                  
+T18      4779.05                                                                                                                  
+U18      4944.79                                                                                                                  
+V18      79147.01999999999                                            =SUM(J18:U18)                                               
+A19      Utility Reimbursement                                                                                                    
+B19              4404 Garbage                                                                                                     
+F19      0                                                                                                                        
+G19      30                                                           =V19                                                        
+H19      120                                                          =((SUM(S19:U19)/$H$1)*12)                                   
+J19      0                                                                                                                        
+K19      0                                                                                                                        
+L19      0                                                                                                                        
+M19      0                                                                                                                        
+N19      0                                                                                                                        
+O19      0                                                                                                                        
+P19      0                                                                                                                        
+Q19      0                                                                                                                        
+R19      0                                                                                                                        
+S19      0                                                                                                                        
+T19      0                                                                                                                        
+U19      30                                                                                                                       
+V19      30                                                           =SUM(J19:U19)                                               
+G20      0                                                            =V20                                                        
+H20      0                                                            =((SUM(S20:U20)/$H$1)*12)                                   
+B21          4900 Other Property Income (non-posting)                                                                             
+G21      0                                                            =V21                                                        
+H21      0                                                            =((SUM(S21:U21)/$H$1)*12)                                   
+V21      0                                                            =SUM(J21:U21)                                               
+A22      Other Income                                                                                                             
+B22              4904 Coin Laundry & Vending Machine                                                                              
+E22      1040.84                                                                                                                  
+G22      0                                                            =V22                                                        
+H22      0                                                            =((SUM(S22:U22)/$H$1)*12)                                   
+A23      Other Income                                                                                                             
+B23              4905 Recovered Legal/Court Fees                                                                                  
+E23      440                                                                                                                      
+F23      3183.75                                                                                                                  
+G23      3183.75                                                      =V23                                                        
+H23      0                                                            =((SUM(S23:U23)/$H$1)*12)                                   
+J23      0                                                                                                                        
+K23      0                                                                                                                        
+L23      0                                                                                                                        
+M23      0                                                                                                                        
+N23      0                                                                                                                        
+O23      0                                                                                                                        
+P23      1305.25                                                                                                                  
+Q23      1878.5                                                                                                                   
+R23      0                                                                                                                        
+S23      0                                                                                                                        
+T23      0                                                                                                                        
+U23      0                                                                                                                        
+V23      3183.75                                                      =SUM(J23:U23)                                               
+A24      Omitt Income                                                                                                             
+B24              4907 Violation Fines                                                                                             
+E24      50                                                                                                                       
+F24      50                                                                                                                       
+G24      50                                                           =V24                                                        
+H24      0                                                            =((SUM(S24:U24)/$H$1)*12)                                   
+J24      0                                                                                                                        
+K24      0                                                                                                                        
+L24      0                                                                                                                        
+M24      0                                                                                                                        
+N24      0                                                                                                                        
+O24      0                                                                                                                        
+P24      0                                                                                                                        
+Q24      50                                                                                                                       
+R24      0                                                                                                                        
+S24      25                                                                                                                       
+T24      -25                                                                                                                      
+U24      0                                                                                                                        
+V24      50                                                           =SUM(J24:U24)                                               
+A25      Other Income                                                                                                             
+B25              4908 Payment Processing Fee-Bank charges                                                                         
+E25      7629.65                                                                                                                  
+F25      7159.9                                                                                                                   
+G25      7159.9000000000015                                           =V25                                                        
+H25      6450.08                                                      =((SUM(S25:U25)/$H$1)*12)                                   
+J25      630.54                                                                                                                   
+K25      692.09                                                                                                                   
+L25      635.06                                                                                                                   
+M25      627.78                                                                                                                   
+N25      666.63                                                                                                                   
+O25      646.82                                                                                                                   
+P25      562.24                                                                                                                   
+Q25      572.18                                                                                                                   
+R25      514.04                                                                                                                   
+S25      539.64                                                                                                                   
+T25      548.87                                                                                                                   
+U25      524.01                                                                                                                   
+V25      7159.9000000000015                                           =SUM(J25:U25)                                               
+A26      Other Income                                                                                                             
+B26              4909 Cable Revenue Sharing                                                                                       
+E26      36089.72                                                                                                                 
+F26      2658.85                                                                                                                  
+G26      2658.8499999999995                                           =V26                                                        
+H26      2460                                                         =((SUM(S26:U26)/$H$1)*12)                                   
+J26      203                                                                                                                      
+K26      202.5                                                                                                                    
+L26      228.27                                                                                                                   
+M26      228.27                                                                                                                   
+N26      228.29                                                                                                                   
+O26      242.84                                                                                                                   
+P26      242.84                                                                                                                   
+Q26      242.84                                                                                                                   
+R26      225                                                                                                                      
+S26      225                                                                                                                      
+T26      195                                                                                                                      
+U26      195                                                                                                                      
+V26      2658.8499999999995                                           =SUM(J26:U26)                                               
+A27      Other Income                                                                                                             
+B27              4910 Rental Pool Revenue Sharing                                                                                 
+E27      22820.89                                                                                                                 
+F27      22773.72                                                                                                                 
+G27      22773.72                                                     =V27                                                        
+H27      26445.800000000003                                           =((SUM(S27:U27)/$H$1)*12)                                   
+J27      1129.64                                                                                                                  
+K27      953.07                                                                                                                   
+L27      840.65                                                                                                                   
+M27      851.25                                                                                                                   
+N27      1855.27                                                                                                                  
+O27      1698.5                                                                                                                   
+P27      2361.51                                                                                                                  
+Q27      2752.75                                                                                                                  
+R27      3719.63                                                                                                                  
+S27      3819.32                                                                                                                  
+T27      2792.13                                                                                                                  
+U27      0                                                                                                                        
+V27      22773.72                                                     =SUM(J27:U27)                                               
+A28      Other Income                                                                                                             
+B28              4913 Application Fees                                                                                            
+E28      550                                                                                                                      
+F28      850                                                                                                                      
+G28      850                                                          =V28                                                        
+H28      600                                                          =((SUM(S28:U28)/$H$1)*12)                                   
+J28      200                                                                                                                      
+K28      100                                                                                                                      
+L28      0                                                                                                                        
+M28      250                                                                                                                      
+N28      100                                                                                                                      
+O28      0                                                                                                                        
+P28      0                                                                                                                        
+Q28      0                                                                                                                        
+R28      50                                                                                                                       
+S28      0                                                                                                                        
+T28      0                                                                                                                        
+U28      150                                                                                                                      
+V28      850                                                          =SUM(J28:U28)                                               
+A29      Other Income                                                                                                             
+B29              4914 Late Fees                                                                                                   
+E29      4700                                                                                                                     
+F29      5523.56                                                                                                                  
+G29      5523.5599999999995                                           =V29                                                        
+H29      4200                                                         =((SUM(S29:U29)/$H$1)*12)                                   
+J29      350                                                                                                                      
+K29      400                                                                                                                      
+L29      450                                                                                                                      
+M29      650                                                                                                                      
+N29      500                                                                                                                      
+O29      550                                                                                                                      
+P29      650                                                                                                                      
+Q29      423.56                                                                                                                   
+R29      500                                                                                                                      
+S29      350                                                                                                                      
+T29      200                                                                                                                      
+U29      500                                                                                                                      
+V29      5523.5599999999995                                           =SUM(J29:U29)                                               
+A30      Other Income                                                                                                             
+B30              4915 NSF Fees                                                                                                    
+E30      300                                                                                                                      
+F30      375                                                                                                                      
+G30      375                                                          =V30                                                        
+H30      400                                                          =((SUM(S30:U30)/$H$1)*12)                                   
+J30      50                                                                                                                       
+K30      0                                                                                                                        
+L30      25                                                                                                                       
+M30      25                                                                                                                       
+N30      25                                                                                                                       
+O30      75                                                                                                                       
+P30      50                                                                                                                       
+Q30      0                                                                                                                        
+R30      25                                                                                                                       
+S30      100                                                                                                                      
+T30      0                                                                                                                        
+U30      0                                                                                                                        
+V30      375                                                          =SUM(J30:U30)                                               
+G31      0                                                            =V31                                                        
+H31      0                                                            =((SUM(S31:U31)/$H$1)*12)                                   
+V31      0                                                            =SUM(J31:U31)                                               
+A32      Bad Debt                                                                                                                 
+B32          6120 Bad Debt                                                                                                        
+E32      -690                                                                                                                     
+F32      -26061.7                                                                                                                 
+G32      -26061.7                                                     =V32                                                        
+H32      0                                                            =((SUM(S32:U32)/$H$1)*12)                                   
+J32      -35.6                                                                                                                    
+K32      -6151.01                                                                                                                 
+L32      0                                                                                                                        
+M32      -1886.84                                                                                                                 
+N32      0                                                                                                                        
+O32      -3846.97                                                                                                                 
+P32      -10326.98                                                                                                                
+Q32      -3814.3                                                                                                                  
+R32      0                                                                                                                        
+S32      0                                                                                                                        
+T32      0                                                                                                                        
+U32      0                                                                                                                        
+V32      -26061.7                                                     =SUM(J32:U32)                                               
+G33      0                                                            =V33                                                        
+H33      0                                                            =((SUM(S33:U33)/$H$1)*12)                                   
+V33      0                                                            =SUM(J33:U33)                                               
+G34      0                                                            =V34                                                        
+H34      0                                                            =((SUM(S34:U34)/$H$1)*12)                                   
+V34      0                                                            =SUM(J34:U34)                                               
+G35      0                                                            =V35                                                        
+H35      0                                                            =((SUM(S35:U35)/$H$1)*12)                                   
+V35      0                                                            =SUM(J35:U35)                                               
+G36      0                                                            =V36                                                        
+H36      0                                                            =((SUM(S36:U36)/$H$1)*12)                                   
+V36      0                                                            =SUM(J36:U36)                                               
+H37      0                                                            =F37*4                                                      
+D38      0                                                            =SUM(D3:D36)                                                
+E38      1402226.1899999997                                           =SUM(E3:E36)                                                
+F38      1664626.75                                                   =SUM(F3:F36)                                                
+G38      1425699.23                                                   =SUM(G3:G36)                                                
+H38      1434394.9600000002                                           =SUM(H3:H36)                                                
+I38      0                                                            =SUM(I3:I36)                                                
+J38      114720.74999999999                                           =SUM(J3:J36)                                                
+K38      107550.46                                                    =SUM(K3:K36)                                                
+L38      121641.71999999999                                           =SUM(L3:L36)                                                
+M38      118555.86                                                    =SUM(M3:M36)                                                
+N38      126952.53                                                    =SUM(N3:N36)                                                
+O38      120306.68000000001                                           =SUM(O3:O36)                                                
+P38      114566.33                                                    =SUM(P3:P36)                                                
+Q38      121003.03999999998                                           =SUM(Q3:Q36)                                                
+R38      121803.12                                                    =SUM(R3:R36)                                                
+S38      121287.69                                                    =SUM(S3:S36)                                                
+T38      119602.05                                                    =SUM(T3:T36)                                                
+U38      117708.99999999999                                           =SUM(U3:U36)                                                
+V38      1425699.23                                                   =SUM(V3:V36)                                                
+B39      Input Source Data                                                                                                        
+E39      1402226.1899999997                                                                                                       
+F39      1664626.75                                                                                                               
+G39      1425699.23                                                   =V39                                                        
+J39      114720.74999999999                                                                                                       
+K39      107550.46                                                                                                                
+L39      121641.71999999999                                                                                                       
+M39      118555.86                                                                                                                
+N39      126952.53                                                                                                                
+O39      120306.68000000001                                                                                                       
+P39      114566.33                                                                                                                
+Q39      121003.03999999998                                                                                                       
+R39      121803.12                                                                                                                
+S39      121287.69                                                                                                                
+T39      119602.05                                                                                                                
+U39      117708.99999999999                                                                                                       
+V39      1425699.23                                                                                                               
+B40      Check                                                                                                                    
+D40      OK                                                           =IF(D38=D39,"OK")                                           
+E40      OK                                                           =IF(E38=E39,"OK")                                           
+F40      OK                                                           =IF(F38=F39,"OK")                                           
+G40      OK                                                           =IF(G38=G39,"OK")                                           
+H40      N/A                                                                                                                      
+J40      OK                                                           =IF(J38=J39,"OK")                                           
+K40      OK                                                           =IF(K38=K39,"OK")                                           
+L40      OK                                                           =IF(L38=L39,"OK")                                           
+M40      OK                                                           =IF(M38=M39,"OK")                                           
+N40      OK                                                           =IF(N38=N39,"OK")                                           
+O40      OK                                                           =IF(O38=O39,"OK")                                           
+P40      OK                                                           =IF(P38=P39,"OK")                                           
+Q40      OK                                                           =IF(Q38=Q39,"OK")                                           
+R40      OK                                                           =IF(R38=R39,"OK")                                           
+S40      OK                                                           =IF(S38=S39,"OK")                                           
+T40      OK                                                           =IF(T38=T39,"OK")                                           
+U40      OK                                                           =IF(U38=U39,"OK")                                           
+V40      OK                                                           =IF(V38=V39,"OK")                                           
+A42      Choose Expense Category                                                                                                  
+B42      Input Source Data                                                                                                        
+D42      Input Source Epense Data                                                                                                 
+H42      3                                                            =H1                                                         
+J42      NOV 24                                                       =J2                                                         
+K42      DEC 24                                                       =K2                                                         
+L42      JAN 25                                                       =L2                                                         
+M42      FEB 25                                                       =M2                                                         
+N42      MAR 25                                                       =N2                                                         
+O42      APR 25                                                       =O2                                                         
+P42      MAY 25                                                       =P2                                                         
+Q42      JUN 25                                                       =Q2                                                         
+R42      JUL 25                                                       =R2                                                         
+S42      AUG 25                                                       =S2                                                         
+T42      SEP 25                                                       =T2                                                         
+U42      OCT 25                                                       =U2                                                         
+V42      Total                                                                                                                    
+G43      0                                                            =V43                                                        
+H43      0                                                            =((SUM(S43:U43)/$H$1)*12)                                   
+V43      0                                                            =SUM(J43:U43)                                               
+A44      Management Fee                                                                                                           
+B44          5000 Management Fees Expense                                                                                         
+E44      41908.27                                                                                                                 
+F44      50720.6535                                                                                                               
+G44      43799.97                                                     =V44                                                        
+H44      42227.04                                                     =((SUM(S44:U44)/$H$1)*12)                                   
+J44      3420.21                                                                                                                  
+K44      4344.21                                                                                                                  
+L44      3638.85                                                                                                                  
+M44      3638.84                                                                                                                  
+N44      3723.95                                                                                                                  
+O44      3673.68                                                                                                                  
+P44      3638.72                                                                                                                  
+Q44      3620.6                                                                                                                   
+R44      3544.15                                                                                                                  
+S44      3520.16                                                                                                                  
+T44      3506.55                                                                                                                  
+U44      3530.05                                                                                                                  
+V44      43799.97                                                     =SUM(J44:U44)                                               
+A45      Advertising                                                                                                              
+B45          5001 Advertising                                                                                                     
+E45      2241.33                                                                                                                  
+F45      2468.26                                                                                                                  
+G45      2468.26                                                      =V45                                                        
+H45      1875.8                                                       =((SUM(S45:U45)/$H$1)*12)                                   
+J45      0                                                                                                                        
+K45      1448                                                                                                                     
+L45      58.2                                                                                                                     
+M45      58.2                                                                                                                     
+N45      58.2                                                                                                                     
+O45      58.2                                                                                                                     
+P45      202.12                                                                                                                   
+Q45      58.2                                                                                                                     
+R45      58.19                                                                                                                    
+S45      310.28                                                                                                                   
+T45      100.48                                                                                                                   
+U45      58.19                                                                                                                    
+V45      2468.26                                                      =SUM(J45:U45)                                               
+B47          5050 Insurance Expense (non-posting)                                                                                 
+G47      0                                                            =V47                                                        
+H47      0                                                            =((SUM(S47:U47)/$H$1)*12)                                   
+V47      0                                                            =SUM(J47:U47)                                               
+A48      Omitt Expense                                                                                                            
+B48              5051 Car Insurance Expense                                                                                       
+F48      1375.8000000000002                                                                                                       
+G48      925.25                                                       =V48                                                        
+H48      1395.2                                                       =((SUM(S48:U48)/$H$1)*12)                                   
+J48      0                                                                                                                        
+K48      0                                                                                                                        
+L48      0                                                                                                                        
+M48      0                                                                                                                        
+N48      137.25                                                                                                                   
+O48      109.8                                                                                                                    
+P48      109.8                                                                                                                    
+Q48      109.8                                                                                                                    
+R48      109.8                                                                                                                    
+S48      109.8                                                                                                                    
+T48      119.5                                                                                                                    
+U48      119.5                                                                                                                    
+V48      925.25                                                       =SUM(J48:U48)                                               
+A49      Insurance                                                                                                                
+B49              5053 Liability Insurance Expense                                                                                 
+E49      38202.91                                                                                                                 
+F49      32735.25                                                                                                                 
+G49      36755.72                                                     =V49                                                        
+H49      32946.24                                                     =((SUM(S49:U49)/$H$1)*12)                                   
+J49      3230.91                                                                                                                  
+K49      3234.24                                                                                                                  
+L49      3224.27                                                                                                                  
+M49      3230.91                                                                                                                  
+N49      3230.91                                                                                                                  
+O49      3230.91                                                                                                                  
+P49      3230.91                                                                                                                  
+Q49      3230.91                                                                                                                  
+R49      2675.19                                                                                                                  
+S49      2675.19                                                                                                                  
+T49      2675.19                                                                                                                  
+U49      2886.18                                                                                                                  
+V49      36755.72                                                     =SUM(J49:U49)                                               
+B51          5060 Legal and Other Professional Fees (non-posting)                                                                 
+G51      0                                                            =V51                                                        
+H51      0                                                            =((SUM(S51:U51)/$H$1)*12)                                   
+V51      0                                                            =SUM(J51:U51)                                               
+A52      Professional Fees                                                                                                        
+B52              5061 Professional Fees                                                                                           
+E52      1298.75                                                                                                                  
+A53      Professional Fees                                                                                                        
+B53              5062 Legal Fees                                                                                                  
+E53      3598                                                                                                                     
+F53      4201.25                                                                                                                  
+G53      4201.25                                                      =V53                                                        
+H53      220                                                          =((SUM(S53:U53)/$H$1)*12)                                   
+J53      385                                                                                                                      
+K53      0                                                                                                                        
+L53      0                                                                                                                        
+M53      0                                                                                                                        
+N53      330                                                                                                                      
+O53      0                                                                                                                        
+P53      1305.25                                                                                                                  
+Q53      1878.5                                                                                                                   
+R53      247.5                                                                                                                    
+S53      55                                                                                                                       
+T53      0                                                                                                                        
+U53      0                                                                                                                        
+V53      4201.25                                                      =SUM(J53:U53)                                               
+A54      Professional Fees                                                                                                        
+B54              5066 Training & Conferences                                                                                      
+E54      662.08                                                                                                                   
+A55      G&A                                                                                                                      
+B55          5070 Licenses & Permits                                                                                              
+E55      1657                                                                                                                     
+F55      1785.13                                                                                                                  
+G55      1785.13                                                      =V55                                                        
+H55      1642                                                         =((SUM(S55:U55)/$H$1)*12)                                   
+J55      418.5                                                                                                                    
+K55      103.5                                                                                                                    
+L55      103.5                                                                                                                    
+M55      103.5                                                                                                                    
+N55      103.5                                                                                                                    
+O55      103.5                                                                                                                    
+P55      231.63                                                                                                                   
+Q55      103.5                                                                                                                    
+R55      103.5                                                                                                                    
+S55      103.5                                                                                                                    
+T55      103.5                                                                                                                    
+U55      203.5                                                                                                                    
+V55      1785.13                                                      =SUM(J55:U55)                                               
+A56      G&A                                                                                                                      
+B56          5072 Dues & Subscriptions                                                                                            
+E56      1800                                                                                                                     
+F56      1300                                                                                                                     
+G56      1300                                                         =V56                                                        
+H56      1950                                                         =((SUM(S56:U56)/$H$1)*12)                                   
+J56      0                                                                                                                        
+K56      0                                                                                                                        
+L56      0                                                                                                                        
+M56      0                                                                                                                        
+N56      162.5                                                                                                                    
+O56      162.5                                                                                                                    
+P56      162.5                                                                                                                    
+Q56      162.5                                                                                                                    
+R56      162.5                                                                                                                    
+S56      162.5                                                                                                                    
+T56      162.5                                                                                                                    
+U56      162.5                                                                                                                    
+V56      1300                                                         =SUM(J56:U56)                                               
+B58          5100 Repairs & Maintenance Expense (non-posting)                                                                     
+G58      0                                                            =V58                                                        
+H58      0                                                            =((SUM(S58:U58)/$H$1)*12)                                   
+V58      0                                                            =SUM(J58:U58)                                               
+A59      Ground Maintenance                                                                                                       
+B59              5102 Tree Maintenance                                                                                            
+F59      3000                                                                                                                     
+G59      3000                                                         =V59                                                        
+H59      12000                                                        =((SUM(S59:U59)/$H$1)*12)                                   
+J59      0                                                                                                                        
+K59      0                                                                                                                        
+L59      0                                                                                                                        
+M59      0                                                                                                                        
+N59      0                                                                                                                        
+O59      0                                                                                                                        
+P59      0                                                                                                                        
+Q59      0                                                                                                                        
+R59      0                                                                                                                        
+S59      0                                                                                                                        
+T59      1500                                                                                                                     
+U59      1500                                                                                                                     
+V59      3000                                                         =SUM(J59:U59)                                               
+A60      Ground Maintenance                                                                                                       
+B60              5103 Pest Control                                                                                                
+F60      11.99                                                                                                                    
+G60      11.99                                                        =V60                                                        
+H60      0                                                            =((SUM(S60:U60)/$H$1)*12)                                   
+J60      0                                                                                                                        
+K60      0                                                                                                                        
+L60      11.99                                                                                                                    
+M60      0                                                                                                                        
+N60      0                                                                                                                        
+O60      0                                                                                                                        
+P60      0                                                                                                                        
+Q60      0                                                                                                                        
+R60      0                                                                                                                        
+S60      0                                                                                                                        
+T60      0                                                                                                                        
+U60      0                                                                                                                        
+V60      11.99                                                        =SUM(J60:U60)                                               
+A61      Ground Maintenance                                                                                                       
+B61              5104 Grounds Maintenance                                                                                         
+E61      15809.99                                                                                                                 
+F61      10931.65                                                                                                                 
+G61      10931.65                                                     =V61                                                        
+H61      37162                                                        =((SUM(S61:U61)/$H$1)*12)                                   
+J61      0                                                                                                                        
+K61      0                                                                                                                        
+L61      39                                                                                                                       
+M61      0                                                                                                                        
+N61      52                                                                                                                       
+O61      22.98                                                                                                                    
+P61      956.19                                                                                                                   
+Q61      423.6                                                                                                                    
+R61      147.38                                                                                                                   
+S61      560.66                                                                                                                   
+T61      4229.84                                                                                                                  
+U61      4500                                                                                                                     
+V61      10931.65                                                     =SUM(J61:U61)                                               
+A62      Repair and Maintenance                                                                                                   
+B62              5107 Septic Pumping & Repair                                                                                     
+F62      875                                                                                                                      
+G62      875                                                          =V62                                                        
+H62      3500                                                         =((SUM(S62:U62)/$H$1)*12)                                   
+J62      0                                                                                                                        
+K62      0                                                                                                                        
+L62      0                                                                                                                        
+M62      0                                                                                                                        
+N62      0                                                                                                                        
+O62      0                                                                                                                        
+P62      0                                                                                                                        
+Q62      0                                                                                                                        
+R62      0                                                                                                                        
+S62      875                                                                                                                      
+T62      0                                                                                                                        
+U62      0                                                                                                                        
+V62      875                                                          =SUM(J62:U62)                                               
+A63      Repair and Maintenance                                                                                                   
+B63              5108 Plumbing                                                                                                    
+E63      13891.86                                                                                                                 
+F63      2885.8                                                                                                                   
+G63      2885.7999999999997                                           =V63                                                        
+H63      3805.44                                                      =((SUM(S63:U63)/$H$1)*12)                                   
+J63      0                                                                                                                        
+K63      0                                                                                                                        
+L63      193.79                                                                                                                   
+M63      156.91                                                                                                                   
+N63      128.71                                                                                                                   
+O63      978.54                                                                                                                   
+P63      0                                                                                                                        
+Q63      23.8                                                                                                                     
+R63      452.69                                                                                                                   
+S63      907.51                                                                                                                   
+T63      43.85                                                                                                                    
+U63      0                                                                                                                        
+V63      2885.7999999999997                                           =SUM(J63:U63)                                               
+A64      Repair and Maintenance                                                                                                   
+B64              5109 Miscellaneous Repairs Expense                                                                               
+E64      826.32                                                                                                                   
+F64      45.98                                                                                                                    
+G64      45.98                                                        =V64                                                        
+H64      0                                                            =((SUM(S64:U64)/$H$1)*12)                                   
+J64      0                                                                                                                        
+K64      45.98                                                                                                                    
+L64      0                                                                                                                        
+M64      0                                                                                                                        
+N64      0                                                                                                                        
+O64      0                                                                                                                        
+P64      0                                                                                                                        
+Q64      0                                                                                                                        
+R64      0                                                                                                                        
+S64      0                                                                                                                        
+T64      0                                                                                                                        
+U64      0                                                                                                                        
+V64      45.98                                                        =SUM(J64:U64)                                               
+A65      Repair and Maintenance                                                                                                   
+B65              5110 Equipment Repairs & Parts                                                                                   
+E65      1883.59                                                                                                                  
+F65      1582.67                                                                                                                  
+G65      1582.67                                                      =V65                                                        
+H65      0                                                            =((SUM(S65:U65)/$H$1)*12)                                   
+J65      799.99                                                                                                                   
+K65      0                                                                                                                        
+L65      179.95                                                                                                                   
+M65      49.97                                                                                                                    
+N65      109.99                                                                                                                   
+O65      59.98                                                                                                                    
+P65      98.92                                                                                                                    
+Q65      0                                                                                                                        
+R65      283.87                                                                                                                   
+S65      0                                                                                                                        
+T65      0                                                                                                                        
+U65      0                                                                                                                        
+V65      1582.67                                                      =SUM(J65:U65)                                               
+A66      Repair and Maintenance                                                                                                   
+B66              5111 Electrical & Gas Repairs                                                                                    
+E66      1615.8                                                                                                                   
+F66      760.38                                                                                                                   
+G66      760.3800000000001                                            =V66                                                        
+H66      0                                                            =((SUM(S66:U66)/$H$1)*12)                                   
+J66      0                                                                                                                        
+K66      0                                                                                                                        
+L66      280.41                                                                                                                   
+M66      0                                                                                                                        
+N66      324.99                                                                                                                   
+O66      0                                                                                                                        
+P66      0                                                                                                                        
+Q66      154.98                                                                                                                   
+R66      0                                                                                                                        
+S66      0                                                                                                                        
+T66      0                                                                                                                        
+U66      0                                                                                                                        
+V66      760.3800000000001                                            =SUM(J66:U66)                                               
+A67      Repair and Maintenance                                                                                                   
+B67              5200 Park Supplies                                                                                               
+E67      5682.08                                                                                                                  
+F67      4264.95                                                                                                                  
+G67      4264.95                                                      =V67                                                        
+H67      1988.12                                                      =((SUM(S67:U67)/$H$1)*12)                                   
+J67      961.98                                                                                                                   
+K67      401.93                                                                                                                   
+L67      1133.66                                                                                                                  
+M67      253.12                                                                                                                   
+N67      330.02                                                                                                                   
+O67      144.84                                                                                                                   
+P67      218.69                                                                                                                   
+Q67      174.35                                                                                                                   
+R67      149.33                                                                                                                   
+S67      185.95                                                                                                                   
+T67      311.08                                                                                                                   
+U67      0                                                                                                                        
+V67      4264.95                                                      =SUM(J67:U67)                                               
+B69          5300 Taxes Expense (non-posting)                                                                                     
+G69      0                                                            =V69                                                        
+H69      0                                                            =((SUM(S69:U69)/$H$1)*12)                                   
+V69      0                                                            =SUM(J69:U69)                                               
+A70      RE Taxes                                                                                                                 
+B70              5301 Property Taxes                                                                                              
+E70      14886.53                                                                                                                 
+F70      15390.51                                                                                                                 
+G70      15390.510000000002                                           =V70                                                        
+H70      14921.16                                                     =((SUM(S70:U70)/$H$1)*12)                                   
+J70      1243.41                                                                                                                  
+K70      1243.41                                                                                                                  
+L70      1492.92                                                                                                                  
+M70      1243.41                                                                                                                  
+N70      1243.41                                                                                                                  
+O70      1463.39                                                                                                                  
+P70      1243.41                                                                                                                  
+Q70      1243.43                                                                                                                  
+R70      1243.43                                                                                                                  
+S70      1243.43                                                                                                                  
+T70      1243.43                                                                                                                  
+U70      1243.43                                                                                                                  
+V70      15390.510000000002                                           =SUM(J70:U70)                                               
+B72          5400 Utilities Expense (non-posting)                                                                                 
+G72      0                                                            =V72                                                        
+H72      0                                                            =((SUM(S72:U72)/$H$1)*12)                                   
+V72      0                                                            =SUM(J72:U72)                                               
+A73      Omitt Expense                                                                                                            
+B73              5401 Fuel for Vehicles                                                                                           
+E73      772.79                                                                                                                   
+F73      1000.86                                                                                                                  
+G73      1000.8599999999999                                           =V73                                                        
+H73      148.96                                                       =((SUM(S73:U73)/$H$1)*12)                                   
+J73      0                                                                                                                        
+K73      75.48                                                                                                                    
+L73      185.18                                                                                                                   
+M73      75.21                                                                                                                    
+N73      135.36                                                                                                                   
+O73      108.36                                                                                                                   
+P73      109.17                                                                                                                   
+Q73      134.92                                                                                                                   
+R73      139.94                                                                                                                   
+S73      37.24                                                                                                                    
+T73      0                                                                                                                        
+U73      0                                                                                                                        
+V73      1000.8599999999999                                           =SUM(J73:U73)                                               
+A74      Water and Sewer                                                                                                          
+B74              5402 Water & Sewer                                                                                               
+E74      34291.65                                                                                                                 
+F74      45228.16                                                                                                                 
+G74      45228.16                                                     =V74                                                        
+H74      45036.72                                                     =((SUM(S74:U74)/$H$1)*12)                                   
+J74      1742.75                                                                                                                  
+K74      5356.91                                                                                                                  
+L74      4854.39                                                                                                                  
+M74      5684.17                                                                                                                  
+N74      2829.28                                                                                                                  
+O74      3249.08                                                                                                                  
+P74      2909.62                                                                                                                  
+Q74      2510.64                                                                                                                  
+R74      4832.14                                                                                                                  
+S74      3850.64                                                                                                                  
+T74      3078.27                                                                                                                  
+U74      4330.27                                                                                                                  
+V74      45228.16                                                     =SUM(J74:U74)                                               
+A75      Water and Sewer                                                                                                          
+B75              5403 Water Testing                                                                                               
+E75      14154.71                                                                                                                 
+F75      12049.12                                                                                                                 
+G75      12049.12                                                     =V75                                                        
+H75      13820                                                        =((SUM(S75:U75)/$H$1)*12)                                   
+J75      862.42                                                                                                                   
+K75      55                                                                                                                       
+L75      2082.1                                                                                                                   
+M75      955                                                                                                                      
+N75      990                                                                                                                      
+O75      900                                                                                                                      
+P75      935                                                                                                                      
+Q75      917.3                                                                                                                    
+R75      897.3                                                                                                                    
+S75      0                                                                                                                        
+T75      1755                                                                                                                     
+U75      1700                                                                                                                     
+V75      12049.12                                                     =SUM(J75:U75)                                               
+A76      Electricity                                                                                                              
+B76              5404 Electric                                                                                                    
+E76      92726.76                                                                                                                 
+F76      93309.56                                                                                                                 
+G76      93309.56                                                     =V76                                                        
+H76      74957.8                                                      =((SUM(S76:U76)/$H$1)*12)                                   
+J76      6947.07                                                                                                                  
+K76      8871.79                                                                                                                  
+L76      8845.15                                                                                                                  
+M76      9808.06                                                                                                                  
+N76      9372.18                                                                                                                  
+O76      9800.4                                                                                                                   
+P76      7480.45                                                                                                                  
+Q76      7135.25                                                                                                                  
+R76      6309.76                                                                                                                  
+S76      6385.77                                                                                                                  
+T76      6149.59                                                                                                                  
+U76      6204.09                                                                                                                  
+V76      93309.56                                                     =SUM(J76:U76)                                               
+A77      Trash Removal                                                                                                            
+B77              5405 Garbage                                                                                                     
+E77      22567.67                                                                                                                 
+F77      22439.25                                                                                                                 
+G77      22439.25                                                     =V77                                                        
+H77      19444.36                                                     =((SUM(S77:U77)/$H$1)*12)                                   
+J77      1676.5                                                                                                                   
+K77      2209.9                                                                                                                   
+L77      2020.55                                                                                                                  
+M77      1804.37                                                                                                                  
+N77      2280.27                                                                                                                  
+O77      1771.04                                                                                                                  
+P77      1893.85                                                                                                                  
+Q77      1957.44                                                                                                                  
+R77      1964.24                                                                                                                  
+S77      1848.32                                                                                                                  
+T77      1928.85                                                                                                                  
+U77      1083.92                                                                                                                  
+V77      22439.25                                                     =SUM(J77:U77)                                               
+A78      Gas/Fuel                                                                                                                 
+B78              5406 Gas & Propane                                                                                               
+E78      1071.81                                                                                                                  
+F78      1806.08                                                                                                                  
+G78      1806.08                                                      =V78                                                        
+H78      0                                                            =((SUM(S78:U78)/$H$1)*12)                                   
+J78      0                                                                                                                        
+K78      0                                                                                                                        
+L78      0                                                                                                                        
+M78      0                                                                                                                        
+N78      1794.08                                                                                                                  
+O78      0                                                                                                                        
+P78      0                                                                                                                        
+Q78      12                                                                                                                       
+R78      0                                                                                                                        
+S78      0                                                                                                                        
+T78      0                                                                                                                        
+U78      0                                                                                                                        
+V78      1806.08                                                      =SUM(J78:U78)                                               
+A79      G&A                                                                                                                      
+B79              5407 Tenant Cable TV                                                                                             
+E79      59153.32                                                                                                                 
+F79      69425.98                                                                                                                 
+G79      69425.98                                                     =V79                                                        
+H79      70281.84                                                     =((SUM(S79:U79)/$H$1)*12)                                   
+J79      5429.57                                                                                                                  
+K79      5428.21                                                                                                                  
+L79      5856.82                                                                                                                  
+M79      5856.82                                                                                                                  
+N79      5856.82                                                                                                                  
+O79      5856.82                                                                                                                  
+P79      5856.82                                                                                                                  
+Q79      5856.82                                                                                                                  
+R79      5856.82                                                                                                                  
+S79      5856.82                                                                                                                  
+T79      5856.82                                                                                                                  
+U79      5856.82                                                                                                                  
+V79      69425.98                                                     =SUM(J79:U79)                                               
+A80      Repair and Maintenance                                                                                                   
+B80              5409 Rentals - Coin Laundry                                                                                      
+E80      989.58                                                                                                                   
+F80      1080                                                                                                                     
+G80      1080                                                         =V80                                                        
+H80      1080                                                         =((SUM(S80:U80)/$H$1)*12)                                   
+J80      90                                                                                                                       
+K80      90                                                                                                                       
+L80      90                                                                                                                       
+M80      90                                                                                                                       
+N80      90                                                                                                                       
+O80      90                                                                                                                       
+P80      90                                                                                                                       
+Q80      90                                                                                                                       
+R80      90                                                                                                                       
+S80      90                                                                                                                       
+T80      90                                                                                                                       
+U80      90                                                                                                                       
+V80      1080                                                         =SUM(J80:U80)                                               
+B82          5600 Office Expense (non-posting)                                                                                    
+G82      0                                                            =V82                                                        
+H82      0                                                            =((SUM(S82:U82)/$H$1)*12)                                   
+V82      0                                                            =SUM(J82:U82)                                               
+A83      G&A                                                                                                                      
+B83              5601 Office Supplies                                                                                             
+E83      478.95                                                                                                                   
+F83      208.06                                                                                                                   
+G83      208.06                                                       =V83                                                        
+H83      173.28                                                       =((SUM(S83:U83)/$H$1)*12)                                   
+J83      89.49                                                                                                                    
+K83      0                                                                                                                        
+L83      0                                                                                                                        
+M83      0                                                                                                                        
+N83      0                                                                                                                        
+O83      0                                                                                                                        
+P83      0                                                                                                                        
+Q83      75.25                                                                                                                    
+R83      0                                                                                                                        
+S83      0                                                                                                                        
+T83      43.32                                                                                                                    
+U83      0                                                                                                                        
+V83      208.06                                                       =SUM(J83:U83)                                               
+A84      G&A                                                                                                                      
+B84              5602 Internet Services                                                                                           
+E84      2269.73                                                                                                                  
+F84      1323.75                                                                                                                  
+G84      1323.75                                                      =V84                                                        
+H84      1199.8799999999999                                           =((SUM(S84:U84)/$H$1)*12)                                   
+J84      219.99                                                                                                                   
+K84      103.86                                                                                                                   
+L84      99.99                                                                                                                    
+M84      99.99                                                                                                                    
+N84      99.99                                                                                                                    
+O84      99.99                                                                                                                    
+P84      99.99                                                                                                                    
+Q84      99.99                                                                                                                    
+R84      99.99                                                                                                                    
+S84      99.99                                                                                                                    
+T84      99.99                                                                                                                    
+U84      99.99                                                                                                                    
+V84      1323.75                                                      =SUM(J84:U84)                                               
+A85      G&A                                                                                                                      
+B85              5603 Telephone Services                                                                                          
+E85      1151.61                                                                                                                  
+F85      501.61                                                                                                                   
+G85      501.61                                                       =V85                                                        
+H85      180                                                          =((SUM(S85:U85)/$H$1)*12)                                   
+J85      95                                                                                                                       
+K85      61.61                                                                                                                    
+L85      60                                                                                                                       
+M85      60                                                                                                                       
+N85      60                                                                                                                       
+O85      30                                                                                                                       
+P85      30                                                                                                                       
+Q85      30                                                                                                                       
+R85      30                                                                                                                       
+S85      30                                                                                                                       
+T85      15                                                                                                                       
+U85      0                                                                                                                        
+V85      501.61                                                       =SUM(J85:U85)                                               
+A86      Omitt Expense                                                                                                            
+B86              5605 Postage-Seller specific                                                                                     
+E86      1031.41                                                                                                                  
+F86      0                                                                                                                        
+G86      1189.6299999999999                                           =V86                                                        
+H86      1179.16                                                      =((SUM(S86:U86)/$H$1)*12)                                   
+J86      60.18                                                                                                                    
+K86      60.14                                                                                                                    
+L86      85.9                                                                                                                     
+M86      113.89                                                                                                                   
+N86      130.12                                                                                                                   
+O86      167.45                                                                                                                   
+P86      73.78                                                                                                                    
+Q86      89.59                                                                                                                    
+R86      113.79                                                                                                                   
+S86      85.95                                                                                                                    
+T86      141.48                                                                                                                   
+U86      67.36                                                                                                                    
+V86      1189.6299999999999                                           =SUM(J86:U86)                                               
+A87      G&A                                                                                                                      
+B87              5606 Background Checks                                                                                           
+E87      479.5                                                                                                                    
+F87      458                                                                                                                      
+G87      458                                                          =V87                                                        
+H87      273                                                          =((SUM(S87:U87)/$H$1)*12)                                   
+J87      94                                                                                                                       
+K87      45.5                                                                                                                     
+L87      0                                                                                                                        
+M87      113.75                                                                                                                   
+N87      45.5                                                                                                                     
+O87      0                                                                                                                        
+P87      0                                                                                                                        
+Q87      91                                                                                                                       
+R87      0                                                                                                                        
+S87      0                                                                                                                        
+T87      0                                                                                                                        
+U87      68.25                                                                                                                    
+V87      458                                                          =SUM(J87:U87)                                               
+A88      G&A                                                                                                                      
+B88              5650 Bank Fees                                                                                                   
+E88      7643.4                                                                                                                   
+F88      7968.7                                                                                                                   
+G88      7968.699999999999                                            =V88                                                        
+H88      5367.360000000001                                            =((SUM(S88:U88)/$H$1)*12)                                   
+J88      757.42                                                                                                                   
+K88      802.72                                                                                                                   
+L88      780.66                                                                                                                   
+M88      718.74                                                                                                                   
+N88      813.06                                                                                                                   
+O88      740.97                                                                                                                   
+P88      683.7                                                                                                                    
+Q88      691.65                                                                                                                   
+R88      637.94                                                                                                                   
+S88      680.35                                                                                                                   
+T88      661.49                                                                                                                   
+U88      0                                                                                                                        
+V88      7968.699999999999                                            =SUM(J88:U88)                                               
+B91          5700 Personnel                                                                                                       
+G91      0                                                            =V91                                                        
+H91      0                                                            =((SUM(S91:U91)/$H$1)*12)                                   
+V91      0                                                            =SUM(J91:U91)                                               
+A92      Payroll                                                                                                                  
+B92              5701 Wages, Salary                                                                                               
+E92      70607.47                                                                                                                 
+F92      48650.08                                                                                                                 
+G92      48650.08                                                     =V92                                                        
+H92      26161.559999999998                                           =((SUM(S92:U92)/$H$1)*12)                                   
+J92      2392.28                                                                                                                  
+K92      2576.2                                                                                                                   
+L92      5146.42                                                                                                                  
+M92      5145.7                                                                                                                   
+N92      4240.97                                                                                                                  
+O92      5086.94                                                                                                                  
+P92      4434.42                                                                                                                  
+Q92      6775.43                                                                                                                  
+R92      6311.33                                                                                                                  
+S92      6118.65                                                                                                                  
+T92      421.74                                                                                                                   
+U92      0                                                                                                                        
+V92      48650.08                                                     =SUM(J92:U92)                                               
+A93      Payroll                                                                                                                  
+B93              5702 Health Insurance                                                                                            
+E93      236.64                                                                                                                   
+F93      1025.92                                                                                                                  
+G93      1025.92                                                      =V93                                                        
+H93      513.52                                                       =((SUM(S93:U93)/$H$1)*12)                                   
+J93      0                                                                                                                        
+K93      0                                                                                                                        
+L93      128.1                                                                                                                    
+M93      128.1                                                                                                                    
+N93      128.1                                                                                                                    
+O93      128.1                                                                                                                    
+P93      128.38                                                                                                                   
+Q93      128.38                                                                                                                   
+R93      128.38                                                                                                                   
+S93      128.38                                                                                                                   
+T93      0                                                                                                                        
+U93      0                                                                                                                        
+V93      1025.92                                                      =SUM(J93:U93)                                               
+A94      Payroll                                                                                                                  
+B94              5703 Casual Labour                                                                                               
+E94      2979                                                                                                                     
+F94      22505                                                                                                                    
+G94      22505                                                        =V94                                                        
+H94      83560                                                        =((SUM(S94:U94)/$H$1)*12)                                   
+J94      0                                                                                                                        
+K94      0                                                                                                                        
+L94      510                                                                                                                      
+M94      0                                                                                                                        
+N94      880                                                                                                                      
+O94      0                                                                                                                        
+P94      0                                                                                                                        
+Q94      0                                                                                                                        
+R94      225                                                                                                                      
+S94      90                                                                                                                       
+T94      10400                                                                                                                    
+U94      10400                                                                                                                    
+V94      22505                                                        =SUM(J94:U94)                                               
+A95      Payroll                                                                                                                  
+B95              5704 Unemployment Insurance                                                                                      
+E95      4416.99                                                                                                                  
+F95      3118.45                                                                                                                  
+G95      3118.4500000000003                                           =V95                                                        
+H95      1157.6                                                       =((SUM(S95:U95)/$H$1)*12)                                   
+J95      336.63                                                                                                                   
+K95      373.1                                                                                                                    
+L95      371.72                                                                                                                   
+M95      377.08                                                                                                                   
+N95      322.83                                                                                                                   
+O95      271.31                                                                                                                   
+P95      229.84                                                                                                                   
+Q95      274.04                                                                                                                   
+R95      272.5                                                                                                                    
+S95      266.63                                                                                                                   
+T95      22.77                                                                                                                    
+U95      0                                                                                                                        
+V95      3118.4500000000003                                           =SUM(J95:U95)                                               
+A96      Payroll                                                                                                                  
+B96              5705 Payroll Service Fee                                                                                         
+E96      2310.53                                                                                                                  
+F96      1474.62                                                                                                                  
+G96      1474.6200000000001                                           =V96                                                        
+H96      620.76                                                       =((SUM(S96:U96)/$H$1)*12)                                   
+J96      145.11                                                                                                                   
+K96      193.48                                                                                                                   
+L96      193.48                                                                                                                   
+M96      193.48                                                                                                                   
+N96      193.48                                                                                                                   
+O96      96.74                                                                                                                    
+P96      96.74                                                                                                                    
+Q96      103.46                                                                                                                   
+R96      103.46                                                                                                                   
+S96      103.46                                                                                                                   
+T96      51.73                                                                                                                    
+U96      0                                                                                                                        
+V96      1474.6200000000001                                           =SUM(J96:U96)                                               
+A97      Payroll                                                                                                                  
+B97              5706 FUTA                                                                                                        
+E97      182.05                                                                                                                   
+F97      93.02                                                                                                                    
+G97      93.02                                                        =V97                                                        
+H97      0                                                            =((SUM(S97:U97)/$H$1)*12)                                   
+J97      0                                                                                                                        
+K97      14.04                                                                                                                    
+L97      41.29                                                                                                                    
+M97      26.91                                                                                                                    
+N97      10.78                                                                                                                    
+O97      0                                                                                                                        
+P97      0                                                                                                                        
+Q97      0                                                                                                                        
+R97      0                                                                                                                        
+S97      0                                                                                                                        
+T97      0                                                                                                                        
+U97      0                                                                                                                        
+V97      93.02                                                        =SUM(J97:U97)                                               
+A98      Payroll                                                                                                                  
+B98              5708 Social Security Tax                                                                                         
+E98      6257.36                                                                                                                  
+F98      4432.18                                                                                                                  
+G98      4432.18                                                      =V98                                                        
+H98      1659.2400000000002                                           =((SUM(S98:U98)/$H$1)*12)                                   
+J98      476.89                                                                                                                   
+K98      528.56                                                                                                                   
+L98      526.59                                                                                                                   
+M98      534.19                                                                                                                   
+N98      457.34                                                                                                                   
+O98      384.35                                                                                                                   
+P98      325.6                                                                                                                    
+Q98      393.01                                                                                                                   
+R98      390.84                                                                                                                   
+S98      382.54                                                                                                                   
+T98      32.27                                                                                                                    
+U98      0                                                                                                                        
+V98      4432.18                                                      =SUM(J98:U98)                                               
+A99      Payroll                                                                                                                  
+B99              5710 Leasing Mgr Salary Allocation                                                                               
+E99      19556.25                                                                                                                 
+A100     Payroll                                                                                                                  
+B100             5713 OR Workers Benefit Fund                                                                                     
+E100     361.22                                                                                                                   
+F100     251.23                                                                                                                   
+G100     251.22999999999996                                           =V100                                                       
+H100     93.2                                                         =((SUM(S100:U100)/$H$1)*12)                                 
+J100     27.08                                                                                                                    
+K100     29.97                                                                                                                    
+L100     29.87                                                                                                                    
+M100     30.74                                                                                                                    
+N100     26.22                                                                                                                    
+O100     21.73                                                                                                                    
+P100     18.52                                                                                                                    
+Q100     22.07                                                                                                                    
+R100     21.73                                                                                                                    
+S100     21.45                                                                                                                    
+T100     1.85                                                                                                                     
+U100     0                                                                                                                        
+V100     251.22999999999996                                           =SUM(J100:U100)                                             
+A101     Payroll                                                                                                                  
+B101             5716 Worker's Comp Insurance                                                                                     
+E101     2463.59                                                                                                                  
+F101     1659.74                                                                                                                  
+G101     1659.74                                                      =V101                                                       
+H101     627.28                                                       =((SUM(S101:U101)/$H$1)*12)                                 
+J101     167.65                                                                                                                   
+K101     197.33                                                                                                                   
+L101     182.79                                                                                                                   
+M101     211.7                                                                                                                    
+N101     174.71                                                                                                                   
+O101     144.66                                                                                                                   
+P101     129.72                                                                                                                   
+Q101     157.33                                                                                                                   
+R101     137.03                                                                                                                   
+S101     143.62                                                                                                                   
+T101     13.2                                                                                                                     
+U101     0                                                                                                                        
+V101     1659.74                                                      =SUM(J101:U101)                                             
+D104     0                                                            =SUM(D43:D102)                                              
+E104     494118.5                                                     =SUM(E43:E102)                                              
+F104     474344.64349999995                                           =SUM(F43:F102)                                              
+G104     472183.50999999995                                           =SUM(G43:G102)                                              
+H104     503168.51999999996                                           =SUM(H43:H102)                                              
+I104     0                                                            =SUM(I43:I102)                                              
+J104     32070.030000000002                                           =SUM(J43:J102)                                              
+K104     37895.07000000001                                            =SUM(K43:K102)                                              
+L104     42447.54                                                     =SUM(L43:L102)                                              
+M104     40762.759999999995                                           =SUM(M43:M102)                                              
+N104     40866.52                                                     =SUM(N43:N102)                                              
+O104     38956.26                                                     =SUM(O43:O102)                                              
+P104     36923.73999999999                                            =SUM(P43:P102)                                              
+Q104     38729.74                                                     =SUM(Q43:Q102)                                              
+R104     37739.719999999994                                           =SUM(R43:R102)                                              
+S104     36928.78999999999                                            =SUM(S43:S102)                                              
+T104     44759.289999999986                                           =SUM(T43:T102)                                              
+U104     44104.05                                                     =SUM(U43:U102)                                              
+V104     472183.50999999995                                           =SUM(V43:V102)                                              
+B105     Input Source Data                                                                                                        
+E105     494118.5                                                                                                                 
+F105     474344.64349999995                                                                                                       
+G105     472183.50999999995                                           =V105                                                       
+J105     32070.030000000002                                                                                                       
+K105     37895.07000000001                                                                                                        
+L105     42447.54                                                                                                                 
+M105     40762.759999999995                                                                                                       
+N105     40866.52                                                                                                                 
+O105     38956.26                                                                                                                 
+P105     36923.73999999999                                                                                                        
+Q105     38729.74                                                                                                                 
+R105     37739.719999999994                                                                                                       
+S105     36928.78999999999                                                                                                        
+T105     44759.289999999986                                                                                                       
+U105     44104.05                                                                                                                 
+V105     472183.50999999995                                                                                                       
+B106     Check                                                                                                                    
+D106     OK                                                           =IF(D104=D105,"OK")                                         
+E106     OK                                                           =IF(E104=E105,"OK")                                         
+F106     OK                                                           =IF(F104=F105,"OK")                                         
+G106     OK                                                           =IF(G104=G105,"OK")                                         
+H106     N/A                                                                                                                      
+J106     OK                                                           =IF(J104=J105,"OK")                                         
+K106     OK                                                           =IF(K104=K105,"OK")                                         
+L106     OK                                                           =IF(L104=L105,"OK")                                         
+M106     OK                                                           =IF(M104=M105,"OK")                                         
+N106     OK                                                           =IF(N104=N105,"OK")                                         
+O106     OK                                                           =IF(O104=O105,"OK")                                         
+P106     OK                                                           =IF(P104=P105,"OK")                                         
+Q106     OK                                                           =IF(Q104=Q105,"OK")                                         
+R106     OK                                                           =IF(R104=R105,"OK")                                         
+S106     OK                                                           =IF(S104=S105,"OK")                                         
+T106     OK                                                           =IF(T104=T105,"OK")                                         
+U106     OK                                                           =IF(U104=U105,"OK")                                         
+V106     OK                                                           =IF(V104=V105,"OK")                                         
+B108     Net Operating Income                                                                                                     
+D108     0                                                            =D38-D104                                                   
+E108     908107.6899999997                                            =E38-E104                                                   
+F108     1190282.1065                                                 =F38-F104                                                   
+G108     953515.72                                                    =G38-G104                                                   
+H108     931226.4400000002                                            =H38-H104                                                   
+J108     82650.71999999999                                            =J38-J104                                                   
+K108     69655.39                                                     =K38-K104                                                   
+L108     79194.18                                                     =L38-L104                                                   
+M108     77793.1                                                      =M38-M104                                                   
+N108     86086.01000000001                                            =N38-N104                                                   
+O108     81350.42000000001                                            =O38-O104                                                   
+P108     77642.59000000001                                            =P38-P104                                                   
+Q108     82273.29999999999                                            =Q38-Q104                                                   
+R108     84063.4                                                      =R38-R104                                                   
+S108     84358.90000000001                                            =S38-S104                                                   
+T108     74842.76000000001                                            =T38-T104                                                   
+U108     73604.94999999998                                            =U38-U104                                                   
+V108     953515.72                                                    =V38-V104                                                   

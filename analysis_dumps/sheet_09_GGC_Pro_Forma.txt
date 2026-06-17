@@ -1,0 +1,901 @@
+SHEET: 'GGC Pro Forma'
+Dimensions: 180 rows x 100 cols
+====================================================================================================
+CELL     VALUE (resolved)                                             FORMULA / RAW                                               
+====================================================================================================
+A1       GARY GROUP CAPITAL                                                                                                       
+H1                                                                                                                                
+I1       First FY Year Post Capex Improvements                                                                                    
+D2       Avg Monthly Lot Rent                                                                                                     
+F2       964.2966101694915                                            ='Unit Mix Summary'!C12                                     
+H2       1012.4848837209302                                           =H8/'Unit Mix Summary'!$E$9/12                              
+I2       1063.1091279069765                                           =I8/'Unit Mix Summary'!$E$9/12                              
+J2       1116.2645843023254                                           =J8/'Unit Mix Summary'!$E$9/12                              
+K2       1172.0778135174419                                           =K8/'Unit Mix Summary'!$E$9/12                              
+L2       1230.6817041933139                                           =L8/'Unit Mix Summary'!$E$9/12                              
+M2       1292.21578940298                                             =M8/'Unit Mix Summary'!$E$9/12                              
+N2       1356.826578873129                                            =N8/'Unit Mix Summary'!$E$9/12                              
+O2       1424.6679078167851                                           =O8/'Unit Mix Summary'!$E$9/12                              
+P2       1495.9013032076243                                           =P8/'Unit Mix Summary'!$E$9/12                              
+Q2       1570.6963683680058                                           =Q8/'Unit Mix Summary'!$E$9/12                              
+D3       Monthly Lot $ Rent Change                                                                                                
+H3       48.18827355143867                                            =+H2-F2                                                     
+I3       50.624244186046326                                           =+I2-H2                                                     
+J3       53.15545639534889                                            =+J2-I2                                                     
+K3       55.81322921511651                                            =+K2-J2                                                     
+L3       58.60389067587198                                            =+L2-K2                                                     
+M3       61.534085209666046                                           =+M2-L2                                                     
+N3       64.61078947014903                                            =+N2-M2                                                     
+O3       67.84132894365621                                            =+O2-N2                                                     
+P3       71.23339539083918                                            =+P2-O2                                                     
+Q3       74.79506516038145                                            =+Q2-P2                                                     
+D4       Monthly Lot % Rent Change                                                                                                
+H4       0.0499724597631519                                           =+H$2/F$2-1                                                 
+I4       0.04999999999999982                                          =+I$2/H$2-1                                                 
+J4       0.050000000000000044                                         =+J$2/I$2-1                                                 
+K4       0.050000000000000266                                         =+K$2/J$2-1                                                 
+L4       0.04999999999999982                                          =+L$2/K$2-1                                                 
+M4       0.050000000000000266                                         =+M$2/L$2-1                                                 
+N4       0.050000000000000044                                         =+N$2/M$2-1                                                 
+O4       0.04999999999999982                                          =+O$2/N$2-1                                                 
+P4       0.050000000000000044                                         =+P$2/O$2-1                                                 
+Q4       0.050000000000000266                                         =+Q$2/P$2-1                                                 
+D6       T12                                                                                                                      
+E6       T3 Ann                                                                                                                   
+F6       GGC UW                                                                                                                   
+G6       UW Per Pad                                                                                                               
+H6       Year 1                                                                                                                   
+I6       Year 2                                                                                                                   
+J6       Year 3                                                                                                                   
+K6       Year 4                                                                                                                   
+L6       Year 5                                                                                                                   
+M6       Year 6                                                                                                                   
+N6       Year 7                                                                                                                   
+O6       Year 8                                                                                                                   
+P6       Year 9                                                                                                                   
+Q6       Year 10                                                                                                                  
+C7       Income                                                                                                                   
+S7       Key Assumptions                                                                                                          
+T7       Year 1                                                                                                                   
+U7       Year 2                                                                                                                   
+V7       Year 3                                                                                                                   
+W7       Year 4                                                                                                                   
+X7       Year 5                                                                                                                   
+Y7       Year 6                                                                                                                   
+Z7       Year 7                                                                                                                   
+AA7      Year 8                                                                                                                   
+AB7      Year 9                                                                                                                   
+AC7      Year 10                                                                                                                  
+C8       Gross Potential Rent                                                                                                     
+D8       1144604.47                                                   ='GGC Underwriting'!D4                                      
+E8       1165140                                                      ='GGC Underwriting'!E4                                      
+F8       1492692                                                      ='GGC Underwriting'!I4                                      
+G8       10085.756756756757                                           =F8/'GGC Underwriting'!$N$7                                 
+H8       1567326.5999999999                                           ='Unit Mix Rent Growth'!F14                                 
+I8       1645692.9299999997                                           ='Unit Mix Rent Growth'!G14                                 
+J8       1727977.5764999995                                           ='Unit Mix Rent Growth'!H14                                 
+K8       1814376.455325                                               ='Unit Mix Rent Growth'!I14                                 
+L8       1905095.27809125                                             ='Unit Mix Rent Growth'!J14                                 
+M8       2000350.0419958127                                           ='Unit Mix Rent Growth'!K14                                 
+N8       2100367.5440956037                                           ='Unit Mix Rent Growth'!L14                                 
+O8       2205385.9213003833                                           ='Unit Mix Rent Growth'!M14                                 
+P8       2315655.2173654023                                           ='Unit Mix Rent Growth'!N14                                 
+Q8       2431437.9782336727                                           ='Unit Mix Rent Growth'!O14                                 
+S8       Net Rental Growth                                                                                                        
+T8       see unit mix rent growth tab                                                                                             
+C9       Less: Vacancy                                                                                                            
+D9       0                                                            ='GGC Underwriting'!D5                                      
+E9       0                                                            ='GGC Underwriting'!E5                                      
+F9       -231972.40540540536                                          ='GGC Underwriting'!I5                                      
+G9       -1567.3811176040902                                          =F9/'GGC Underwriting'!$N$7                                 
+H9       -182247.27906976742                                          =-H8*T9                                                     
+I9       -127573.09534883719                                          =-I8*U9                                                     
+J9       -107161.40009302323                                          =-J8*V9                                                     
+K9       -112519.47009767442                                          =-K8*W9                                                     
+L9       -118145.44360255814                                          =-L8*X9                                                     
+M9       -124052.71578268605                                          =-M8*Y9                                                     
+N9       -130255.35157182039                                          =-N8*Z9                                                     
+O9       -136768.11915041137                                          =-O8*AA9                                                    
+P9       -143606.52510793193                                          =-P8*AB9                                                    
+Q9       -150786.85136332855                                          =-Q8*AC9                                                    
+S9       Min. Residential Vacancy                                                                                                 
+T9       0.11627906976744186                                          ='Unit Mix Rent Growth'!F17                                 
+U9       0.07751937984496124                                          ='Unit Mix Rent Growth'!G17                                 
+V9       0.06201550387596899                                          ='Unit Mix Rent Growth'!H17                                 
+W9       0.06201550387596899                                          ='Unit Mix Rent Growth'!I17                                 
+X9       0.06201550387596899                                          ='Unit Mix Rent Growth'!J17                                 
+Y9       0.06201550387596899                                          ='Unit Mix Rent Growth'!K17                                 
+Z9       0.06201550387596899                                          ='Unit Mix Rent Growth'!L17                                 
+AA9      0.06201550387596899                                          ='Unit Mix Rent Growth'!M17                                 
+AB9      0.06201550387596899                                          ='Unit Mix Rent Growth'!N17                                 
+AC9      0.06201550387596899                                          ='Unit Mix Rent Growth'!O17                                 
+C10      Less: Concessions                                                                                                        
+D10      0                                                            ='GGC Underwriting'!D6                                      
+E10      0                                                            ='GGC Underwriting'!E6                                      
+F10      0                                                            ='GGC Underwriting'!I6                                      
+G10      0                                                            =F10/'GGC Underwriting'!$N$7                                
+H10      0                                                            =F10+(F10*$T$14)                                            
+I10      0                                                            =H10+(H10*$U$14)                                            
+J10      0                                                            =I10+(I10*$V$14)                                            
+K10      0                                                            =J10+(J10*$W$14)                                            
+L10      0                                                            =K10+(K10*$X$14)                                            
+M10      0                                                            =L10+(L10*$Y$14)                                            
+N10      0                                                            =M10+(M10*$Z$14)                                            
+O10      0                                                            =N10+(N10*$Z$14)                                            
+P10      0                                                            =O10+(O10*$Z$14)                                            
+Q10      0                                                            =P10+(P10*$Z$14)                                            
+S10      Other Income Growth                                                                                                      
+T10      0.03                                                                                                                     
+U10      0.03                                                                                                                     
+V10      0.03                                                                                                                     
+W10      0.03                                                                                                                     
+X10      0.03                                                                                                                     
+Y10      0.03                                                                                                                     
+Z10      0.03                                                                                                                     
+AA10     0.03                                                                                                                     
+AB10     0.03                                                                                                                     
+AC10     0.03                                                                                                                     
+C11      Less: Bad Debt                                                                                                           
+D11      -26061.7                                                     ='GGC Underwriting'!D7                                      
+E11      0                                                            ='GGC Underwriting'!E7                                      
+F11      -26061.7                                                     ='GGC Underwriting'!I7                                      
+G11      -176.09256756756758                                          =F11/'GGC Underwriting'!$N$7                                
+H11      -26061.7                                                     =F11+(F11*$T$15)                                            
+I11      -26061.7                                                     =H11+(H11*$U$15)                                            
+J11      -26061.7                                                     =I11+(I11*$V$15)                                            
+K11      -26061.7                                                     =J11+(J11*$W$15)                                            
+L11      -26061.7                                                     =K11+(K11*$X$15)                                            
+M11      -26061.7                                                     =L11+(L11*$Y$15)                                            
+N11      -26061.7                                                     =M11+(M11*$Z$15)                                            
+O11      -26061.7                                                     =N11+(N11*$Z$15)                                            
+P11      -26061.7                                                     =O11+(O11*$Z$15)                                            
+Q11      -26061.7                                                     =P11+(P11*$Z$15)                                            
+S11      Home Rent Growth                                                                                                         
+T11      0.075                                                                                                                    
+U11      0.075                                                                                                                    
+V11      0.075                                                                                                                    
+W11      0.075                                                                                                                    
+X11      0.075                                                                                                                    
+Y11      0.075                                                                                                                    
+Z11      0.075                                                                                                                    
+AA11     0.075                                                                                                                    
+AB11     0.075                                                                                                                    
+AC11     0.075                                                                                                                    
+C12      Net Rental Income                                                                                                        
+D12      1118542.77                                                   =SUM(D8:D11)                                                
+E12      1165140                                                      =SUM(E8:E11)                                                
+F12      1234657.8945945946                                           =SUM(F8:F11)                                                
+G12      8342.283071585098                                            =F12/'GGC Underwriting'!$N$7                                
+H12      1359017.6209302326                                           =SUM(H8:H11)                                                
+I12      1492058.1346511627                                           =SUM(I8:I11)                                                
+J12      1594754.4764069763                                           =SUM(J8:J11)                                                
+K12      1675795.2852273255                                           =SUM(K8:K11)                                                
+L12      1760888.1344886918                                           =SUM(L8:L11)                                                
+M12      1850235.6262131266                                           =SUM(M8:M11)                                                
+N12      1944050.4925237834                                           =SUM(N8:N11)                                                
+O12      2042556.102149972                                            =SUM(O8:O11)                                                
+P12      2145986.9922574703                                           =SUM(P8:P11)                                                
+Q12      2254589.4268703437                                           =SUM(Q8:Q11)                                                
+S12      Lease to Own                                                                                                             
+T12      0                                                                                                                        
+U12      0                                                                                                                        
+V12      0                                                                                                                        
+W12      0                                                                                                                        
+X12      0                                                                                                                        
+Y12      0                                                                                                                        
+Z12      0                                                                                                                        
+AA12     0                                                                                                                        
+AB12     0                                                                                                                        
+AC12     0                                                                                                                        
+C13      YoY % Growth                                                                                                             
+S13      Parking Vacancy                                                                                                          
+T13      0.05                                                                                                                     
+U13      0.05                                                                                                                     
+V13      0.05                                                                                                                     
+W13      0.05                                                                                                                     
+X13      0.05                                                                                                                     
+Y13      0.05                                                                                                                     
+Z13      0.05                                                                                                                     
+AA13     0.05                                                                                                                     
+AB13     0.05                                                                                                                     
+AC13     0.05                                                                                                                     
+S14      Concessions                                                                                                              
+T14      0                                                                                                                        
+U14      0                                                                                                                        
+V14      0                                                                                                                        
+W14      0                                                                                                                        
+X14      0                                                                                                                        
+Y14      0                                                                                                                        
+Z14      0                                                                                                                        
+AA14     0                                                                                                                        
+AB14     0                                                                                                                        
+AC14     0                                                                                                                        
+C15      Physical Vacancy %                                                                                                       
+D15      0                                                            =-D9/D8                                                     
+E15      0                                                            =-E9/E8                                                     
+F15      -0.15540540540540537                                         =F9/F8                                                      
+H15      -0.11627906976744186                                         =H9/H8                                                      
+I15      -0.07751937984496124                                         =I9/I8                                                      
+J15      -0.06201550387596899                                         =J9/J8                                                      
+K15      -0.06201550387596899                                         =K9/K8                                                      
+L15      -0.06201550387596899                                         =L9/L8                                                      
+M15      -0.06201550387596899                                         =M9/M8                                                      
+N15      -0.06201550387596899                                         =N9/N8                                                      
+O15      -0.06201550387596899                                         =O9/O8                                                      
+P15      -0.06201550387596899                                         =P9/P8                                                      
+Q15      -0.062015503875969                                           =Q9/Q8                                                      
+S15      Bad Debt                                                                                                                 
+T15      0                                                                                                                        
+U15      0                                                                                                                        
+V15      0                                                                                                                        
+W15      0                                                                                                                        
+X15      0                                                                                                                        
+Y15      0                                                                                                                        
+Z15      0                                                                                                                        
+AA15     0                                                                                                                        
+AB15     0                                                                                                                        
+AC15     0                                                                                                                        
+C16      Ecomomic Vacancy %                                                                                                       
+D16      0.02276917545149898                                          =-(D9+D10+D11)/D8                                           
+E16      0                                                            =-(E9+E10+E11)/E8                                           
+F16      -0.1728649348997686                                          =(F9+F10+F11)/F8                                            
+H16      -0.13290719309540683                                         =(H9+H10+H11)/H8                                            
+I16      -0.09335568777635644                                         =(I9+I10+I11)/I8                                            
+J16      -0.07709770190586919                                         =(J9+J10+J11)/J8                                            
+K16      -0.07637950199968345                                         =(K9+K10+K11)/K8                                            
+L16      -0.07569550208903039                                         =(L9+L10+L11)/L8                                            
+M16      -0.07504407360269413                                         =(M9+M10+M11)/M8                                            
+N16      -0.07442366552046913                                         =(N9+N10+N11)/N8                                            
+O16      -0.07383280068025484                                         =(O9+O10+O11)/O8                                            
+P16      -0.07327007226100313                                         =(P9+P10+P11)/P8                                            
+Q16      -0.07273414043314437                                         =(Q9+Q10+Q11)/Q8                                            
+S16      Expense Growth                                                                                                           
+T16      0.03                                                                                                                     
+U16      0.03                                                                                                                     
+V16      0.03                                                                                                                     
+W16      0.03                                                                                                                     
+X16      0.03                                                                                                                     
+Y16      0.03                                                                                                                     
+Z16      0.03                                                                                                                     
+AA16     0.03                                                                                                                     
+AB16     0.03                                                                                                                     
+AC16     0.03                                                                                                                     
+S17      RE Tax Growth                                                                                                            
+T17      0.03                                                                                                                     
+U17      0.03                                                                                                                     
+V17      0.03                                                                                                                     
+W17      0.03                                                                                                                     
+X17      0.03                                                                                                                     
+Y17      0.03                                                                                                                     
+Z17      0.03                                                                                                                     
+AA17     0.03                                                                                                                     
+AB17     0.03                                                                                                                     
+AC17     0.03                                                                                                                     
+S18      Management Fee                                                                                                           
+T18      0.03                                                                                                                     
+U18      0.03                                                                                                                     
+V18      0.03                                                                                                                     
+W18      0.03                                                                                                                     
+X18      0.03                                                                                                                     
+Y18      0.03                                                                                                                     
+Z18      0.03                                                                                                                     
+AA18     0.03                                                                                                                     
+AB18     0.03                                                                                                                     
+AC18     0.03                                                                                                                     
+C19      Utility Reimbursement                                                                                                    
+D19      79177.01999999999                                            ='GGC Underwriting'!D12                                     
+E19      59482.28                                                     ='GGC Underwriting'!E12                                     
+F19      79177.01999999999                                            ='GGC Underwriting'!I12                                     
+G19      534.9798648648648                                            =F19/'GGC Underwriting'!$N$7                                
+H19      81552.33059999999                                            =F19+(F19*$T$10)                                            
+I19      83998.90051799998                                            =H19+(H19*$U$10)                                            
+J19      86518.86753353997                                            =I19+(I19*$V$10)                                            
+K19      89114.43355954617                                            =J19+(J19*$W$10)                                            
+L19      91787.86656633257                                            =K19+(K19*$X$10)                                            
+M19      94541.50256332255                                            =L19+(L19*$Y$10)                                            
+N19      97377.74764022222                                            =M19+(M19*$Z$10)                                            
+O19      100299.08006942889                                           =N19+(N19*$Z$10)                                            
+P19      103308.05247151176                                           =O19+(O19*$Z$10)                                            
+Q19      106407.29404565712                                           =P19+(P19*$Z$10)                                            
+C20      Home Rent Income                                                                                                         
+D20      0                                                            ='GGC Underwriting'!D13                                     
+E20      0                                                            ='GGC Underwriting'!E13                                     
+F20      0                                                            ='GGC Underwriting'!I13                                     
+G20      0                                                            =F20/'GGC Underwriting'!$N$7                                
+H20      40017.12                                                     ='Unit Mix Rent Growth'!F49                                 
+I20      42418.14720000001                                            ='Unit Mix Rent Growth'!G49                                 
+J20      44963.23603200001                                            ='Unit Mix Rent Growth'!H49                                 
+K20      47661.03019392001                                            ='Unit Mix Rent Growth'!I49                                 
+L20      50520.69200555522                                            ='Unit Mix Rent Growth'!J49                                 
+M20      53551.933525888526                                           ='Unit Mix Rent Growth'!K49                                 
+N20      56765.04953744185                                            ='Unit Mix Rent Growth'!L49                                 
+O20      60170.95250968836                                            ='Unit Mix Rent Growth'!M49                                 
+P20      63781.20966026966                                            ='Unit Mix Rent Growth'!N49                                 
+Q20      67608.08223988584                                            ='Unit Mix Rent Growth'!O49                                 
+S20       Exit Cap Rate Assumption                                                                                                
+X20      0.06751797321908272                                          ='GGC Underwriting'!P6+1%                                   
+C21      Long term RV Site                                                                                                        
+D21      172705.2                                                     ='GGC Underwriting'!D14                                     
+E21      153916.8                                                     ='GGC Underwriting'!E14                                     
+F21      143629.20000000004                                           ='GGC Underwriting'!I14                                     
+G21      970.4675675675678                                            =F21/'GGC Underwriting'!$N$7                                
+H21      143629.20000000004                                           =(F21+(F21*T12))                                            
+I21      143629.20000000004                                           =(H21+(H21*U12))                                            
+J21      143629.20000000004                                           =(I21+(I21*V12))                                            
+K21      143629.20000000004                                           =(J21+(J21*W12))                                            
+L21      143629.20000000004                                           =(K21+(K21*X12))                                            
+M21      143629.20000000004                                           =(L21+(L21*Y12))                                            
+N21      143629.20000000004                                           =(M21+(M21*Z12))                                            
+O21      143629.20000000004                                           =(N21+(N21*AD12))                                           
+P21      143629.20000000004                                           =(O21+(O21*AE12))                                           
+Q21      143629.20000000004                                           =(P21+(P21*AF12))                                           
+C22      Storage Income                                                                                                           
+D22      900                                                          ='GGC Underwriting'!D15                                     
+E22      900                                                          ='GGC Underwriting'!E15                                     
+F22      900                                                          ='GGC Underwriting'!I15                                     
+G22      6.081081081081081                                            =F22/'GGC Underwriting'!$N$7                                
+H22      927                                                          =F22+(F22*$T$10)                                            
+I22      954.81                                                       =H22+(H22*$U$10)                                            
+J22      983.4543                                                     =I22+(I22*$V$10)                                            
+K22      1012.957929                                                  =J22+(J22*$W$10)                                            
+L22      1043.34666687                                                =K22+(K22*$X$10)                                            
+M22      1074.6470668761                                              =L22+(L22*$Y$10)                                            
+N22      1106.886478882383                                            =M22+(M22*$Z$10)                                            
+O22      1140.0930732488546                                           =N22+(N22*$Z$10)                                            
+P22      1174.2958654463202                                           =O22+(O22*$Z$10)                                            
+Q22      1209.5247414097098                                           =P22+(P22*$Z$10)                                            
+C23      Laundry Income                                                                                                           
+D23      12425.81                                                     ='GGC Underwriting'!D16                                     
+E23      14400                                                        ='GGC Underwriting'!E16                                     
+F23      15288                                                        ='GGC Underwriting'!I16                                     
+G23      103.29729729729729                                           =F23/'GGC Underwriting'!$N$7                                
+H23      15746.64                                                     =F23+(F23*$T$10)                                            
+I23      16219.0392                                                   =H23+(H23*$U$10)                                            
+J23      16705.610376                                                 =I23+(I23*$V$10)                                            
+K23      17206.77868728                                               =J23+(J23*$W$10)                                            
+L23      17722.9820478984                                             =K23+(K23*$X$10)                                            
+M23      18254.671509335352                                           =L23+(L23*$Y$10)                                            
+N23      18802.311654615412                                           =M23+(M23*$Z$10)                                            
+O23      19366.381004253875                                           =N23+(N23*$Z$10)                                            
+P23      19947.37243438149                                            =O23+(O23*$Z$10)                                            
+Q23      20545.793607412936                                           =P23+(P23*$Z$10)                                            
+C24      Other Income                                                                                                             
+D24      43775.43                                                     ='GGC Underwriting'!D17                                     
+E24      40555.880000000005                                           ='GGC Underwriting'!E17                                     
+F24      58673.265                                                    ='GGC Underwriting'!I17                                     
+G24      396.44097972972975                                           =F24/'GGC Underwriting'!$N$7                                
+H24      60433.46295                                                  =F24+(F24*$T$10)                                            
+I24      62246.466838500004                                           =H24+(H24*$U$10)                                            
+J24      64113.860843655006                                           =I24+(I24*$V$10)                                            
+K24      66037.27666896465                                            =J24+(J24*$W$10)                                            
+L24      68018.39496903359                                            =K24+(K24*$X$10)                                            
+M24      70058.9468181046                                             =L24+(L24*$Y$10)                                            
+N24      72160.71522264773                                            =M24+(M24*$Z$10)                                            
+O24      74325.53667932717                                            =N24+(N24*$Z$10)                                            
+P24      76555.30277970698                                            =O24+(O24*$Z$10)                                            
+Q24      78851.96186309819                                            =P24+(P24*$Z$10)                                            
+C25      Total Effective Gross Income                                                                                             
+D25      1427526.23                                                   =D12+D19+D20+D21+D22+D23+D24                                
+E25      1434394.96                                                   =E12+E19+E20+E21+E22+E23+E24                                
+F25      1532325.3795945945                                           =F12+F19+F20+F21+F22+F23+F24                                
+G25      10353.549862125637                                           =F25/'GGC Underwriting'!$N$7                                
+H25      1701323.3744802326                                           =H12+H19+H20+H21+H22+H23+H24                                
+I25      1841524.6984076626                                           =I12+I19+I20+I21+I22+I23+I24                                
+J25      1951668.7054921712                                           =J12+J19+J20+J21+J22+J23+J24                                
+K25      2040456.9622660363                                           =K12+K19+K20+K21+K22+K23+K24                                
+L25      2133610.6167443814                                           =L12+L19+L20+L21+L22+L23+L24                                
+M25      2231346.5276966537                                           =M12+M19+M20+M21+M22+M23+M24                                
+N25      2333892.403057593                                            =N12+N19+N20+N21+N22+N23+N24                                
+O25      2441487.345485919                                            =O12+O19+O20+O21+O22+O23+O24                                
+P25      2554382.425468787                                            =P12+P19+P20+P21+P22+P23+P24                                
+Q25      2672841.2833678075                                           =Q12+Q19+Q20+Q21+Q22+Q23+Q24                                
+C26      YoY % Growth                                                                                                             
+C27      Expenses                                                                                                                 
+G27      UW Per Pad                                                                                                               
+I27      RE Tax Reassessment                                                                                                      
+C28      RE Taxes                                                                                                                 
+D28      15390.510000000002                                           ='GGC Underwriting'!D22                                     
+E28      14921.16                                                     ='GGC Underwriting'!E22                                     
+F28      59200                                                        ='GGC Underwriting'!I22                                     
+G28      400                                                          =F28/'GGC Underwriting'!$N$7                                
+H28      15390.510000000002                                           =D28                                                        
+I28      59200                                                        =F28                                                        
+J28      60976                                                        =I28+(I28*$V$17)                                            
+K28      62805.28                                                     =J28+(J28*$W$17)                                            
+L28      64689.4384                                                   =K28+(K28*$X$17)                                            
+M28      66630.121552                                                 =L28+(L28*$Y$17)                                            
+N28      68629.02519855999                                            =M28+(M28*$Z$17)                                            
+O28      70687.89595451679                                            =N28+(N28*$Z$17)                                            
+P28      72808.53283315229                                            =O28+(O28*$Z$17)                                            
+Q28      74992.78881814686                                            =P28+(P28*$Z$17)                                            
+C29      Insurance                                                                                                                
+D29      36755.72                                                     ='GGC Underwriting'!D23                                     
+E29      32946.24                                                     ='GGC Underwriting'!E23                                     
+F29      38593.506                                                    ='GGC Underwriting'!I23                                     
+G29      260.76693243243244                                           =F29/'GGC Underwriting'!$N$7                                
+H29      39751.311180000004                                           =F29+(F29*$T$16)                                            
+I29      40943.8505154                                                =H29+(H29*$U$16)                                            
+J29      42172.166030862005                                           =I29+(I29*$V$16)                                            
+K29      43437.331011787865                                           =J29+(J29*$W$16)                                            
+L29      44740.4509421415                                             =K29+(K29*$X$16)                                            
+M29      46082.66447040574                                            =L29+(L29*$Y$16)                                            
+N29      47465.14440451791                                            =M29+(M29*$Z$16)                                            
+O29      48889.09873665345                                            =N29+(N29*$Z$16)                                            
+P29      50355.77169875305                                            =O29+(O29*$Z$16)                                            
+Q29      51866.44484971564                                            =P29+(P29*$Z$16)                                            
+G30      0                                                            =F30/'GGC Underwriting'!$N$7                                
+C31      Gas/Fuel                                                                                                                 
+D31      1806.08                                                      ='GGC Underwriting'!D25                                     
+E31      0                                                            ='GGC Underwriting'!E25                                     
+F31      1860.2624                                                    ='GGC Underwriting'!I25                                     
+G31      12.56934054054054                                            =F31/'GGC Underwriting'!$N$7                                
+H31      1916.0702720000002                                           =F31+(F31*$T$16)                                            
+I31      1973.5523801600002                                           =H31+(H31*$U$16)                                            
+J31      2032.7589515648                                              =I31+(I31*$V$16)                                            
+K31      2093.741720111744                                            =J31+(J31*$W$16)                                            
+L31      2156.5539717150964                                           =K31+(K31*$X$16)                                            
+M31      2221.2505908665494                                           =L31+(L31*$Y$16)                                            
+N31      2287.888108592546                                            =M31+(M31*$Z$16)                                            
+O31      2356.5247518503224                                           =N31+(N31*$Z$16)                                            
+P31      2427.220494405832                                            =O31+(O31*$Z$16)                                            
+Q31      2500.037109238007                                            =P31+(P31*$Z$16)                                            
+C32      Electrcitiy                                                                                                              
+D32      93309.56                                                     ='GGC Underwriting'!D26                                     
+E32      74957.8                                                      ='GGC Underwriting'!E26                                     
+F32      96108.8468                                                   ='GGC Underwriting'!I26                                     
+G32      649.3841                                                     =F32/'GGC Underwriting'!$N$7                                
+H32      98992.112204                                                 =F32+(F32*$T$16)                                            
+I32      101961.87557012                                              =H32+(H32*$U$16)                                            
+J32      105020.7318372236                                            =I32+(I32*$V$16)                                            
+K32      108171.3537923403                                            =J32+(J32*$W$16)                                            
+L32      111416.49440611052                                           =K32+(K32*$X$16)                                            
+M32      114758.98923829384                                           =L32+(L32*$Y$16)                                            
+N32      118201.75891544265                                           =M32+(M32*$Z$16)                                            
+O32      121747.81168290593                                           =N32+(N32*$Z$16)                                            
+P32      125400.24603339311                                           =O32+(O32*$Z$16)                                            
+Q32      129162.2534143949                                            =P32+(P32*$Z$16)                                            
+C33      Water and Sewer                                                                                                          
+D33      57277.280000000006                                           ='GGC Underwriting'!D27                                     
+E33      58856.72                                                     ='GGC Underwriting'!E27                                     
+F33      58995.59840000001                                            ='GGC Underwriting'!I27                                     
+G33      398.6189081081082                                            =F33/'GGC Underwriting'!$N$7                                
+H33      60765.46635200001                                            =F33+(F33*$T$16)                                            
+I33      62588.43034256001                                            =H33+(H33*$U$16)                                            
+J33      64466.08325283681                                            =I33+(I33*$V$16)                                            
+K33      66400.06575042191                                            =J33+(J33*$W$16)                                            
+L33      68392.06772293457                                            =K33+(K33*$X$16)                                            
+M33      70443.82975462261                                            =L33+(L33*$Y$16)                                            
+N33      72557.14464726129                                            =M33+(M33*$Z$16)                                            
+O33      74733.85898667913                                            =N33+(N33*$Z$16)                                            
+P33      76975.8747562795                                             =O33+(O33*$Z$16)                                            
+Q33      79285.15099896789                                            =P33+(P33*$Z$16)                                            
+C34      Trash Removal                                                                                                            
+D34      22439.25                                                     ='GGC Underwriting'!D28                                     
+E34      19444.36                                                     ='GGC Underwriting'!E28                                     
+F34      23112.4275                                                   ='GGC Underwriting'!I28                                     
+G34      156.16505067567567                                           =F34/'GGC Underwriting'!$N$7                                
+H34      23805.800325                                                 =F34+(F34*$T$16)                                            
+I34      24519.97433475                                               =H34+(H34*$U$16)                                            
+J34      25255.5735647925                                             =I34+(I34*$V$16)                                            
+K34      26013.240771736273                                           =J34+(J34*$W$16)                                            
+L34      26793.637994888362                                           =K34+(K34*$X$16)                                            
+M34      27597.44713473501                                            =L34+(L34*$Y$16)                                            
+N34      28425.370548777064                                           =M34+(M34*$Z$16)                                            
+O34      29278.131665240377                                           =N34+(N34*$Z$16)                                            
+P34      30156.47561519759                                            =O34+(O34*$Z$16)                                            
+Q34      31061.169883653518                                           =P34+(P34*$Z$16)                                            
+C35      Total Utilities                                                                                                          
+D35      174832.17                                                    =D31+D32+D33+D34                                            
+E35      153258.88                                                    =E31+E32+E33+E34                                            
+F35      180077.1351                                                  =F31+F32+F33+F34                                            
+G35      1216.7373993243243                                           =F35/'GGC Underwriting'!$N$7                                
+H35      185479.449153                                                =H31+H32+H33+H34                                            
+I35      191043.83262759002                                           =I31+I32+I33+I34                                            
+J35      196775.1476064177                                            =J31+J32+J33+J34                                            
+K35      202678.40203461025                                           =K31+K32+K33+K34                                            
+L35      208758.75409564853                                           =L31+L32+L33+L34                                            
+M35      215021.516718518                                             =M31+M32+M33+M34                                            
+N35      221472.16222007351                                           =N31+N32+N33+N34                                            
+O35      228116.32708667574                                           =O31+O32+O33+O34                                            
+P35      234959.81689927602                                           =P31+P32+P33+P34                                            
+Q35      242008.6114062543                                            =Q31+Q32+Q33+Q34                                            
+C36      Repair and Maintenance                                                                                                   
+D36      11494.779999999999                                           ='GGC Underwriting'!D30                                     
+E36      10373.560000000001                                           ='GGC Underwriting'!E30                                     
+F36      22200                                                        ='GGC Underwriting'!I30                                     
+G36      150                                                          =F36/'GGC Underwriting'!$N$7                                
+H36      22866                                                        =F36+(F36*$T$16)                                            
+I36      23551.98                                                     =H36+(H36*$U$16)                                            
+J36      24258.539399999998                                           =I36+(I36*$V$16)                                            
+K36      24986.295582                                                 =J36+(J36*$W$16)                                            
+L36      25735.884449459998                                           =K36+(K36*$X$16)                                            
+M36      26507.960982943798                                           =L36+(L36*$Y$16)                                            
+N36      27303.19981243211                                            =M36+(M36*$Z$16)                                            
+O36      28122.295806805076                                           =N36+(N36*$Z$16)                                            
+P36      28965.964681009227                                           =O36+(O36*$Z$16)                                            
+Q36      29834.943621439503                                           =P36+(P36*$Z$16)                                            
+C37      Ground Maintenance                                                                                                       
+D37      13943.64                                                     ='GGC Underwriting'!D31                                     
+E37      49162                                                        ='GGC Underwriting'!E31                                     
+F37      14361.9492                                                   ='GGC Underwriting'!I31                                     
+G37      97.0401972972973                                             =F37/'GGC Underwriting'!$N$7                                
+H37      14792.807675999999                                           =F37+(F37*$T$16)                                            
+I37      15236.591906279999                                           =H37+(H37*$U$16)                                            
+J37      15693.689663468398                                           =I37+(I37*$V$16)                                            
+K37      16164.50035337245                                            =J37+(J37*$W$16)                                            
+L37      16649.435363973625                                           =K37+(K37*$X$16)                                            
+M37      17148.918424892836                                           =L37+(L37*$Y$16)                                            
+N37      17663.38597763962                                            =M37+(M37*$Z$16)                                            
+O37      18193.287556968808                                           =N37+(N37*$Z$16)                                            
+P37      18739.08618367787                                            =O37+(O37*$Z$16)                                            
+Q37      19301.258769188207                                           =P37+(P37*$Z$16)                                            
+C38      Recreational Amenities                                                                                                   
+D38      0                                                            ='GGC Underwriting'!D32                                     
+E38      0                                                            ='GGC Underwriting'!E32                                     
+F38      0                                                            ='GGC Underwriting'!I32                                     
+G38      0                                                            =F38/'GGC Underwriting'!$N$7                                
+H38      0                                                            =F38+(F38*$T$16)                                            
+I38      0                                                            =H38+(H38*$U$16)                                            
+J38      0                                                            =I38+(I38*$V$16)                                            
+K38      0                                                            =J38+(J38*$W$16)                                            
+L38      0                                                            =K38+(K38*$X$16)                                            
+M38      0                                                            =L38+(L38*$Y$16)                                            
+N38      0                                                            =M38+(M38*$Z$16)                                            
+O38      0                                                            =N38+(N38*$Z$16)                                            
+P38      0                                                            =O38+(O38*$Z$16)                                            
+Q38      0                                                            =P38+(P38*$Z$16)                                            
+C39      Management Fee                                                                                                           
+D39      43799.97                                                     ='GGC Underwriting'!D33                                     
+E39      42227.04                                                     ='GGC Underwriting'!E33                                     
+F39      76616.26897972972                                            ='GGC Underwriting'!I33                                     
+G39      517.6774931062819                                            =F39/'GGC Underwriting'!$N$7                                
+H39      85066.16872401163                                            =H40*H25                                                    
+I39      92076.23492038313                                            =I40*I25                                                    
+J39      97583.43527460855                                            =J40*J25                                                    
+K39      102022.8481133018                                            =K40*K25                                                    
+L39      106680.53083721906                                           =L40*L25                                                    
+M39      111567.32638483268                                           =M40*M25                                                    
+N39      116694.62015287964                                           =N40*N25                                                    
+O39      122074.36727429595                                           =O40*O25                                                    
+P39      127719.12127343935                                           =P40*P25                                                    
+Q39      133642.06416839035                                           =Q40*Q25                                                    
+C40      Management Fee %                                                                                                         
+D40      0.030682427460544805                                         =D39/D25                                                    
+E40      0.029438921062578192                                         =E39/E25                                                    
+F40      0.049999999999999996                                         =F39/F25                                                    
+G40      0.05                                                         =G39/G25                                                    
+H40      0.049999999999999996                                         =F40                                                        
+I40      0.049999999999999996                                         =H40                                                        
+J40      0.049999999999999996                                         =I40                                                        
+K40      0.049999999999999996                                         =J40                                                        
+L40      0.049999999999999996                                         =K40                                                        
+M40      0.049999999999999996                                         =L40                                                        
+N40      0.049999999999999996                                         =M40                                                        
+O40      0.049999999999999996                                         =N40                                                        
+P40      0.049999999999999996                                         =O40                                                        
+Q40      0.049999999999999996                                         =P40                                                        
+C41      Payroll                                                                                                                  
+D41      83210.23999999999                                            ='GGC Underwriting'!D35                                     
+E41      114393.16                                                    ='GGC Underwriting'!E35                                     
+F41      88800                                                        ='GGC Underwriting'!I35                                     
+G41      600                                                          =F41/'GGC Underwriting'!$N$7                                
+H41      91464                                                        =F41+(F41*$T$16)                                            
+I41      94207.92                                                     =H41+(H41*$U$16)                                            
+J41      97034.15759999999                                            =I41+(I41*$V$16)                                            
+K41      99945.182328                                                 =J41+(J41*$W$16)                                            
+L41      102943.53779783999                                           =K41+(K41*$X$16)                                            
+M41      106031.84393177519                                           =L41+(L41*$Y$16)                                            
+N41      109212.79924972844                                           =M41+(M41*$Z$16)                                            
+O41      112489.1832272203                                            =N41+(N41*$Z$16)                                            
+P41      115863.85872403691                                           =O41+(O41*$Z$16)                                            
+Q41      119339.77448575801                                           =P41+(P41*$Z$16)                                            
+C42      Employee Allowance                                                                                                       
+D42      0                                                            ='GGC Underwriting'!D36                                     
+E42      0                                                            ='GGC Underwriting'!E36                                     
+F42      0                                                            ='GGC Underwriting'!I36                                     
+G42      0                                                            =F42/'GGC Underwriting'!$N$7                                
+H42      0                                                            =F42+(F42*$T$16)                                            
+I42      0                                                            =H42+(H42*$U$16)                                            
+J42      0                                                            =I42+(I42*$V$16)                                            
+K42      0                                                            =J42+(J42*$W$16)                                            
+L42      0                                                            =K42+(K42*$X$16)                                            
+M42      0                                                            =L42+(L42*$Y$16)                                            
+N42      0                                                            =M42+(M42*$Z$16)                                            
+O42      0                                                            =N42+(N42*$Z$16)                                            
+P42      0                                                            =O42+(O42*$Z$16)                                            
+Q42      0                                                            =P42+(P42*$Z$16)                                            
+C43      General and Administrative                                                                                               
+D43      82971.23                                                     ='GGC Underwriting'!D37                                     
+E43      81067.36                                                     ='GGC Underwriting'!E37                                     
+F43      85460.3669                                                   ='GGC Underwriting'!I37                                     
+G43      577.4349114864865                                            =F43/'GGC Underwriting'!$N$7                                
+H43      88024.17790699999                                            =F43+(F43*$T$16)                                            
+I43      90664.90324420999                                            =H43+(H43*$U$16)                                            
+J43      93384.85034153628                                            =I43+(I43*$V$16)                                            
+K43      96186.39585178236                                            =J43+(J43*$W$16)                                            
+L43      99071.98772733583                                            =K43+(K43*$X$16)                                            
+M43      102044.1473591559                                            =L43+(L43*$Y$16)                                            
+N43      105105.47177993058                                           =M43+(M43*$Z$16)                                            
+O43      108258.63593332849                                           =N43+(N43*$Z$16)                                            
+P43      111506.39501132835                                           =O43+(O43*$Z$16)                                            
+Q43      114851.5868616682                                            =P43+(P43*$Z$16)                                            
+C44      Model Units                                                                                                              
+D44      0                                                            ='GGC Underwriting'!D38                                     
+E44      0                                                            ='GGC Underwriting'!E38                                     
+F44      0                                                            ='GGC Underwriting'!I38                                     
+G44      0                                                            =F44/'GGC Underwriting'!$N$7                                
+H44      0                                                            =F44+(F44*$T$16)                                            
+I44      0                                                            =H44+(H44*$U$16)                                            
+J44      0                                                            =I44+(I44*$V$16)                                            
+K44      0                                                            =J44+(J44*$W$16)                                            
+L44      0                                                            =K44+(K44*$X$16)                                            
+M44      0                                                            =L44+(L44*$Y$16)                                            
+N44      0                                                            =M44+(M44*$Z$16)                                            
+O44      0                                                            =N44+(N44*$Z$16)                                            
+P44      0                                                            =O44+(O44*$Z$16)                                            
+Q44      0                                                            =P44+(P44*$Z$16)                                            
+C45      Professional Fees                                                                                                        
+D45      4201.25                                                      ='GGC Underwriting'!D39                                     
+E45      220                                                          ='GGC Underwriting'!E39                                     
+F45      4327.2875                                                    ='GGC Underwriting'!I39                                     
+G45      29.238429054054055                                           =F45/'GGC Underwriting'!$N$7                                
+H45      4457.106125                                                  =F45+(F45*$T$16)                                            
+I45      4590.81930875                                                =H45+(H45*$U$16)                                            
+J45      4728.5438880125                                              =I45+(I45*$V$16)                                            
+K45      4870.400204652875                                            =J45+(J45*$W$16)                                            
+L45      5016.512210792461                                            =K45+(K45*$X$16)                                            
+M45      5167.007577116235                                            =L45+(L45*$Y$16)                                            
+N45      5322.017804429722                                            =M45+(M45*$Z$16)                                            
+O45      5481.678338562613                                            =N45+(N45*$Z$16)                                            
+P45      5646.128688719492                                            =O45+(O45*$Z$16)                                            
+Q45      5815.5125493810765                                           =P45+(P45*$Z$16)                                            
+C46      Advertising                                                                                                              
+D46      2468.26                                                      ='GGC Underwriting'!D40                                     
+E46      1875.8                                                       ='GGC Underwriting'!E40                                     
+F46      2542.3078000000005                                           ='GGC Underwriting'!I40                                     
+G46      17.17775540540541                                            =F46/'GGC Underwriting'!$N$7                                
+H46      2618.5770340000004                                           =F46+(F46*$T$16)                                            
+I46      2697.13434502                                                =H46+(H46*$U$16)                                            
+J46      2778.0483753706003                                           =I46+(I46*$V$16)                                            
+K46      2861.3898266317183                                           =J46+(J46*$W$16)                                            
+L46      2947.23152143067                                             =K46+(K46*$X$16)                                            
+M46      3035.64846707359                                             =L46+(L46*$Y$16)                                            
+N46      3126.7179210857976                                           =M46+(M46*$Z$16)                                            
+O46      3220.5194587183714                                           =N46+(N46*$Z$16)                                            
+P46      3317.1350424799225                                           =O46+(O46*$Z$16)                                            
+Q46      3416.6490937543203                                           =P46+(P46*$Z$16)                                            
+B47      0.15                                                                                                                     
+C47      Home Rent Expense                                                                                                        
+D47      0                                                            ='GGC Underwriting'!D41                                     
+E47      0                                                            ='GGC Underwriting'!E41                                     
+F47      0                                                            ='GGC Underwriting'!I41                                     
+G47      0                                                            =F47/'GGC Underwriting'!$N$7                                
+H47      6002.568                                                     =$B$47*H20                                                  
+I47      6362.7220800000005                                           =$B$47*I20                                                  
+J47      6744.485404800001                                            =$B$47*J20                                                  
+K47      7149.154529088001                                            =$B$47*K20                                                  
+L47      7578.103800833283                                            =$B$47*L20                                                  
+M47      8032.790028883279                                            =$B$47*M20                                                  
+N47      8514.757430616277                                            =$B$47*N20                                                  
+O47      9025.642876453254                                            =$B$47*O20                                                  
+P47      9567.181449040449                                            =$B$47*P20                                                  
+Q47      10141.212335982877                                           =$B$47*Q20                                                  
+C48      Other Expenses                                                                                                           
+D48      0                                                            ='GGC Underwriting'!D42                                     
+E48      0                                                            ='GGC Underwriting'!E42                                     
+F48      0                                                            ='GGC Underwriting'!I42                                     
+G48      0                                                            =F48/'GGC Underwriting'!$N$7                                
+H48      0                                                            =F48+(F48*$T$16)                                            
+I48      0                                                            =H48+(H48*$U$16)                                            
+J48      0                                                            =I48+(I48*$V$16)                                            
+K48      0                                                            =J48+(J48*$W$16)                                            
+L48      0                                                            =K48+(K48*$X$16)                                            
+M48      0                                                            =L48+(L48*$Y$16)                                            
+N48      0                                                            =M48+(M48*$Z$16)                                            
+O48      0                                                            =N48+(N48*$Z$16)                                            
+P48      0                                                            =O48+(O48*$Z$16)                                            
+Q48      0                                                            =P48+(P48*$Z$16)                                            
+C49      Cap-Ex Reserve                                                                                                           
+D49      0                                                            ='GGC Underwriting'!D43                                     
+E49      0                                                            ='GGC Underwriting'!E43                                     
+F49      11100                                                        ='GGC Underwriting'!I43                                     
+G49      75                                                           =F49/'GGC Underwriting'!$N$7                                
+H49      11433                                                        =F49+(F49*$T$16)                                            
+I49      11775.99                                                     =H49+(H49*$U$16)                                            
+J49      12129.269699999999                                           =I49+(I49*$V$16)                                            
+K49      12493.147791                                                 =J49+(J49*$W$16)                                            
+L49      12867.942224729999                                           =K49+(K49*$X$16)                                            
+M49      13253.980491471899                                           =L49+(L49*$Y$16)                                            
+N49      13651.599906216055                                           =M49+(M49*$Z$16)                                            
+O49      14061.147903402538                                           =N49+(N49*$Z$16)                                            
+P49      14482.982340504614                                           =O49+(O49*$Z$16)                                            
+Q49      14917.471810719751                                           =P49+(P49*$Z$16)                                            
+C50      Total Expenses                                                                                                           
+D50      469067.77                                                    =D28+D29+D35+D36+D37+D38+D39+D41+D42+D43+D44+D45+D46+D47+D  
+E50      500445.2                                                     =E28+E29+E35+E36+E37+E38+E39+E41+E42+E43+E44+E45+E46+E47+E  
+F50      583278.8214797296                                            =F28+F29+F35+F36+F37+F38+F39+F41+F42+F43+F44+F45+F46+F47+F  
+G50      3941.073118106281                                            =F50/'GGC Underwriting'!$N$7                                
+H50      567345.6757990116                                            =H28+H29+H35+H36+H37+H38+H39+H41+H42+H43+H44+H45+H46+H47+H  
+I50      632351.9789476331                                            =I28+I29+I35+I36+I37+I38+I39+I41+I42+I43+I44+I45+I46+I47+I  
+J50      654258.3332850761                                            =J28+J29+J35+J36+J37+J38+J39+J41+J42+J43+J44+J45+J46+J47+J  
+K50      675600.3276262273                                            =K28+K29+K35+K36+K37+K38+K39+K41+K42+K43+K44+K45+K46+K47+K  
+L50      697679.8093714049                                            =L28+L29+L35+L36+L37+L38+L39+L41+L42+L43+L44+L45+L46+L47+L  
+M50      720523.9263890691                                            =M28+M29+M35+M36+M37+M38+M39+M41+M42+M43+M44+M45+M46+M47+M  
+N50      744160.9018581096                                            =N28+N29+N35+N36+N37+N38+N39+N41+N42+N43+N44+N45+N46+N47+N  
+O50      768620.0801536014                                            =O28+O29+O35+O36+O37+O38+O39+O41+O42+O43+O44+O45+O46+O47+O  
+P50      793931.9748254176                                            =P28+P29+P35+P36+P37+P38+P39+P41+P42+P43+P44+P45+P46+P47+P  
+Q50      820128.318770399                                             =Q28+Q29+Q35+Q36+Q37+Q38+Q39+Q41+Q42+Q43+Q44+Q45+Q46+Q47+Q  
+C51      Expense Ratio %                                                                                                          
+D51      0.3285878466835597                                           =D50/D$25                                                   
+E51      0.3488894021211564                                           =E50/E25                                                    
+F51      0.3806494555575703                                           =F50/F25                                                    
+G51      0.3806494555575703                                           =G50/G25                                                    
+H51      0.33347315643173364                                          =H50/H25                                                    
+I51      0.343385011069587                                            =I50/I25                                                    
+J51      0.3352302219346625                                           =J50/J25                                                    
+K51      0.331102463869631                                            =K50/K25                                                    
+L51      0.32699490895671285                                          =L50/L25                                                    
+M51      0.322909918941565                                            =M50/M25                                                    
+N51      0.3188497039894371                                           =N50/N25                                                    
+O51      0.31481632766793066                                          =O50/O25                                                    
+P51      0.3108117120245662                                           =P50/P25                                                    
+Q51      0.3068376427264057                                           =Q50/Q25                                                    
+C53      Total Net Operating Income                                                                                               
+D53      958458.46                                                    =D25-D50                                                    
+E53      933949.76                                                    =E25-E50                                                    
+F53      949046.5581148649                                            =F25-F50                                                    
+G53      6412.476744019357                                            =F53/'GGC Underwriting'!$N$7                                
+H53      1133977.6986812209                                           =H25-H50                                                    
+I53      1209172.7194600296                                           =I25-I50                                                    
+J53      1297410.3722070951                                           =J25-J50                                                    
+K53      1364856.634639809                                            =K25-K50                                                    
+L53      1435930.8073729766                                           =L25-L50                                                    
+M53      1510822.6013075847                                           =M25-M50                                                    
+N53      1589731.5011994834                                           =N25-N50                                                    
+O53      1672867.265332318                                            =O25-O50                                                    
+P53      1760450.4506433695                                           =P25-P50                                                    
+Q53      1852712.9645974087                                           =Q25-Q50                                                    
+C54      NOI Margin                                                                                                               
+D54      0.6714121533164402                                           =D53/D$25                                                   
+E54      0.6511105978788436                                           =E53/E$25                                                   
+F54      0.6193505444424298                                           =F53/F$25                                                   
+G54      0.6193505444424298                                           =G53/G$25                                                   
+H54      0.6665268435682663                                           =H53/H$25                                                   
+I54      0.656614988930413                                            =I53/I$25                                                   
+J54      0.6647697780653374                                           =J53/J$25                                                   
+K54      0.668897536130369                                            =K53/K$25                                                   
+L54      0.6730050910432872                                           =L53/L$25                                                   
+M54      0.6770900810584349                                           =M53/M$25                                                   
+N54      0.6811502960105629                                           =N53/N$25                                                   
+O54      0.6851836723320693                                           =O53/O$25                                                   
+P54      0.6891882879754337                                           =P53/P$25                                                   
+Q54      0.6931623572735943                                           =Q53/Q$25                                                   
+C56      Lot Rent NOI Only                                                                                                        
+H56      1003637.7767587022                                           =H53-((H20+H21)-(((H47+(H35*20%)+(H39*12%)))))              
+I56      1078746.0090559935                                           =I53-((I20+I21)-(((I47+(I35*20%)+(I39*12%)))))              
+J56      1166627.4633341318                                           =J53-((J20+J21)-(((J47+(J35*20%)+(J39*12%)))))              
+K56      1233493.9811554952                                           =K53-((K20+K21)-(((K47+(K35*20%)+(K39*12%)))))              
+L56      1303912.4336878506                                           =L53-((L20+L21)-(((L47+(L35*20%)+(L39*12%)))))              
+M56      1378066.6403204629                                           =M53-((M20+M21)-(((M47+(M35*20%)+(M39*12%)))))              
+N56      1456149.7959550181                                           =N53-((N20+N21)-(((N47+(N35*20%)+(N39*12%)))))              
+O56      1538364.9451893335                                           =O53-((O20+O21)-(((O47+(O35*20%)+(O39*12%)))))              
+P56      1624925.480364808                                            =P53-((P20+P21)-(((P47+(P35*20%)+(P39*12%)))))              
+Q56      1716055.6646749633                                           =Q53-((Q20+Q21)-(((Q47+(Q35*20%)+(Q39*12%)))))              
+C57      Home Inventory Value                                                                                                     
+H57      130339.92192251864                                           =H53-H56                                                    
+I57      130426.7104040361                                            =I53-I56                                                    
+J57      130782.9088729634                                            =J53-J56                                                    
+K57      131362.65348431375                                           =K53-K56                                                    
+L57      132018.37368512596                                           =L53-L56                                                    
+M57      132755.9609871218                                            =M53-M56                                                    
+N57      133581.70524446527                                           =N53-N56                                                    
+O57      134502.3201429844                                            =O53-O56                                                    
+P57      135524.97027856135                                           =P53-P56                                                    
+Q57      136657.29992244532                                           =Q53-Q56                                                    
+E58      Exit Summaries                                                                                                           
+E60      10 YEAR                                                                                                                  
+F60      Debt Service                                                                                                             
+H60      -629351.9993640356                                           =-'Loan Scenario (acquisition)'!M10                         
+I60      -629351.9993640356                                           =-'Loan Scenario (acquisition)'!N10                         
+J60      -759237.2464918919                                           =-'Loan Scenario (acquisition)'!O10                         
+K60      -759929.7765792925                                           =-'Loan Scenario (acquisition)'!P10                         
+L60      -759237.2464918919                                           =-'Loan Scenario (acquisition)'!Q10                         
+M60      -759237.2464918919                                           =-'Loan Scenario (acquisition)'!R10                         
+N60      -759237.2464918919                                           =-'Loan Scenario (acquisition)'!S10                         
+O60      -767810.3659661707                                           =-'Loan Scenario (acquisition)'!T10                         
+P60      -770095.7459594206                                           =-'Loan Scenario (acquisition)'!U10                         
+Q60      -759237.2464918918                                           =-'Loan Scenario (acquisition)'!V10                         
+F61      Debt Payoff                                                                                                              
+Q61      -9343156.74590081                                            =-'Loan Scenario (acquisition)'!J126                        
+F62      Refi Cashout                                                                                                             
+F63      New Loan                                                                                                                 
+R63      Home Exit Cap Rate                                                                                                       
+S63      0.12                                                                                                                     
+F64      Total Sale - Community                                                                                                   
+Q64      26555090.12630114                                            =(Q56/S64)+(Q57/S63)                                        
+R64      Lot Exit cap rate:                                                                                                       
+S64      0.06751797321908272                                          =+$X$20                                                     
+F65      Free Cash Flow                                                                                                           
+H65      504625.6993171853                                            =H53+SUM(H60:H64)                                           
+I65      579820.7200959941                                            =I53+SUM(I60:I64)                                           
+J65      538173.1257152032                                            =J53+SUM(J60:J64)                                           
+K65      604926.8580605164                                            =K53+SUM(K60:K64)                                           
+L65      676693.5608810846                                            =L53+SUM(L60:L64)                                           
+M65      751585.3548156928                                            =M53+SUM(M60:M64)                                           
+N65      830494.2547075915                                            =N53+SUM(N60:N64)                                           
+O65      905056.8993661472                                            =O53+SUM(O60:O64)                                           
+P65      990354.7046839489                                            =P53+SUM(P60:P64)                                           
+Q65      18305409.098505847                                           =Q53+SUM(Q60:Q64)                                           
+F66      DSCR                                                                                                                     
+H66      1.8018179013129585                                           =-H$53/H$60                                                 
+I66      1.921297971058973                                            =-I53/I60                                                   
+J66      2.0615019472697904                                           =-J53/I60                                                   
+K66      1.796029944745029                                            =-K53/K60                                                   
+L66      1.8912807742346598                                           =-L53/L60                                                   
+M66      1.989921606570864                                            =-M53/M60                                                   
+N66      2.093853414785625                                            =-N53/N60                                                   
+O66      2.17875056066386                                             =-O53/O60                                                   
+P66      2.2860150310921656                                           =-P53/P60                                                   
+Q66      2.4402292869033984                                           =-Q53/Q60                                                   
+E68      7 Year                                                                                                                   
+F68      Debt Service                                                                                                             
+H68      -655388.0414434674                                           =-'[1]Loan Scenario (acquisition)'!M10                      
+I68      -773882.1830615384                                           =-'[1]Loan Scenario (acquisition)'!N10                      
+J68      -773882.1830615385                                           =-'[1]Loan Scenario (acquisition)'!O10                      
+K68      -774628.2119979195                                           =-'[1]Loan Scenario (acquisition)'!P10                      
+L68      -773882.1830615384                                           =-'[1]Loan Scenario (acquisition)'!Q10                      
+M68      -773882.1830615384                                           =-'[1]Loan Scenario (acquisition)'!R10                      
+N68      -773882.1830615384                                           =-'[1]Loan Scenario (acquisition)'!S10                      
+F69      Debt Payoff                                                                                                              
+N69      -9833889.283336487                                           =-'[1]Loan Scenario (acquisition)'!J90                      
+F70      Refi Cashout                                                                                                             
+F71      New Loan                                                                                                                 
+F72      total Sale - Community                                                                                                   
+N72      23545308.3883474                                             =N53/X20                                                    
+R72      Lot Rent Exit cap rate:                                                                                                  
+S72      0.06751797321908272                                          =+$X$20                                                     
+F73      Free Cash Flow                                                                                                           
+H73      478589.6572377535                                            =H53+SUM(H68:H72)                                           
+I73      435290.53639849124                                           =I53+SUM(I68:I72)                                           
+J73      523528.18914555665                                           =J53+SUM(J68:J72)                                           
+K73      590228.4226418894                                            =K53+SUM(K68:K72)                                           
+L73      662048.6243114382                                            =L53+SUM(L68:L72)                                           
+M73      736940.4182460463                                            =M53+SUM(M68:M72)                                           
+N73      14527268.423148857                                           =N53+SUM(N68:N72)                                           
+F74      DSCR                                                                                                                     
+H74      1.7302386173902073                                           =-H$53/H$68                                                 
+I74      1.562476493096724                                            =-I$53/I$68                                                 
+J74      1.6764959842781728                                           =-J$53/J$68                                                 
+K74      1.7619505893279739                                           =-K$53/K$68                                                 
+L74      1.8554902009661498                                           =-L$53/L$68                                                 
+M74      1.952264355448335                                            =-M$53/M$68                                                 
+N74      2.0542293594489816                                           =-N$53/N$68                                                 
+E79      5 YEAR                                                                                                                   
+F79      Debt Service                                                                                                             
+H79      -629351.9993640356                                           =-'Loan Scenario (acquisition)'!M10                         
+I79      -629351.9993640356                                           =-'Loan Scenario (acquisition)'!N10                         
+J79      -759237.2464918919                                           =-'Loan Scenario (acquisition)'!O10                         
+K79      -759929.7765792925                                           =-'Loan Scenario (acquisition)'!P10                         
+L79      -759237.2464918919                                           =-'Loan Scenario (acquisition)'!Q10                         
+F80      Debt Payoff                                                                                                              
+L80      -10241854.266640877                                          =-'Loan Scenario (acquisition)'!J66                         
+F81      Refi Cashout                                                                                                             
+F82      New Loan                                                                                                                 
+M82      Home Exit                                                                                                                
+N82      0.12                                                                                                                     
+F83      Total Sale - Community                                                                                                   
+L83      20412232.128276568                                           =(L56/N83)+(L57/N82)                                        
+M83      Lot Rent Exit cap rate:                                                                                                  
+N83      0.06751797321908272                                          =S64                                                        
+F84      Free Cash Flow                                                                                                           
+H84      504625.6993171853                                            =H53+SUM(H79:H83)                                           
+I84      579820.7200959941                                            =I53+SUM(I79:I83)                                           
+J84      538173.1257152032                                            =J53+SUM(J79:J83)                                           
+K84      604926.8580605164                                            =K53+SUM(K79:K83)                                           
+L84      10847071.422516774                                           =L53+SUM(L79:L83)                                           
+F85      DSCR                                                                                                                     
+H85      1.8018179013129585                                           =-H$53/H$60                                                 
+I85      1.921297971058973                                            =-I$53/I$60                                                 
+J85      1.7088339359032625                                           =-J$53/J$60                                                 
+K85      1.796029944745029                                            =-K$53/K$60                                                 
+L85      1.8912807742346598                                           =-L$53/L$60                                                 

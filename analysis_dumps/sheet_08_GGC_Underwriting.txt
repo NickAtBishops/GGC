@@ -1,0 +1,542 @@
+SHEET: 'GGC Underwriting'
+Dimensions: 278 rows x 110 cols
+====================================================================================================
+CELL     VALUE (resolved)                                             FORMULA / RAW                                               
+====================================================================================================
+A1       GARY GROUP CAPITAL                                                                                                       
+D2       Months:                                                                                                                  
+E2       3                                                            ='Data Consolidation'!H1                                    
+G2       ALT NOI                                                                                                                  
+H2       Lot Rent only NOI                                                                                                        
+M2       Underwritten Date                                                                                                        
+N2       2026-02-09 00:00:00                                                                                                      
+A3       Income                                                                                                                   
+B3       2022                                                         ='Data Consolidation'!D2                                    
+C3       2024                                                         ='Data Consolidation'!E2                                    
+D3       T12 (Oct 2025)                                               ='Data Consolidation'!G2                                    
+E3       Annualization                                                ='Data Consolidation'!H2                                    
+F3       Broker's Proforma                                            ='Data Consolidation'!F2                                    
+G3       GGC ProForma                                                                                                             
+H3       GGC ProForma                                                                                                             
+I3       GGC ProForma                                                                                                             
+J3       % of GPR                                                                                                                 
+K3       Notes                                                                                                                    
+M3       Property Information                                                                                                     
+Q3       WEBSITE                                                                                                                  
+R3       https://www.flintstoneproperties.com/properties/whaleshead                                                               
+A4       Gross Potential Rent                                                                                                     
+B4       0                                                            =SUMIFS('Data Consolidation'!$D$3:$D$36,'Data Consolidatio  
+C4       1063458.16                                                   =SUMIFS('Data Consolidation'!$E$3:$E$36,'Data Consolidatio  
+D4       1144604.47                                                   =SUMIFS('Data Consolidation'!$G$3:$G$36,'Data Consolidatio  
+E4       1165140                                                      =SUMIFS('Data Consolidation'!$H$3:$H$36,'Data Consolidatio  
+F4       1391628                                                      =SUMIFS('Data Consolidation'!$F$3:$F$36,'Data Consolidatio  
+G4       1727977.5764999995                                           ='Unit Mix Rent Growth'!H14                                 
+H4       1492692                                                      =I4                                                         
+I4       1492692                                                      ='Unit Mix Summary'!C11                                     
+K4       Mar 2026 Rent Roll (brokers include lot+home $1250/mo for                                                                
+M4       Property Name                                                                                                            
+N4       Whaleshead Beach Resort                                                                                                  
+O4       Purchase/Offer Price                                                                                                     
+P4       16500000                                                                                                                 
+Q4       Year Built                                                                                                               
+R4       2015                                                                                                                     
+A5       Less: Vacancy                                                                                                            
+B5       0                                                            =SUMIFS('Data Consolidation'!$D$3:$D$36,'Data Consolidatio  
+C5       0                                                            =SUMIFS('Data Consolidation'!$E$3:$E$36,'Data Consolidatio  
+D5       0                                                            =SUMIFS('Data Consolidation'!$G$3:$G$36,'Data Consolidatio  
+E5       0                                                            =SUMIFS('Data Consolidation'!$H$3:$H$36,'Data Consolidatio  
+F5       0                                                            =SUMIFS('Data Consolidation'!$F$3:$F$36,'Data Consolidatio  
+G5       -86398.87882499998                                           =-5%*G4                                                     
+H5       -231972.40540540536                                          =I5                                                         
+I5       -231972.40540540536                                          =-J5*I4                                                     
+J5       0.15540540540540537                                          =100%-N8                                                    
+K5       Rent Roll Vacancy. 5% for stabilized                                                                                     
+M5       Property Address                                                                                                         
+N5       19921 Whaleshead Road, Brookings, OR 97415                                                                               
+O5       Purchase Price Per Site                                                                                                  
+P5       111486.48648648648                                           =P4/N7                                                      
+Q5       Flood Zone                                                                                                               
+R5       Zone B &X                                                                                                                
+A6       Less: Concessions                                                                                                        
+B6       0                                                            =SUMIFS('Data Consolidation'!$D$3:$D$36,'Data Consolidatio  
+C6       0                                                            =SUMIFS('Data Consolidation'!$E$3:$E$36,'Data Consolidatio  
+D6       0                                                            =SUMIFS('Data Consolidation'!$G$3:$G$36,'Data Consolidatio  
+E6       0                                                            =SUMIFS('Data Consolidation'!$H$3:$H$36,'Data Consolidatio  
+F6       0                                                            =SUMIFS('Data Consolidation'!$F$3:$F$36,'Data Consolidatio  
+G6       0                                                            =-J6*$G$4                                                   
+H6       0                                                            =I6                                                         
+I6       0                                                                                                                        
+J6       0                                                            =-I6/I4                                                     
+M6       Property Type                                                                                                            
+N6       MH/RV Hyrbid                                                                                                             
+O6       Underwritten CAP rate                                                                                                    
+P6       0.05751797321908272                                          =I47/P4                                                     
+Q6       Utility Structure                                                                                                        
+R6       Private Well & Septic-recently upgraded                                                                                  
+A7       Less: Bad Debt                                                                                                           
+B7       0                                                            =SUMIFS('Data Consolidation'!$D$3:$D$36,'Data Consolidatio  
+C7       -690                                                         =SUMIFS('Data Consolidation'!$E$3:$E$36,'Data Consolidatio  
+D7       -26061.7                                                     =SUMIFS('Data Consolidation'!$G$3:$G$36,'Data Consolidatio  
+E7       0                                                            =SUMIFS('Data Consolidation'!$H$3:$H$36,'Data Consolidatio  
+F7       -26061.7                                                     =SUMIFS('Data Consolidation'!$F$3:$F$36,'Data Consolidatio  
+G7       -51839.32729499998                                           =-J7*$G$4                                                   
+H7       -26061.7                                                     =I7                                                         
+I7       -26061.7                                                     =D7                                                         
+J7       0.03                                                                                                                     
+K7       T12                                                                                                                      
+M7       # of Units                                                                                                               
+N7       148                                                          ='Unit Mix Summary'!E8                                      
+O7       Stabilized YOC                                                                                                           
+P7       0.07605473467093807                                          =G47/'Sources and Uses'!C18                                 
+Q7       Electricity                                                                                                              
+R7       owner paid-Sub metered and billed back                                                                                   
+M8       Rent Roll Occupancy                                                                                                      
+N8       0.8445945945945946                                           ='Unit Mix Summary'!C13                                     
+Q8       Trash                                                                                                                    
+R8       covered through county taxes                                                                                             
+A9       Net Rental Income                                                                                                        
+B9       0                                                            =B4-B5-B6-B7                                                
+C9       1062768.16                                                   =SUM(C4:C7)                                                 
+D9       1118542.77                                                   =SUM(D4:D7)                                                 
+E9       1165140                                                      =SUM(E4:E7)                                                 
+F9       1365566.3                                                    =SUM(F4:F7)                                                 
+G9       1589739.3703799995                                           =SUM(G4:G7)                                                 
+H9       1234657.8945945946                                           =SUM(H4:H7)                                                 
+I9       1234657.8945945946                                           =SUM(I4:I7)                                                 
+J9       102888.15788288288                                           =I9/12                                                      
+K9       per month                                                                                                                
+M9       Acreage                                                                                                                  
+O9       Asking Price by Seller                                                                                                   
+P9       21000000                                                                                                                 
+A10      YoY % Growth                                                                                                             
+C10      #DIV/0!                                                      =(C9-B9)/B9                                                 
+D10      0.05248050524961164                                          =(D9-C9)/C9                                                 
+E10      0.04165887192673015                                          =(E9-D9)/D9                                                 
+J10      8342.283071585098                                            =I9/$N$7                                                    
+K10      per unit                                                                                                                 
+M10      County                                                                                                                   
+N10      Curry                                                                                                                    
+O10      Asking Price Per Site                                                                                                    
+P10      141891.8918918919                                            =P9/N7                                                      
+A12      Utility Reimbursement                                                                                                    
+B12      0                                                            =SUMIFS('Data Consolidation'!$D$3:$D$36,'Data Consolidatio  
+C12      81488.13                                                     =SUMIFS('Data Consolidation'!$E$3:$E$36,'Data Consolidatio  
+D12      79177.01999999999                                            =SUMIFS('Data Consolidation'!$G$3:$G$36,'Data Consolidatio  
+E12      59482.28                                                     =SUMIFS('Data Consolidation'!$H$3:$H$36,'Data Consolidatio  
+F12      79147.02                                                     =SUMIFS('Data Consolidation'!$F$3:$F$36,'Data Consolidatio  
+G12      79177.01999999999                                            =I12                                                        
+H12      79177.01999999999                                            =I12                                                        
+I12      79177.01999999999                                            =D12                                                        
+J12      534.9798648648648                                            =I12/$N$7                                                   
+K12      T12. Utility RUBs                                                                                                        
+O12      Brookings Multifamily cap rate at 6%-7.5%                                                                                
+A13      Home Rent Income                                                                                                         
+B13      0                                                            =SUMIFS('Data Consolidation'!$D$3:$D$36,'Data Consolidatio  
+C13      0                                                            =SUMIFS('Data Consolidation'!$E$3:$E$36,'Data Consolidatio  
+D13      0                                                            =SUMIFS('Data Consolidation'!$G$3:$G$36,'Data Consolidatio  
+E13      0                                                            =SUMIFS('Data Consolidation'!$H$3:$H$36,'Data Consolidatio  
+F13      0                                                            =SUMIFS('Data Consolidation'!$F$3:$F$36,'Data Consolidatio  
+G13      39124.799999999996                                           ='Rent Roll Input'!J151*12*95%                              
+H13      0                                                                                                                        
+I13      0                                                                                                                        
+J13      0                                                            =I13/$N$7                                                   
+K13      poh (11 infilled homes -$1250/month total rent-separated h                                                               
+M13      Asset                                                                                                                    
+N13      NOI                                                                                                                      
+O13      CAP RATE                                                                                                                 
+P13      VALUE                                                                                                                    
+Q13      VALUE/UNIT                                                                                                               
+R13      UNIT                                                                                                                     
+A14      RV Site Rental Income                                                                                                    
+B14      0                                                            =SUMIFS('Data Consolidation'!$D$3:$D$36,'Data Consolidatio  
+C14      213459.8                                                     =SUMIFS('Data Consolidation'!$E$3:$E$36,'Data Consolidatio  
+D14      172705.2                                                     =SUMIFS('Data Consolidation'!$G$3:$G$36,'Data Consolidatio  
+E14      153916.8                                                     =SUMIFS('Data Consolidation'!$H$3:$H$36,'Data Consolidatio  
+F14      159588                                                       =SUMIFS('Data Consolidation'!$F$3:$F$36,'Data Consolidatio  
+G14      143629.20000000004                                           =I14                                                        
+H14      143629.20000000004                                           =I14                                                        
+I14      143629.20000000004                                           ='Unit Mix Summary'!C15*90%                                 
+J14      970.4675675675678                                            =I14/$N$7                                                   
+K14      RR Long term RV Site less 10%                                                                                            
+M14      Lot Rent only NOI                                                                                                        
+N14      949046.5581148649                                            =I47                                                        
+O14      0.055                                                                                                                    
+P14      17255391.965724815                                           =N14/O14                                                    
+Q14      133762.72841647142                                           =P14/R14                                                    
+R14      129                                                          ='Unit Mix Summary'!E9                                      
+A15      Storage Income                                                                                                           
+B15      0                                                            =SUMIFS('Data Consolidation'!$D$3:$D$36,'Data Consolidatio  
+C15      900                                                          =SUMIFS('Data Consolidation'!$E$3:$E$36,'Data Consolidatio  
+D15      900                                                          =SUMIFS('Data Consolidation'!$G$3:$G$36,'Data Consolidatio  
+E15      900                                                          =SUMIFS('Data Consolidation'!$H$3:$H$36,'Data Consolidatio  
+F15      900                                                          =SUMIFS('Data Consolidation'!$F$3:$F$36,'Data Consolidatio  
+G15      900                                                          =I15                                                        
+H15      900                                                          =I15                                                        
+I15      900                                                          =D15                                                        
+J15      6.081081081081081                                            =I15/$N$7                                                   
+K15      T12. RV Boat Storage Unit                                                                                                
+M15      Home Rent only NOI                                                                                                       
+N15      14523.599999999977                                           =I47-H47                                                    
+O15      0.12                                                                                                                     
+P15      121029.99999999981                                           =N15/O15                                                    
+Q15      10085.833333333318                                           =P15/R15                                                    
+R15      12                                                           ='Unit Mix Summary'!E5+'Unit Mix Summary'!E7                
+A16      Retail Income                                                                                                            
+B16      0                                                            =SUMIFS('Data Consolidation'!$D$3:$D$36,'Data Consolidatio  
+C16      10200                                                        =SUMIFS('Data Consolidation'!$E$3:$E$36,'Data Consolidatio  
+D16      12425.81                                                     =SUMIFS('Data Consolidation'!$G$3:$G$36,'Data Consolidatio  
+E16      14400                                                        =SUMIFS('Data Consolidation'!$H$3:$H$36,'Data Consolidatio  
+F16      15600                                                        =SUMIFS('Data Consolidation'!$F$3:$F$36,'Data Consolidatio  
+G16      15288                                                        =I16                                                        
+I16      15288                                                        ='Unit Mix Summary'!H7*12*98%                               
+J16      103.29729729729729                                           =I16/$N$7                                                   
+K16      RR less 2%. Commercial Unit.                                                                                             
+M16      Total                                                                                                                    
+N16      963570.1581148648                                            =SUM(N14:N15)                                               
+O16      0.05545273704883075                                          =N16/P16                                                    
+P16      17376421.965724815                                           =SUM(P14:P15)                                               
+A17      Other Income                                                                                                             
+B17      0                                                            =SUMIFS('Data Consolidation'!$D$3:$D$36,'Data Consolidatio  
+C17      73571.1                                                      =SUMIFS('Data Consolidation'!$E$3:$E$36,'Data Consolidatio  
+D17      43775.43                                                     =SUMIFS('Data Consolidation'!$G$3:$G$36,'Data Consolidatio  
+E17      40555.880000000005                                           =SUMIFS('Data Consolidation'!$H$3:$H$36,'Data Consolidatio  
+F17      43775.43                                                     =SUMIFS('Data Consolidation'!$F$3:$F$36,'Data Consolidatio  
+G17      58673.265                                                    =I17                                                        
+H17      58673.265                                                    =I17                                                        
+I17      58673.265                                                    =AVERAGE(C17,D17)                                           
+J17      396.44097972972975                                           =I17/$N$7                                                   
+K17      Average 24 & T12                                                                                                         
+A19      Total Effective Gross Income                                                                                             
+B19      0                                                            =B9+B12+B13+B14+B15+B16+B17                                 
+C19      1442387.1900000002                                           =C9+C12+C13+C14+C15+C16+C17                                 
+D19      1427526.23                                                   =D9+D12+D13+D14+D15+D16+D17                                 
+E19      1434394.96                                                   =E9+E12+E13+E14+E15+E16+E17                                 
+F19      1664576.75                                                   =F9+F12+F13+F14+F15+F16+F17                                 
+G19      1926531.6553799994                                           =G9+G12+G13+G14+G15+G16+G17                                 
+H19      1517037.3795945945                                           =H9+H12+H13+H14+H15+H16+H17                                 
+I19      1532325.3795945945                                           =I9+I12+I13+I14+I15+I16+I17                                 
+J19      10353.549862125637                                           =I19/$N$7                                                   
+K19      per unit                                                                                                                 
+M19      Tax Analysis Section                                                                                                     
+N19      https://currycountyor-pa.tylerhost.net/Property-Search-Res                                                               
+A20      YoY % Growth                                                                                                             
+C20      #DIV/0!                                                      =(C19-B19)/B19                                              
+D20      -0.01030303104674702                                         =(D19-C19)/C19                                              
+E20      0.004811631377169148                                         =(E19-D19)/D19                                              
+M20      Assessed Value                                                                                                           
+N20      9424118.099224836                                            =P4*75%*O34                                                 
+A21      Expenses                                                                                                                 
+B21      2022                                                         =B3                                                         
+C21      2024                                                         =C3                                                         
+D21      T12 (Oct 2025)                                               =D3                                                         
+E21      Annualization                                                                                                            
+F21      Broker's Proforma                                                                                                        
+G21      GGC ProForma                                                                                                             
+H21      GGC ProForma                                                                                                             
+I21      GGC ProForma                                                                                                             
+J21      Per Unit                                                                                                                 
+K21      Notes                                                                                                                    
+M21      Levy Rate                                                                                                                
+N21      0.006170320404721754                                         =Q33                                                        
+A22      RE Taxes                                                                                                                 
+B22      0                                                            =SUMIFS('Data Consolidation'!$D$43:$D$102,'Data Consolidat  
+C22      14886.53                                                     =SUMIFS('Data Consolidation'!$E$43:$E$102,'Data Consolidat  
+D22      15390.510000000002                                           =SUMIFS('Data Consolidation'!$G$43:$G$102,'Data Consolidat  
+E22      14921.16                                                     =SUMIFS('Data Consolidation'!$H$43:$H$102,'Data Consolidat  
+F22      15390.51                                                     =SUMIFS('Data Consolidation'!$F$43:$F$102,'Data Consolidat  
+G22      59200                                                        =I22                                                        
+H22      59200                                                        =I22                                                        
+I22      59200                                                        =J22*N7                                                     
+J22      400                                                                                                                      
+K22      GGC Pro Forma.                                                                                                           
+M22      Estimated Tax                                                                                                            
+N22      58149.8282041546                                             =N20*N21                                                    
+A23      Insurance                                                                                                                
+B23      0                                                            =SUMIFS('Data Consolidation'!$D$43:$D$102,'Data Consolidat  
+C23      38202.91                                                     =SUMIFS('Data Consolidation'!$E$43:$E$102,'Data Consolidat  
+D23      36755.72                                                     =SUMIFS('Data Consolidation'!$G$43:$G$102,'Data Consolidat  
+E23      32946.24                                                     =SUMIFS('Data Consolidation'!$H$43:$H$102,'Data Consolidat  
+F23      32735.25                                                     =SUMIFS('Data Consolidation'!$F$43:$F$102,'Data Consolidat  
+G23      38593.506                                                    =I23                                                        
+H23      38593.506                                                    =I23                                                        
+I23      38593.506                                                    =D23*1.05                                                   
+J23      260.76693243243244                                           =I23/$N$7                                                   
+K23      T12 +5%                                                                                                                  
+M24      2024-2025                                                                                                                
+A25      Gas/Fuel                                                                                                                 
+B25      0                                                            =SUMIFS('Data Consolidation'!$D$43:$D$102,'Data Consolidat  
+C25      1071.81                                                      =SUMIFS('Data Consolidation'!$E$43:$E$102,'Data Consolidat  
+D25      1806.08                                                      =SUMIFS('Data Consolidation'!$G$43:$G$102,'Data Consolidat  
+E25      0                                                            =SUMIFS('Data Consolidation'!$H$43:$H$102,'Data Consolidat  
+F25      1806.08                                                      =SUMIFS('Data Consolidation'!$F$43:$F$102,'Data Consolidat  
+G25      1860.2624                                                    =I25                                                        
+H25      1860.2624                                                    =I25                                                        
+I25      1860.2624                                                    =D25*1.03                                                   
+J25      12.56934054054054                                            =I25/$N$7                                                   
+K25      T12 + 3%.                                                                                                                
+M25      Parcel                                                                                                                   
+N25      MV                                                                                                                       
+O25      Taxable Value                                                                                                            
+P25      Taxes                                                                                                                    
+Q25      Levy%                                                                                                                    
+R25      Acres                                                                                                                    
+A26      Electrcitiy                                                                                                              
+B26      0                                                            =SUMIFS('Data Consolidation'!$D$43:$D$102,'Data Consolidat  
+C26      92726.76                                                     =SUMIFS('Data Consolidation'!$E$43:$E$102,'Data Consolidat  
+D26      93309.56                                                     =SUMIFS('Data Consolidation'!$G$43:$G$102,'Data Consolidat  
+E26      74957.8                                                      =SUMIFS('Data Consolidation'!$H$43:$H$102,'Data Consolidat  
+F26      93309.56                                                     =SUMIFS('Data Consolidation'!$F$43:$F$102,'Data Consolidat  
+G26      96108.8468                                                   =I26                                                        
+H26      96108.8468                                                   =I26                                                        
+I26      96108.8468                                                   =D26*1.03                                                   
+J26      649.3841                                                     =I26/$N$7                                                   
+K26      T12 + 3%.                                                                                                                
+M26      4014-03-01700-00                                                                                                         
+N26      1221930                                                                                                                  
+O26      1221930                                                                                                                  
+P26      7599.81                                                                                                                  
+R26      5                                                                                                                        
+A27      Water and Sewer                                                                                                          
+B27      0                                                            =SUMIFS('Data Consolidation'!$D$43:$D$102,'Data Consolidat  
+C27      48446.36                                                     =SUMIFS('Data Consolidation'!$E$43:$E$102,'Data Consolidat  
+D27      57277.280000000006                                           =SUMIFS('Data Consolidation'!$G$43:$G$102,'Data Consolidat  
+E27      58856.72                                                     =SUMIFS('Data Consolidation'!$H$43:$H$102,'Data Consolidat  
+F27      57277.280000000006                                           =SUMIFS('Data Consolidation'!$F$43:$F$102,'Data Consolidat  
+G27      58995.59840000001                                            =I27                                                        
+H27      58995.59840000001                                            =I27                                                        
+I27      58995.59840000001                                            =D27*1.03                                                   
+J27      398.6189081081082                                            =I27/$N$7                                                   
+K27      T12 + 3%.                                                                                                                
+M27      4014-03-00300-00                                                                                                         
+N27      437250                                                                                                                   
+O27      100350                                                                                                                   
+P27      685.54                                                                                                                   
+R27      3.97                                                                                                                     
+A28      Trash Removal                                                                                                            
+B28      0                                                            =SUMIFS('Data Consolidation'!$D$43:$D$102,'Data Consolidat  
+C28      22567.67                                                     =SUMIFS('Data Consolidation'!$E$43:$E$102,'Data Consolidat  
+D28      22439.25                                                     =SUMIFS('Data Consolidation'!$G$43:$G$102,'Data Consolidat  
+E28      19444.36                                                     =SUMIFS('Data Consolidation'!$H$43:$H$102,'Data Consolidat  
+F28      22439.25                                                     =SUMIFS('Data Consolidation'!$F$43:$F$102,'Data Consolidat  
+G28      23112.4275                                                   =I28                                                        
+H28      23112.4275                                                   =I28                                                        
+I28      23112.4275                                                   =D28*1.03                                                   
+J28      156.16505067567567                                           =I28/$N$7                                                   
+K28      T12 + 3%.                                                                                                                
+M28      4014-03-01800-00                                                                                                         
+N28      2500                                                                                                                     
+O28      1640                                                                                                                     
+P28      28.09                                                                                                                    
+R28      0.54                                                                                                                     
+A29      Total Utilities                                                                                                          
+B29      0                                                            =SUM(B25:B28)                                               
+C29      164812.59999999998                                           =SUM(C25:C28)                                               
+D29      174832.17                                                    =SUM(D25:D28)                                               
+E29      153258.88                                                    =SUM(E25:E28)                                               
+F29      174832.17                                                    =SUM(F25:F28)                                               
+G29      180077.1351                                                  =SUM(G25:G28)                                               
+H29      180077.1351                                                  =SUM(H25:H28)                                               
+I29      180077.1351                                                  =SUM(I25:I28)                                               
+J29      1216.7373993243243                                           =I29/$N$7                                                   
+K29      per unit                                                                                                                 
+M29      3914-34C-01300-00                                                                                                        
+N29      2500                                                                                                                     
+O29      2500                                                                                                                     
+P29      14.22                                                                                                                    
+R29      2.54                                                                                                                     
+A30      Repair and Maintenance                                                                                                   
+B30      0                                                            =SUMIFS('Data Consolidation'!$D$43:$D$102,'Data Consolidat  
+C30      24889.230000000003                                           =SUMIFS('Data Consolidation'!$E$43:$E$102,'Data Consolidat  
+D30      11494.779999999999                                           =SUMIFS('Data Consolidation'!$G$43:$G$102,'Data Consolidat  
+E30      10373.560000000001                                           =SUMIFS('Data Consolidation'!$H$43:$H$102,'Data Consolidat  
+F30      11494.78                                                     =SUMIFS('Data Consolidation'!$F$43:$F$102,'Data Consolidat  
+G30      22200                                                        =I30                                                        
+H30      22200                                                        =I30                                                        
+I30      22200                                                        =J30*$N$7                                                   
+J30      150                                                                                                                      
+K30      GGC Pro forma                                                                                                            
+M30      4014-03-00200-00                                                                                                         
+N30      527660                                                                                                                   
+O30      527660                                                                                                                   
+P30      3322.49                                                                                                                  
+R30      2.36                                                                                                                     
+A31      Ground Maintenance                                                                                                       
+B31      0                                                            =SUMIFS('Data Consolidation'!$D$43:$D$102,'Data Consolidat  
+C31      15809.99                                                     =SUMIFS('Data Consolidation'!$E$43:$E$102,'Data Consolidat  
+D31      13943.64                                                     =SUMIFS('Data Consolidation'!$G$43:$G$102,'Data Consolidat  
+E31      49162                                                        =SUMIFS('Data Consolidation'!$H$43:$H$102,'Data Consolidat  
+F31      13943.64                                                     =SUMIFS('Data Consolidation'!$F$43:$F$102,'Data Consolidat  
+G31      14361.9492                                                   =I31                                                        
+H31      14361.9492                                                   =I31                                                        
+I31      14361.9492                                                   =D31*(100%+3%)                                              
+J31      97.0401972972973                                             =I31/N7                                                     
+K31      T12 + 3%.                                                                                                                
+M31      4014-03-01700-00                                                                                                         
+N31      744720                                                                                                                   
+O31      429970                                                                                                                   
+P31      2476.1                                                                                                                   
+R31      15.83                                                                                                                    
+A32      Recreational Amenities                                                                                                   
+B32      0                                                            =SUMIFS('Data Consolidation'!$D$43:$D$102,'Data Consolidat  
+C32      0                                                            =SUMIFS('Data Consolidation'!$E$43:$E$102,'Data Consolidat  
+D32      0                                                            =SUMIFS('Data Consolidation'!$G$43:$G$102,'Data Consolidat  
+E32      0                                                            =SUMIFS('Data Consolidation'!$H$43:$H$102,'Data Consolidat  
+F32      0                                                            =SUMIFS('Data Consolidation'!$F$43:$F$102,'Data Consolidat  
+G32      0                                                            =I32                                                        
+H32      0                                                            =I32                                                        
+I32      0                                                                                                                        
+J32      0                                                            =I32/N7                                                     
+M32      3914-34C-01100-00                                                                                                        
+N32      302750                                                                                                                   
+O32      182830                                                                                                                   
+P32      1095.19                                                                                                                  
+R32      18.85                                                                                                                    
+A33      Management Fee                                                                                                           
+B33      0                                                            =SUMIFS('Data Consolidation'!$D$43:$D$102,'Data Consolidat  
+C33      41908.27                                                     =SUMIFS('Data Consolidation'!$E$43:$E$102,'Data Consolidat  
+D33      43799.97                                                     =SUMIFS('Data Consolidation'!$G$43:$G$102,'Data Consolidat  
+E33      42227.04                                                     =SUMIFS('Data Consolidation'!$H$43:$H$102,'Data Consolidat  
+F33      50720.6535                                                   =SUMIFS('Data Consolidation'!$F$43:$F$102,'Data Consolidat  
+G33      96326.58276899997                                            =J33*G19                                                    
+H33      75851.86897972973                                            =J33*H19                                                    
+I33      76616.26897972972                                            =J33*I19                                                    
+J33      0.05                                                                                                                     
+K33      GGC Pro forma                                                                                                            
+N33      3239310                                                      =SUM(N26:N32)                                               
+O33      2466880                                                      =SUM(O26:O32)                                               
+P33      15221.44                                                     =SUM(P26:P32)                                               
+Q33      0.006170320404721754                                         =P33/O33                                                    
+A34      Management Fee %                                                                                                         
+B34      #DIV/0!                                                      =B33/B19                                                    
+C34      0.029054799079295757                                         =C33/C19                                                    
+D34      0.030682427460544805                                         =D33/D19                                                    
+E34      0.029438921062578192                                         =E33/E19                                                    
+F34      0.030470600709760005                                         =F33/F19                                                    
+O34      0.7615448969070574                                           =O33/N33                                                    
+A35      Payroll                                                                                                                  
+B35      0                                                            =SUMIFS('Data Consolidation'!$D$43:$D$102,'Data Consolidat  
+C35      109371.1                                                     =SUMIFS('Data Consolidation'!$E$43:$E$102,'Data Consolidat  
+D35      83210.23999999999                                            =SUMIFS('Data Consolidation'!$G$43:$G$102,'Data Consolidat  
+E35      114393.16                                                    =SUMIFS('Data Consolidation'!$H$43:$H$102,'Data Consolidat  
+F35      83210.23999999999                                            =SUMIFS('Data Consolidation'!$F$43:$F$102,'Data Consolidat  
+G35      88800                                                        =I35                                                        
+H35      88800                                                        =I35                                                        
+I35      88800                                                        =J35*N7                                                     
+J35      600                                                                                                                      
+K35      GGC Pro forma                                                                                                            
+A36      Employee Allowance                                                                                                       
+B36      0                                                            =-SUMIFS('Data Consolidation'!$D$3:$D$36,'Data Consolidati  
+C36      0                                                            =-SUMIFS('Data Consolidation'!$E$3:$E$36,'Data Consolidati  
+D36      0                                                            =-SUMIFS('Data Consolidation'!$G$3:$G$36,'Data Consolidati  
+E36      0                                                            =-SUMIFS('Data Consolidation'!$H$3:$H$36,'Data Consolidati  
+F36      0                                                            =-SUMIFS('Data Consolidation'!$F$3:$F$36,'Data Consolidati  
+G36      0                                                            =I36                                                        
+H36      0                                                            =I36                                                        
+I36      0                                                                                                                        
+J36      0                                                            =I36/$N$7                                                   
+A37      General and Administrative                                                                                               
+B37      0                                                            =SUMIFS('Data Consolidation'!$D$43:$D$102,'Data Consolidat  
+C37      74633.51                                                     =SUMIFS('Data Consolidation'!$E$43:$E$102,'Data Consolidat  
+D37      82971.23                                                     =SUMIFS('Data Consolidation'!$G$43:$G$102,'Data Consolidat  
+E37      81067.36                                                     =SUMIFS('Data Consolidation'!$H$43:$H$102,'Data Consolidat  
+F37      82971.23                                                     =SUMIFS('Data Consolidation'!$F$43:$F$102,'Data Consolidat  
+G37      85460.3669                                                   =I37                                                        
+H37      85460.3669                                                   =I37                                                        
+I37      85460.3669                                                   =D37*(100%+3%)                                              
+J37      577.4349114864865                                            =I37/$N$7                                                   
+K37      T12 + 3% (Tenant Cable tV $69K)                                                                                          
+A38      Model Units                                                                                                              
+B38      0                                                            =-SUMIFS('Data Consolidation'!$D$3:$D$36,'Data Consolidati  
+C38      0                                                            =-SUMIFS('Data Consolidation'!$E$3:$E$36,'Data Consolidati  
+D38      0                                                            =-SUMIFS('Data Consolidation'!$G$3:$G$36,'Data Consolidati  
+E38      0                                                            =-SUMIFS('Data Consolidation'!$H$3:$H$36,'Data Consolidati  
+F38      0                                                            =-SUMIFS('Data Consolidation'!$F$3:$F$36,'Data Consolidati  
+G38      0                                                            =I38                                                        
+H38      0                                                            =I38                                                        
+I38      0                                                                                                                        
+J38      0                                                            =I38/$N$7                                                   
+A39      Professional Fees                                                                                                        
+B39      0                                                            =SUMIFS('Data Consolidation'!$D$43:$D$102,'Data Consolidat  
+C39      5558.83                                                      =SUMIFS('Data Consolidation'!$E$43:$E$102,'Data Consolidat  
+D39      4201.25                                                      =SUMIFS('Data Consolidation'!$G$43:$G$102,'Data Consolidat  
+E39      220                                                          =SUMIFS('Data Consolidation'!$H$43:$H$102,'Data Consolidat  
+F39      4201.25                                                      =SUMIFS('Data Consolidation'!$F$43:$F$102,'Data Consolidat  
+G39      4327.2875                                                    =I39                                                        
+H39      4327.2875                                                    =I39                                                        
+I39      4327.2875                                                    =D39*1.03                                                   
+J39      29.238429054054055                                           =I39/$N$7                                                   
+K39      T12 + 3%                                                                                                                 
+A40      Advertising                                                                                                              
+B40      0                                                            =SUMIFS('Data Consolidation'!$D$43:$D$102,'Data Consolidat  
+C40      2241.33                                                      =SUMIFS('Data Consolidation'!$E$43:$E$102,'Data Consolidat  
+D40      2468.26                                                      =SUMIFS('Data Consolidation'!$G$43:$G$102,'Data Consolidat  
+E40      1875.8                                                       =SUMIFS('Data Consolidation'!$H$43:$H$102,'Data Consolidat  
+F40      2468.26                                                      =SUMIFS('Data Consolidation'!$F$43:$F$102,'Data Consolidat  
+G40      2542.3078000000005                                           =I40                                                        
+H40      2542.3078000000005                                           =I40                                                        
+I40      2542.3078000000005                                           =D40*1.03                                                   
+J40      17.17775540540541                                            =I40/$N$7                                                   
+K40      T12 + 3%                                                                                                                 
+A41      Home Rent Expense (MH)                                                                                                   
+B41      0                                                            =SUMIFS('Data Consolidation'!$D$43:$D$102,'Data Consolidat  
+C41      0                                                            =SUMIFS('Data Consolidation'!$E$43:$E$102,'Data Consolidat  
+D41      0                                                            =SUMIFS('Data Consolidation'!$G$43:$G$102,'Data Consolidat  
+E41      0                                                            =SUMIFS('Data Consolidation'!$H$43:$H$102,'Data Consolidat  
+F41      0                                                            =SUMIFS('Data Consolidation'!$F$43:$F$102,'Data Consolidat  
+G41      0                                                            =I41                                                        
+I41      0                                                            =15%*I13                                                    
+J41      0                                                            =I41/$N$7                                                   
+A42      Other                                                                                                                    
+B42      0                                                            =SUMIFS('Data Consolidation'!$D$43:$D$102,'Data Consolidat  
+C42      0                                                            =SUMIFS('Data Consolidation'!$E$43:$E$102,'Data Consolidat  
+D42      0                                                            =SUMIFS('Data Consolidation'!$G$43:$G$102,'Data Consolidat  
+E42      0                                                            =SUMIFS('Data Consolidation'!$H$43:$H$102,'Data Consolidat  
+F42      0                                                            =SUMIFS('Data Consolidation'!$F$43:$F$102,'Data Consolidat  
+G42      0                                                            =I42                                                        
+H42      0                                                            =I42                                                        
+I42      0                                                                                                                        
+J42      0                                                            =I42/$N$7                                                   
+A43      Cap-Ex Reserve                                                                                                           
+B43      0                                                            =SUMIFS('Data Consolidation'!$D$43:$D$102,'Data Consolidat  
+C43      0                                                            =SUMIFS('Data Consolidation'!$E$43:$E$102,'Data Consolidat  
+D43      0                                                            =SUMIFS('Data Consolidation'!$G$43:$G$102,'Data Consolidat  
+E43      0                                                            =SUMIFS('Data Consolidation'!$H$43:$H$102,'Data Consolidat  
+F43      0                                                            =SUMIFS('Data Consolidation'!$F$43:$F$102,'Data Consolidat  
+G43      11100                                                        =I43                                                        
+H43      11100                                                        =I43                                                        
+I43      11100                                                        =J43*$N$7                                                   
+J43      75                                                                                                                       
+K43      GGC Pro forma                                                                                                            
+A44      Total Expenses                                                                                                           
+B44      0                                                            =B22+B23+B29+B30+B31+B32+B33+B35+B36+B37+B38+B39+B40+B42+B  
+C44      492314.30000000005                                           =C22+C23+C29+C30+C31+C32+C33+C35+C36+C37+C38+C39+C40+C42+C  
+D44      469067.77                                                    =D22+D23+D29+D30+D31+D32+D33+D35+D36+D37+D38+D39+D40+D42+D  
+E44      500445.2                                                     =E22+E23+E29+E30+E31+E32+E33+E35+E36+E37+E38+E39+E40+E42+E  
+F44      471967.98350000003                                           =F22+F23+F29+F30+F31+F32+F33+F35+F36+F37+F38+F39+F40+F42+F  
+G44      602989.1352689998                                            =G22+G23+G29+G30+G31+G32+G33+G35+G36+G37+G38+G39+G40+G42+G  
+H44      582514.4214797296                                            =H22+H23+H29+H30+H31+H32+H33+H35+H36+H37+H38+H39+H40+H42+H  
+I44      583278.8214797296                                            =I22+I23+I29+I30+I31+I32+I33+I35+I36+I37+I38+I39+I40+I42+I  
+J44      3941.073118106281                                            =I44/$N$7                                                   
+K44      per unit                                                                                                                 
+A45      Expense Ratio %                                                                                                          
+B45      #DIV/0!                                                      =B44/B19                                                    
+C45      0.3413191017038913                                           =C44/C19                                                    
+D45      0.3285878466835597                                           =D44/D19                                                    
+E45      0.3488894021211564                                           =E44/E19                                                    
+F45      0.2835363304816074                                           =F44/F19                                                    
+G45      0.31299207235194015                                          =G44/G19                                                    
+H45      0.38398158760952733                                          =H44/H19                                                    
+I45      0.3806494555575703                                           =I44/I19                                                    
+A47      Total Net Operating Income                                                                                               
+B47      0                                                            =B19-B44                                                    
+C47      950072.8900000001                                            =C19-C44                                                    
+D47      958458.46                                                    =D19-D44                                                    
+E47      933949.76                                                    =E19-E44                                                    
+F47      1192608.7665                                                 =F19-F44                                                    
+G47      1323542.5201109997                                           =G19-G44                                                    
+H47      934522.9581148649                                            =H19-H44                                                    
+I47      949046.5581148649                                            =I19-I44                                                    
+A48      YoY % Growth                                                                                                             
+C48      #DIV/0!                                                      =(C47-B47)/B47                                              
+D48      0.008826238584704623                                         =(D47-C47)/C47                                              
+E48      -0.02557095693015215                                         =(E47-D47)/D47                                              
