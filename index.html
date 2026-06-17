@@ -255,6 +255,10 @@
       </div>
     </div>
     <div id="status-detail" class="mt-4 text-xs text-slate-500 font-mono"></div>
+    <button id="cancel-btn" type="button" onclick="cancelAnalysis()"
+            class="mt-4 w-full py-2 rounded-lg text-sm font-semibold text-red-300 border border-red-500/40 bg-red-500/10 hover:bg-red-500/20 transition-colors hidden">
+      Cancel analysis
+    </button>
   </div>
 
   <!-- Results Panel -->
@@ -529,8 +533,24 @@
       state.jobId = data.job_id;
       setStep('upload', 'done');
       setStep('parallel', 'active');
+      document.getElementById('cancel-btn').classList.remove('hidden');
       pollStatus();
     } catch (e) {
+      showError(e.message);
+    }
+  }
+
+  async function cancelAnalysis() {
+    if (!state.jobId) return;
+    const btn = document.getElementById('cancel-btn');
+    btn.disabled = true;
+    btn.textContent = 'Cancelling…';
+    try {
+      const res = await fetch(`/api/cancel/${state.jobId}`, { method: 'POST' });
+      if (!res.ok) throw new Error('Cancel request failed');
+    } catch (e) {
+      btn.disabled = false;
+      btn.textContent = 'Cancel analysis';
       showError(e.message);
     }
   }
@@ -546,6 +566,7 @@
         if (job.status === 'complete') {
           clearInterval(state.pollInterval);
           stopElapsedTimer();
+          document.getElementById('cancel-btn').classList.add('hidden');
           setStep('parallel', 'done');
           setStep('fill', 'done');
           setStep('complete', 'done');
@@ -553,10 +574,17 @@
         } else if (job.status === 'needs_review') {
           clearInterval(state.pollInterval);
           stopElapsedTimer();
+          document.getElementById('cancel-btn').classList.add('hidden');
           showNeedsReview(job.result);
+        } else if (job.status === 'cancelled') {
+          clearInterval(state.pollInterval);
+          stopElapsedTimer();
+          document.getElementById('cancel-btn').classList.add('hidden');
+          showError(job.error || 'Cancelled by user.');
         } else if (job.status === 'error') {
           clearInterval(state.pollInterval);
           stopElapsedTimer();
+          document.getElementById('cancel-btn').classList.add('hidden');
           showError(job.error);
         } else if (job.progress && job.progress.toLowerCase().includes('filling')) {
           setStep('parallel', 'done');

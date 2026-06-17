@@ -114,7 +114,16 @@ export type JobState =
   | "running"
   | "complete"
   | "error"
-  | "needs_review";
+  | "needs_review"
+  | "cancelled";
+
+export async function cancelJob(jobId: string): Promise<void> {
+  const res = await engineFetch(`/api/cancel/${jobId}`, { method: "POST" });
+  if (!res.ok) {
+    const data = await readJson(res);
+    throw new Error(serverError(data, `Cancel failed (HTTP ${res.status}).`));
+  }
+}
 
 export interface JobStatus {
   status: JobState;

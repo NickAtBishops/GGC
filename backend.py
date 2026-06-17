@@ -173,6 +173,28 @@ MODEL_PRICING = {
 }
 _USAGE_LOCAL = threading.local()
 
+# ── Cancellation support ─────────────────────────────────────────────────
+# Set of job_ids the user asked to cancel. Each Claude call checks the
+# current thread's job_id against this set before firing; on a hit it
+# raises CancelledError, which run_analysis_job catches to mark the job
+# 'cancelled'. This stops the bill mid-pipeline (between Claude calls,
+# not mid-stream) which is the right granularity given the API client.
+CANCELLED_JOBS = set()
+_CANCEL_LOCAL = threading.local()
+
+class CancelledError(Exception):
+    pass
+
+def _set_job_thread(job_id):
+    """Tag the current thread with its job_id so call_claude can do an
+    O(1) cancellation check without threading job_id through every call site."""
+    _CANCEL_LOCAL.job_id = job_id
+
+def _check_cancelled():
+    job_id = getattr(_CANCEL_LOCAL, "job_id", None)
+    if job_id and job_id in CANCELLED_JOBS:
+        raise CancelledError(f"Job {job_id} cancelled by user")
+
 def _pricing_for(model_id):
     for prefix, prices in MODEL_PRICING.items():
         if model_id and model_id.startswith(prefix):
@@ -1277,6 +1299,10 @@ def call_claude(api_key, system_prompt, user_content, tools=None,
     during long-running requests (which can hit 3+ minutes when Claude is doing
     heavy thinking + web search) instead of timing out at the request level.
 
+    Cancellation: check the current thread's job_id against CANCELLED_JOBS
+    BEFORE firing. If the user clicked Cancel, raise CancelledError so the
+    next call doesn't run (stops the bill mid-pipeline, between calls).
+
     Model routing:
     - Defaults to MODEL_MARKET (Fable 5) for market research with adaptive thinking
     - Pass model=MODEL_METHODOLOGY (Fable 5) for GGC categorization + methodology
@@ -1287,6 +1313,7 @@ def call_claude(api_key, system_prompt, user_content, tools=None,
       so for them a no-thinking call simply omits both keys (omission is the
       documented way to run Fable 5 without thinking).
     """
+    _check_cancelled()
     headers = {"x-api-key": api_key, "anthropic-version": API_VERSION,
                "content-type": "application/json"}
     # Wrap the system prompt in Anthropic's prompt-cache marker. The
@@ -6344,6 +6371,9 @@ def run_analysis_job(job_id, api_key, file_blocks, property_info):
         job = JOBS.get(job_id)
     if job is None:
         return
+    # Tag this thread so call_claude can do an O(1) cancellation check
+    # without threading job_id through every call site.
+    _set_job_thread(job_id)
     try:
         # Begin per-job token accounting. Every call_claude in this thread
         # appends its usage to the thread-local accumulator. Snapshot at the
@@ -6549,6 +6579,12 @@ def run_analysis_job(job_id, api_key, file_blocks, property_info):
         print(f"[{job_id}] Job cost: ${usage_summary['totals']['cost_usd']:.2f} "
               f"across {usage_summary['calls']} Claude calls "
               f"(deep_search={deep_search})")
+    except CancelledError:
+        print(f"[{job_id}] Cancelled by user")
+        _set_job(job_id, status="cancelled",
+                 progress="Cancelled by user.",
+                 error="Cancelled by user — billing stopped between Claude calls.")
+        CANCELLED_JOBS.discard(job_id)
     except Exception as e:
         # Log full traceback server-side; the /api/status response is
         # sanitized so the client never sees internal error text.
@@ -6651,6 +6687,28 @@ def analyze():
            daemon=True).start()
 
     return jsonify({"job_id": job_id})
+
+
+@app.route("/api/cancel/<job_id>", methods=["POST"])
+@require_auth
+def cancel(job_id):
+    """Mark a job as cancelled. The next call_claude in that thread will
+    raise CancelledError, the analysis thread catches it, and the bill
+    stops. Cancellation lands BETWEEN Claude calls (not mid-stream) so
+    expect up to ~60s of overhang on the in-flight call before it stops."""
+    if not _valid_job_id(job_id):
+        return jsonify({"error": "Invalid job id"}), 400
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+        if not job:
+            return jsonify({"error": "Job not found"}), 404
+        # Ownership check in hosted mode (same pattern as /api/status).
+        if REQUIRE_AUTH and job.get("uid") != getattr(g, "user_uid", None):
+            return jsonify({"error": "Job not found"}), 404
+    CANCELLED_JOBS.add(job_id)
+    _set_job(job_id, progress="Cancelling — waiting for current Claude call to return...")
+    print(f"[{job_id}] Cancel requested")
+    return jsonify({"cancelled": True, "job_id": job_id})
 
 
 @app.route("/api/status/<job_id>")

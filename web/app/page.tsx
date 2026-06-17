@@ -9,6 +9,7 @@ import DealForm from "@/components/DealForm";
 import JobProgress, { type ProgressSteps } from "@/components/JobProgress";
 import ResultsPanel from "@/components/ResultsPanel";
 import {
+  cancelJob,
   getJobStatus,
   startAnalysis,
   type DealFormFields,
@@ -112,6 +113,11 @@ export default function HomePage() {
             clearStoredJob();
             setError(job.error || "Analysis failed.");
             setPhase("error");
+          } else if (job.status === "cancelled") {
+            stopPolling();
+            clearStoredJob();
+            setError(job.error || "Cancelled by user.");
+            setPhase("error");
           } else if (job.progress && job.progress.toLowerCase().includes("filling")) {
             // Same heuristic as index.html: a "Filling…" progress string means
             // the parallel-analysis stage is done and template fill has begun.
@@ -201,7 +207,21 @@ export default function HomePage() {
       <DealForm busy={busy} onSubmit={handleSubmit} />
 
       {phase !== "idle" && (
-        <JobProgress steps={steps} progress={progress} startedAt={startedAt} running={busy} />
+        <JobProgress
+          steps={steps}
+          progress={progress}
+          startedAt={startedAt}
+          running={busy}
+          onCancel={
+            jobId
+              ? () => {
+                  void cancelJob(jobId).catch((e) => {
+                    setError(e instanceof Error ? e.message : "Cancel failed.");
+                  });
+                }
+              : undefined
+          }
+        />
       )}
 
       {phase === "complete" && result && <ResultsPanel result={result} />}
