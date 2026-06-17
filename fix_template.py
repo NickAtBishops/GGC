@@ -826,6 +826,19 @@ _swap_criterion(ws["B16"], "Laundry Income")
 for col in ("C", "D", "E", "F"):
     _swap_criterion(ws[f"{col}16"], "Retail")
 
+# Expense rollups 36/38/41/43 — the blank template ships SUMIFS criteria
+# that diverge from the canonical strings backend.py emits. Without these
+# rewrites, four expense lines (Employee Allowance, Model Units, Home
+# Rent Expense, Cap-Ex Reserve) silently zero out because the criteria
+# won't match. CAP-EX IN PARTICULAR is force-inserted by apply_ggc_overrides
+# and would silently drop $11k+/year on every deal. Mirror the canonical
+# strings from backend.py GGC_EXPENSE_CATEGORIES so the SUMIFS hit:
+for col in ("B", "C", "D", "E", "F"):
+    _swap_criterion(ws[f"{col}36"], "Employee Allowance")
+    _swap_criterion(ws[f"{col}38"], "Model Units")
+    _swap_criterion(ws[f"{col}41"], "Home Rent Expense (MH)")
+    _swap_criterion(ws[f"{col}43"], "Cap-Ex Reserve")
+
 # Row 2 column headers — restore CorrectOutput's exact strings.
 ws["G2"] = "ALT NOI"
 ws["H2"] = "Lot Rent only NOI"

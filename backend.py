@@ -262,32 +262,54 @@ JOBS_DIR.mkdir(parents=True, exist_ok=True)
 IMG_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 EXTRACTION_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-# GGC's exact category strings — must match column A in Data Consolidation
-# (these feed the SUMIFS in the GGC Underwriting tab)
+# GGC's exact category strings — these MUST match column A in Data
+# Consolidation in `CorrectOutput.xlsx` (the gold-standard analyst output),
+# because the GGC Underwriting tab's SUMIFS criteria key off these strings
+# verbatim. Any drift silently zeros the line. Strings verified against
+# CorrectOutput rows 5-32 (income) and 44-101 (expenses).
 GGC_INCOME_CATEGORIES = [
-    "Gross Potential Rent", "Less: Vacancy", "Less: Concessions", "Less: Bad Debt",
-    "Utility Reimbursement", "Home Rent Income", "RV Site Rental Income",
-    # NOTE: "Parking Income" (storage units) and "Retail" (commercial space)
-    # match the SUMIFS criteria in the Underwriting tab — these are the gold-
-    # standard label strings CorrectOutput uses. Keep them spelled exactly
-    # like this or the row-15/row-16 SUMIFS return zero.
-    "Parking Income", "Retail", "Other Income", "Employee Allowance",
+    # Core MHC/RV revenue
+    "Gross Potential Rent",       # 4101 Lot Rent
+    "RV Site Rental Income",      # 4103 Long Term RV Lot Rent
+    "Parking Income",             # 4108 Storage Unit Rent
+    "Retail",                     # 4110 Retail Unit Rent
+    # Recoveries / fees
+    "Utility Reimbursement",      # 4403/4404 utility tenant pass-through
+    "Other Income",               # 4304/4905/4908-4915 fees, rev-share
+    # Adjustments
+    "Bad Debt",                   # 6120 (CorrectOutput uses "Bad Debt", NOT "Less: Bad Debt")
+    "Omitt Income",               # Non-recurring / Discontinued / Seller-Specific exclusions
+    # POH-related (when present)
+    "Home Rent Income",           # POH home-rent component
+    # Less-common buckets retained for completeness
+    "Employee Allowance",
     "Model Units",
 ]
 
 GGC_EXPENSE_CATEGORIES = [
-    # NOTE on "Electricity": an earlier GGC convention spelled it
-    # "Electrcitiy" (typo intentional). CorrectOutput.xlsx — the gold
-    # standard — actually uses the correctly-spelled "Electricity" in
-    # both the Data Consolidation source rows AND the Underwriting
-    # SUMIFS criteria. Match the gold standard, not the legacy typo,
-    # or every electricity row silently zeros out (~$93k/year hit on
-    # a typical MHC, big NOI overstatement).
-    "RE Taxes", "Insurance", "Gas/Fuel", "Electricity",
-    "Water and Sewer", "Trash Removal", "Repair and Maintenance",
-    "Ground Maintenance", "Recreational Amenities", "Management Fee",
-    "Payroll", "General and Administrative", "Professional Fees",
-    "Advertising", "Home Rent Expense (MH)", "Other", "Cap-Ex Reserve",
+    # Big-five operating
+    "RE Taxes",                   # 5301
+    "Insurance",                  # 5053 Liability Insurance (vehicle ins → Omitt Expense)
+    "Water and Sewer",            # 5402 + 5403
+    "Electricity",                # 5404 (spelling matches gold; template Underwriting label has "Electrcitiy" typo but SUMIFS criterion is "Electricity")
+    "Gas/Fuel",                   # 5406 Gas & Propane (5401 Vehicle Fuel → Omitt Expense)
+    "Trash Removal",              # 5405
+    # Maintenance buckets
+    "Ground Maintenance",         # 5102, 5103, 5104
+    "Repair and Maintenance",     # 5107-5111, 5200, 5409 (Coin Laundry rentals)
+    "Recreational Amenities",
+    # People / overhead
+    "Management Fee",             # 5000 (GGC override: 5% under 200 sites, 4% at 200+)
+    "Payroll",                    # 5700 series — emit ONE ROW PER GL, never the "Total Personnel" subtotal
+    "G&A",                        # 5070, 5072, 5407, 5601, 5602, 5603, 5606, 5650 (CorrectOutput uses "G&A", not "General and Administrative")
+    "Professional Fees",          # 5061, 5062, 5066
+    "Advertising",                # 5001
+    # POH-related
+    "Home Rent Expense (MH)",
+    # Exclusions / reserves
+    "Omitt Expense",              # Vehicle (5051, 5401) / Seller-Specific (5605 Postage) / Discontinued
+    "Other",
+    "Cap-Ex Reserve",             # GGC override: $75/unit/year (gold standard, per CorrectOutput I43)
 ]
 
 # Canonical unit-type taxonomy. Unit Mix Summary COUNTIFS/SUMIFS in the
@@ -1655,10 +1677,22 @@ def _extracted_line_schema(section_values):
     return {
         "type": "object",
         "additionalProperties": False,
-        "required": ["sellerLabel", "annualTotal", "monthly", "section", "isSubtotal"],
+        "required": ["sellerLabel", "annualTotal", "monthly", "section",
+                     "isSubtotal", "sellerNotes", "proFormaTotal"],
         "properties": {
             "sellerLabel": {"type": "string"},
             "annualTotal": {"type": ["number", "null"]},
+            # The seller's "PRO FORMA" column (when present) — their own
+            # adjusted forward-looking estimate. GGC sometimes uses this
+            # verbatim when the source P&L marks the line as adjusted
+            # (e.g., insurance "Last quarter annualized"). Null when the
+            # source has no pro-forma column.
+            "proFormaTotal": {"type": ["number", "null"]},
+            # The seller's "NOTES TO PRO FORMA" column verbatim. Drives the
+            # Omitt routing in the methodology stage (see the FINANCIAL_PARSE
+            # _PROMPT hard rule). Common values: "T12", "Non-recurring",
+            # "Discontinued", "Seller Specific", "Last quarter annualized".
+            "sellerNotes":  {"type": "string"},
             # monthly: 12-element array OR null. Anthropic schema accepts the
             # type-array form for nullables.
             "monthly": {
@@ -1702,7 +1736,7 @@ EXTRACTION_OUTPUT_SCHEMA = {
             "additionalProperties": False,
             "required": ["totalRowsInRentRoll", "statedTotalRentMonthly",
                          "statedTotalIsMonthly", "occupiedCount", "vacantCount",
-                         "unitTypes"],
+                         "unitTypes", "rentRollRows"],
             "properties": {
                 "totalRowsInRentRoll":    {"type": ["integer", "null"]},
                 "statedTotalRentMonthly": {"type": ["number", "null"]},
@@ -1725,6 +1759,32 @@ EXTRACTION_OUTPUT_SCHEMA = {
                             "avgLotRentOccupied": {"type": ["number", "null"]},
                             "hasHomeRentEntries": {"type": "boolean"},
                             "avgHomeRent":        {"type": ["number", "null"]},
+                        },
+                    },
+                },
+                # Per-tenant data. CRITICAL: emit ONE ROW per data row in the
+                # source rent roll. Aggregates (unitTypes above) alone are
+                # not enough — Unit Mix Summary's COUNTIFS scans the per-row
+                # data to populate Total Units, Occupancy, GPR, and the
+                # bifurcated lot/home rent NOI. When this array is empty,
+                # the template falls back to synthesizing rows with average
+                # rents which zeros out every downstream metric.
+                "rentRollRows": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": ["tenantName", "unitId", "unitType",
+                                     "status", "lotRent", "homeRent",
+                                     "marketRent"],
+                        "properties": {
+                            "tenantName": {"type": "string"},
+                            "unitId":     {"type": "string"},
+                            "unitType":   {"type": "string"},
+                            "status":     {"type": "string"},  # "Occupied" / "Vacant"
+                            "lotRent":    {"type": ["number", "null"]},
+                            "homeRent":   {"type": ["number", "null"]},
+                            "marketRent": {"type": ["number", "null"]},
                         },
                     },
                 },
@@ -1908,11 +1968,13 @@ METHODOLOGY_OUTPUT_SCHEMA = {
 # ── Pydantic mirrors (extraction stage) ───────────────────────────────────
 
 class ExtractedLineItem(BaseModel):
-    sellerLabel: str
-    annualTotal: float | None = None
-    monthly:     list[float] | None = None
-    section:     str
-    isSubtotal:  bool = False
+    sellerLabel:   str
+    annualTotal:   float | None = None
+    monthly:       list[float] | None = None
+    section:       str
+    isSubtotal:    bool = False
+    proFormaTotal: float | None = None
+    sellerNotes:   str = ""
 
 
 class ExtractedRentRoll(BaseModel):
@@ -1922,6 +1984,7 @@ class ExtractedRentRoll(BaseModel):
     occupiedCount:          int | None = None
     vacantCount:            int | None = None
     unitTypes:              list[dict] = Field(default_factory=list)
+    rentRollRows:           list[dict] = Field(default_factory=list)
 
 
 class ExtractedReportingPeriod(BaseModel):
@@ -1991,6 +2054,25 @@ class MethodologyLineItem(BaseModel):
         return self
 
 
+# Markers in sellerName that indicate the line is a subtotal/aggregation, NOT
+# a leaf GL row. The methodology must emit one row per leaf GL — never the
+# rolled-up "5700 Total Personnel" or "4100 Total Rental Income (non-posting)"
+# rows from the seller's chart of accounts, because those carry no t12Total
+# and silently zero out NOI when written to the workbook (the original
+# payroll-aggregation bug in 17June).
+_SUBTOTAL_MARKERS = (
+    "non-posting", "(non-posting)", "non posting", "(non posting)",
+    "total personnel", "total income", "total expense",
+    "total rental", "total maintenance", "total utility",
+    "total other", "total insurance",
+    "total repairs", "total taxes", "total office",
+)
+
+def _looks_like_subtotal(seller_name):
+    s = (seller_name or "").lower()
+    return any(m in s for m in _SUBTOTAL_MARKERS)
+
+
 class MethodologyIncomeItem(MethodologyLineItem):
     @field_validator("ggcCategory")
     @classmethod
@@ -2000,6 +2082,16 @@ class MethodologyIncomeItem(MethodologyLineItem):
                 f"income.ggcCategory='{v}' not in GGC_INCOME_CATEGORIES"
             )
         return v
+
+    @model_validator(mode="after")
+    def not_a_subtotal_row(self):
+        if _looks_like_subtotal(self.sellerName):
+            raise ValueError(
+                f"income.sellerName='{self.sellerName}' looks like a subtotal/"
+                f"aggregation row. Emit the underlying leaf GL accounts "
+                f"individually instead."
+            )
+        return self
 
 
 class MethodologyExpenseItem(MethodologyLineItem):
@@ -2011,6 +2103,16 @@ class MethodologyExpenseItem(MethodologyLineItem):
                 f"expense.ggcCategory='{v}' not in GGC_EXPENSE_CATEGORIES"
             )
         return v
+
+    @model_validator(mode="after")
+    def not_a_subtotal_row(self):
+        if _looks_like_subtotal(self.sellerName):
+            raise ValueError(
+                f"expense.sellerName='{self.sellerName}' looks like a "
+                f"subtotal/aggregation row (e.g. '5700 Total Personnel'). "
+                f"Emit the leaf GL accounts individually instead."
+            )
+        return self
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -2044,31 +2146,45 @@ Seller financials frequently contain MULTIPLE time periods side by side. You MUS
 ## STEP 2 — EXTRACT THE INCOME STATEMENT (P&L / T12)
 
 For EVERY line item in the seller's operating statement, transcribe:
-- "sellerLabel": the exact label as written (e.g. "6950 · UTILITIES", "4010 · RENTAL INCOME")
+- "sellerLabel": the exact label as written (e.g. "6950 · UTILITIES", "4010 · RENTAL INCOME"). Include account numbers verbatim.
 - "annualTotal": the value from the operative T12 column you identified in Step 1
 - "monthly": an array of the 12 monthly values for that line, IN CHRONOLOGICAL ORDER, if monthly detail exists. If no monthly detail exists, use null.
 - "section": your best read of whether this is "income" or "expense" based on where it sits in the statement (this is structural, NOT GGC categorization — just income vs expense)
+- "proFormaTotal": if the source has a "PRO FORMA" column (or any equivalent forward-looking adjusted column), transcribe its value here. Use null when no such column exists or the cell is blank.
+- "sellerNotes": if the source has a "NOTES TO PRO FORMA" or any notes column adjacent to the pro-forma column, copy its contents verbatim. Common values are "T12", "Non-recurring", "Discontinued", "Seller Specific", "Last quarter annualized". Empty string when no notes column exists. These notes drive the downstream Omitt-routing decisions — do not omit them.
 
 Rules:
 - If monthly values exist, they should sum to (or very close to) the annualTotal. If they don't, still transcribe both faithfully — the verification step will flag the discrepancy.
-- Include EVERY line, even ones that look like subtotals or totals. Mark subtotals/totals with "isSubtotal": true so they can be excluded from sums later.
+- Include EVERY line, even ones that look like subtotals or totals. Mark subtotals/totals with "isSubtotal": true so they can be excluded from sums later. Common subtotal labels: "Total", "non-posting", "Total Personnel", "Total Income", "TOTAL EXPENSE".
 - Preserve the seller's account numbers in the label if present.
 
 ## STEP 3 — EXTRACT THE RENT ROLL
 
-Transcribe the rent roll into structured form:
+Transcribe the rent roll into BOTH structured-aggregate AND per-tenant-row form. The per-tenant rows are NOT optional — the downstream Unit Mix Summary counts each row, and missing per-row data zeros out every per-unit metric.
+
+Aggregates:
 - "totalRowsInRentRoll": the number of unit/space rows you found (integer)
 - "statedTotalRentMonthly": if the rent roll shows a "Total Possible Rent" or "Totals" figure, transcribe it here. Note whether it is monthly or annual.
 - "occupiedCount": number of occupied units
 - "vacantCount": number of vacant units
 - "unitTypes": array of distinct unit types found, each with:
-    - "unitType": the label (e.g. "TURQUOISE SPACE", "Standard Lot")
+    - "unitType": the label (e.g. "WHA Lot", "WHA RV", "Commercial Space", "Storage")
     - "count": how many of this type
     - "occupiedCount": occupied of this type
     - "vacantCount": vacant of this type
     - "avgLotRentOccupied": average lot rent of the OCCUPIED units of this type
     - "hasHomeRentEntries": true if any unit of this type shows a home rent / POH rent value
     - "avgHomeRent": average home rent among units of this type that have one (null if none)
+
+Per-tenant rows (REQUIRED — one entry per data row in the source rent roll):
+- "rentRollRows": array of every tenant/space row, each with:
+    - "tenantName": tenant name as listed (use "" for vacant rows)
+    - "unitId": the unit/pad/space identifier (e.g. "A05", "B12", "EL02A"). Use "" when not present.
+    - "unitType": the seller's unit-type label for this row VERBATIM (do NOT map to GGC's canonical types here — the methodology stage does that).
+    - "status": "Occupied" or "Vacant". When the source uses other words ("Occ", "OCC", "Y", "X") translate to the canonical Occupied/Vacant.
+    - "lotRent": the lot/site rent for this row (number; 0 for vacant or for non-MH types)
+    - "homeRent": the home/POH rent for this row (number; 0 when not applicable)
+    - "marketRent": the market rent for this row when separately listed (null when the seller doesn't break it out)
 
 ## OUTPUT SCHEMA (JSON only)
 
@@ -2081,10 +2197,10 @@ Transcribe the rent roll into structured form:
     "notes": "string — explain any ambiguity in choosing the period"
   },
   "income": [
-    {"sellerLabel": "string", "annualTotal": number|null, "monthly": [12 numbers]|null, "section": "income", "isSubtotal": false}
+    {"sellerLabel": "string", "annualTotal": number|null, "monthly": [12 numbers]|null, "section": "income", "isSubtotal": false, "proFormaTotal": number|null, "sellerNotes": "string"}
   ],
   "expenses": [
-    {"sellerLabel": "string", "annualTotal": number|null, "monthly": [12 numbers]|null, "section": "expense", "isSubtotal": false}
+    {"sellerLabel": "string", "annualTotal": number|null, "monthly": [12 numbers]|null, "section": "expense", "isSubtotal": false, "proFormaTotal": number|null, "sellerNotes": "string"}
   ],
   "rentRoll": {
     "totalRowsInRentRoll": integer|null,
@@ -2095,6 +2211,10 @@ Transcribe the rent roll into structured form:
     "unitTypes": [
       {"unitType": "string", "count": integer, "occupiedCount": integer, "vacantCount": integer,
        "avgLotRentOccupied": number|null, "hasHomeRentEntries": false, "avgHomeRent": number|null}
+    ],
+    "rentRollRows": [
+      {"tenantName": "string", "unitId": "string", "unitType": "string", "status": "Occupied|Vacant",
+       "lotRent": number|null, "homeRent": number|null, "marketRent": number|null}
     ]
   },
   "documentsSeen": ["list each document by what it appears to be, e.g. 'T12 operating statement', 'rent roll', 'offering memorandum'"],
@@ -3020,7 +3140,7 @@ Preserve the raw seller label in `sellerUnitLabel` for audit traceability.
 
 ## Income Categorization — GL Account Mapping (CRITICAL: emit ONE ROW per seller GL account)
 
-Sellers' charts of accounts vary, but the GGC bucketing follows account-number prefixes consistently. Use this mapping. EMIT ONE ROW PER SELLER GL ACCOUNT — do NOT aggregate multiple GL accounts that share a GGC category into a single row. Combining 4101 + 4103 destroys the bifurcated lot/RV NOI the Underwriting tab depends on.
+Sellers' charts of accounts vary, but the GGC bucketing follows account-number prefixes consistently. Use this mapping. EMIT ONE ROW PER SELLER GL ACCOUNT — do NOT aggregate multiple GL accounts that share a GGC category into a single row, AND do NOT emit subtotal/"non-posting" rows from the source P&L (e.g. "4100 Total Rental Income (non-posting)", "5700 Total Personnel"). These are display artifacts in the seller's chart of accounts; emit only the leaf-level GL accounts beneath them, with their actual t12Total values preserved exactly as the extracted data shows.
 
 INCOME:
 | Seller GL prefix | Example label | GGC ggcCategory |
@@ -3029,46 +3149,60 @@ INCOME:
 | 4103 | Long Term RV Lot Rent / RV Site | "RV Site Rental Income" |
 | 4108 | Storage Unit Rent / Boat Storage / Parking | "Parking Income" |
 | 4110 | Retail Unit Rent / Commercial Space / Storefront | "Retail" |
-| 4131 / 4132 / "Move-in Specials" / "Concessions" / "Discounts" | Move-in Specials | "Less: Concessions" (NEGATIVE) |
-| 6120 / "Bad Debt" | Bad Debt | "Less: Bad Debt" (NEGATIVE) |
+| 4131 / "Move-in Specials" | Move-in Specials | "Omitt Income" when sellerNotes contains Discontinued / Non-recurring / Seller-Specific; else "Other Income" |
+| 6120 / "Bad Debt" | Bad Debt | "Bad Debt" (NEGATIVE) — sign is forced negative by the GGC override pass |
 | 4304 | Damages | "Other Income" |
-| 4402 (NEGATIVE: water/sewer non-recurring recovery) | Water & Sewer refund | "Other Income" with flag (NOT Utility Reimbursement — it's a contra) |
+| 4402 negative (water/sewer non-recurring recovery / refund) | Water & Sewer refund | "Omitt Income" (non-operating) |
 | 4403 / 4404 | Electric / Garbage tenant pass-through | "Utility Reimbursement" |
 | 4905 | Recovered Legal Fees | "Other Income" |
+| 4907 | Violation Fines | "Omitt Income" (non-operating fines — gold-standard routing) |
 | 4908 | Payment Processing Fee | "Other Income" |
 | 4909 | Cable Revenue Sharing | "Other Income" |
 | 4910 | Rental Pool Revenue Sharing | "Other Income" |
 | 4913 | Application Fees | "Other Income" |
 | 4914 | Late Fees | "Other Income" |
 | 4915 | NSF Fees | "Other Income" |
-| 4131 / Pet Fees / Damage Fees / Misc Fees | Various | "Other Income" |
 | Home Rent / POH Rent / Lease-to-Own income | Home Rent | "Home Rent Income" |
 
-DECISION RULES:
+DECISION RULES (income):
+- HARD RULE: any line whose sellerNotes field contains "Discontinued", "Non-recurring", "Seller Specific", "Seller-Specific", "One-time", or "Non-operating" → "Omitt Income". This overrides the GL-prefix routing above. The Omitt bucket is the gold-standard exclusion path for items GGC will not underwrite forward.
 - "Utility Reimbursement" = tenant pass-through of metered/billed utility consumption (water, sewer, electric, gas, trash). If the line item represents a CONSUMPTION pass-through to a tenant, it's Utility Reimbursement.
 - "Other Income" = revenue-sharing arrangements (cable, internet, laundry, vending), application/late/NSF/pet fees, damages, legal recoveries. If the line is a fee, fine, or revenue share rather than a utility pass-through, it's Other Income.
-- NEGATIVE income amounts: if a line in the income block is negative AND under ~$5k absolute, treat as "Other Income" with a `notes` flag explaining the contra. If material negative, flag and route to "Other Income" with a question.
-- 5407 Tenant Cable TV: if a recurring tenant charge in the income block → "Utility Reimbursement"; if a vendor revenue share → "Other Income"; if appearing in the expense block → leave as G&A.
-- Concessions: any GL labeled "specials", "move-in", "concessions", "discounts" → "Less: Concessions" (always negative number).
+- NEGATIVE income amounts that ARE NOT marked non-recurring: treat as "Other Income" with a `notes` flag explaining the contra. If material negative AND marked non-recurring → "Omitt Income".
+- 5407 Tenant Cable TV: in the income block → "Utility Reimbursement"; in the expense block → "G&A".
+- HARD RULE — NEVER prefix categories with "Less: ". The strings "Less: Vacancy", "Less: Concessions", "Less: Bad Debt" are template DISPLAY LABELS in the Underwriting tab; they are NOT GGC categories. The SUMIFS in the Underwriting tab look up "Bad Debt" (not "Less: Bad Debt"), "Vacancy" (not "Less: Vacancy"), etc. Emit the BARE category strings only. A "Less: " prefix silently zeros the line.
+- Vacancy is computed in the Underwriting tab from the rent roll. Do NOT emit a "Vacancy" line in Data Consolidation unless the seller's P&L has a dedicated vacancy line item with a non-zero T-12 number — and in that case emit the bare "Vacancy" category, not "Less: Vacancy".
+- Concessions: route to "Omitt Income" (typical case: discontinued move-in specials) or "Other Income" depending on the sellerNotes. The bare string "Concessions" is acceptable when the seller's P&L has an explicit concessions line.
 
 EXPENSE BUCKETING:
 | Seller GL | GGC ggcCategory |
 |---|---|
 | 5301 Property Tax | "RE Taxes" |
-| 5050 / 5053 Liability Insurance / 5051 Car Insurance | "Insurance" |
+| 5053 Liability Insurance | "Insurance" |
+| 5051 Car / Vehicle Insurance | "Omitt Expense" (vehicles are NOT property opex) |
 | 5402 Water & Sewer / 5403 Water Testing | "Water and Sewer" |
 | 5404 Electric | "Electricity" |
 | 5405 Garbage / Trash | "Trash Removal" |
-| 5406 Gas / Propane / 5401 Fuel for Vehicles | "Gas/Fuel" |
+| 5406 Gas / Propane | "Gas/Fuel" |
+| 5401 Vehicle Fuel | "Omitt Expense" (vehicle costs are not opex) |
 | 5102 Tree / 5104 Grounds / 5103 Pest | "Ground Maintenance" |
 | 5107 Septic / 5108 Plumbing / 5109 Misc / 5110 Equipment / 5111 Electrical / 5200 Supplies | "Repair and Maintenance" |
-| 5000 Management Fees | "Management Fee" (will be OVERRIDDEN by GGC's % of EGI) |
-| 5700-5716 (wages, casual labour, taxes, benefits, workers comp) | "Payroll" |
-| 5070 Licenses & Permits / 5072 Dues / 5601-5650 Office / 5407 Cable | "General and Administrative" |
+| 5409 Rentals - Coin Laundry (laundry equipment lease) | "Repair and Maintenance" |
+| 5000 Management Fees | "Management Fee" (OVERRIDDEN by GGC's % of EGI in a later pass) |
+| 5700 series leaf GLs (5701 Wages, 5702 Health Ins, 5703 Casual Labour, 5704 UI, 5705 Payroll Svc, 5706 FUTA, 5708 SS Tax, 5710 Mgr Salary Allocation, 5713 OR WBF, 5716 Workers Comp) | "Payroll" — emit ONE ROW PER GL, NEVER the "5700 Total Personnel" subtotal |
+| 5070 Licenses & Permits / 5072 Dues / 5601 Office Supplies / 5602 Internet / 5603 Telephone / 5606 Background Checks / 5650 Bank Fees / 5407 Tenant Cable TV | "G&A" |
+| 5605 Postage | "Omitt Expense" when sellerNotes marks it Seller-Specific; else "G&A" |
 | 5061 / 5062 / 5066 Professional | "Professional Fees" |
 | 5001 Advertising | "Advertising" |
 | 5113 Home Repairs / POH Maintenance / "Home" labels | "Home Rent Expense (MH)" |
-| 5300 Cap-Ex | "Cap-Ex Reserve" |
+| 5300 Cap-Ex | "Cap-Ex Reserve" (OVERRIDDEN to $75/site/year) |
+
+DECISION RULES (expense):
+- HARD RULE: any expense line whose sellerNotes contains "Discontinued", "Non-recurring", "Seller Specific", "Seller-Specific", "One-time", or "Non-operating" → "Omitt Expense". Same logic as the income side; the Omitt bucket is the gold-standard exclusion path.
+- HARD RULE: vehicle-related lines (Car Insurance, Vehicle Fuel, Vehicle Maintenance) → "Omitt Expense" regardless of GL prefix. Vehicles are seller-owned, not property opex.
+- HARD RULE: NEVER emit a subtotal row. Lines whose sellerLabel contains "Total", "non-posting", or "Subtotal" are display artifacts. Emit only the leaf GLs beneath them, each with its own row, each with its own t12Total preserved exactly from the source.
+  - WORKED EXAMPLE — the seller's P&L shows: `5700 Personnel (non-posting)` (header) then `5701 Wages $48,650`, `5702 Health Ins $1,026`, `5703 Casual Labour $22,505`, `5704 UI $3,118`, `5705 Payroll Svc $1,475`, `5706 FUTA $93`, `5708 SS $4,432`, `5713 OR-WBF $251`, `5716 Workers Comp $1,660`, then `5700 Total Personnel $83,210`. CORRECT methodology output: 9 rows (one per leaf GL, each ggcCategory="Payroll", each with its real t12Total). WRONG output: a single row with sellerName="5700 Total Personnel" and t12Total=$0 — that drops every payroll dollar from the workbook.
+- HARD RULE: every emitted row MUST have a numeric t12Total (zero is allowed; null is NOT allowed when the source P&L shows a value). If the extracted data has a value, the methodology row must carry it through. A row whose sellerName contains "Total"/"Subtotal"/"non-posting" AND has t12Total=0 across all value columns will be DROPPED by the write-back as a placeholder — emit the leaf GLs instead.
 
 REJECT any deviation from the exact category strings above. The downstream Excel SUMIFS keys on these exact strings; even a trailing space or different capitalization will silently zero out the line.
 
@@ -3551,9 +3685,63 @@ Apply the GGC methodology and return the structured JSON."""
         parsed.setdefault("_methodologyValidation", []).extend(validation_errors)
         print(f"[Methodology] {len(validation_errors)} validation warnings "
               f"(see Extraction Check tab)")
+    _carry_extraction_through(parsed, extracted)
     _ensure_rent_roll_complete(parsed, property_info)
     apply_ggc_overrides(parsed, property_info)
     return parsed
+
+
+def _carry_extraction_through(parsed, extracted):
+    """Forward per-tenant rent-roll rows AND per-line sellerNotes from the
+    extraction output into the methodology output. The methodology schema
+    deliberately drops rentRollRows + sellerNotes (to keep its grammar
+    compilable for Structured Outputs), so without this copy the data
+    vanishes and downstream code can't use it. We match methodology rows to
+    extracted rows by token-overlap on sellerName/sellerLabel — looser than
+    exact match because the LLM frequently adds prefixes like "5701 Wages,
+    Salary" → "Wages" or strips account numbers."""
+    if not isinstance(parsed, dict) or not isinstance(extracted, dict):
+        return
+    parsed_rr = parsed.setdefault("rentRoll", {})
+    ext_rr    = extracted.get("rentRoll") or {}
+    if isinstance(ext_rr.get("rentRollRows"), list) and not parsed_rr.get("rentRollRows"):
+        parsed_rr["rentRollRows"] = ext_rr["rentRollRows"]
+
+    def _norm(s):
+        return "".join(c for c in (s or "").lower() if c.isalnum())
+
+    # Match methodology rows to extracted rows so we can copy sellerNotes
+    # + proFormaTotal onto each methodology row. The override pass uses
+    # these to force Omitt routing on Non-recurring/Discontinued/Seller-
+    # Specific lines deterministically (independent of LLM judgment).
+    def _attach(meth_list, ext_list):
+        if not isinstance(meth_list, list) or not isinstance(ext_list, list):
+            return
+        ext_by_norm = {}
+        for e in ext_list:
+            if isinstance(e, dict):
+                ext_by_norm.setdefault(_norm(e.get("sellerLabel")), []).append(e)
+        for m in meth_list:
+            if not isinstance(m, dict):
+                continue
+            sn = _norm(m.get("sellerName"))
+            if not sn:
+                continue
+            # Try direct match first, then substring (extracted ⊆ methodology
+            # OR methodology ⊆ extracted to catch both directions of GL-number
+            # stripping).
+            matched = ext_by_norm.get(sn)
+            if not matched:
+                for key, group in ext_by_norm.items():
+                    if key and (key in sn or sn in key):
+                        matched = group
+                        break
+            if matched:
+                e = matched[0]
+                m["_sellerNotes"]   = e.get("sellerNotes") or ""
+                m["_proFormaTotal"] = e.get("proFormaTotal")
+    _attach(parsed.get("income"),   extracted.get("income"))
+    _attach(parsed.get("expenses"), extracted.get("expenses"))
 
 
 def call_parse_financials_merged(api_key, extracted, property_info, n_runs=3):
@@ -3587,6 +3775,11 @@ def call_parse_financials_merged(api_key, extracted, property_info, n_runs=3):
     print(f"[Claude] Merged {len(results)} methodology runs in "
           f"{time.time() - t0:.1f}s")
     merged = _merge_methodology(results)
+    # Carry per-tenant rent-roll rows + the seller-notes column through to
+    # the merged output; _merge_methodology only voted on the methodology
+    # fields the LLM emits and would otherwise lose the extraction-stage
+    # data needed for the rent-roll write-back.
+    _carry_extraction_through(merged, extracted)
     # Re-run rent-roll completeness on the merged output so the deterministic
     # backstop still applies (each run's _ensure_rent_roll_complete output
     # is replaced by the merged unitGroups, which may again be short).
@@ -3829,7 +4022,7 @@ def apply_ggc_overrides(financials, property_info):
     * Insurance: T12 × 1.05; × 1.15 when the user marked the property
       flood zone.
     * Taxes: never below the historical T12 × 1.15 floor.
-    * CapEx reserve: $50/unit/year.
+    * CapEx reserve: $75/unit/year (gold standard per CorrectOutput I43).
 
     Mutates `financials` in place. Records every applied override on
     `financials["_ggcOverrides"]` so the Extraction Check tab can list
@@ -3840,15 +4033,132 @@ def apply_ggc_overrides(financials, property_info):
     rr = financials.get("rentRoll") or {}
     overrides = financials.setdefault("_ggcOverrides", [])
 
+    # Defensive normalization: strip "Less: " prefix and remap variant
+    # labels ("General and Administrative" → "G&A") that some methodology
+    # runs emit when structured-outputs grammar masking falls back to
+    # prompt-only enforcement. Done in place so every downstream string
+    # check below sees the canonical enum value.
+    normalized_count = 0
+    for it in income:
+        raw = it.get("ggcCategory")
+        norm = _normalize_ggc_category(raw)
+        if norm != raw:
+            it["ggcCategory"] = norm
+            normalized_count += 1
+    for it in expenses:
+        raw = it.get("ggcCategory")
+        norm = _normalize_ggc_category(raw)
+        if norm != raw:
+            it["ggcCategory"] = norm
+            normalized_count += 1
+    if normalized_count:
+        financials.setdefault("_extractionChecks", []).append({
+            "item": "Methodology category normalization",
+            "check": "ggcCategory matches canonical enum",
+            "status": "warn",
+            "detail": (f"{normalized_count} line item(s) carried non-canonical "
+                       "category strings (e.g. 'Less: Bad Debt' or 'General "
+                       "and Administrative'). Defensively normalized to the "
+                       "enum values the Underwriting tab SUMIFS expect. This "
+                       "indicates structured-outputs grammar masking was "
+                       "unavailable for the methodology call — verify the "
+                       "Anthropic beta header / pinned model snapshot."),
+        })
+
+    # Drop placeholder rows: section-subtotal labels with zero values
+    # across t12 / underwritten / monthly. The methodology prompt forbids
+    # these, but prompt-only enforcement lets one through occasionally.
+    # Dropping at this layer keeps every downstream consumer (verification,
+    # parity checks, write-back) consistent.
+    def _is_empty_subtotal_row(it):
+        sn = (it.get("sellerName") or "").lower()
+        if not any(t in sn for t in ("total", "subtotal", "non-posting")):
+            return False
+        t12 = it.get("t12Total") or 0
+        uw  = it.get("ggcUnderwritten") or 0
+        monthly = it.get("monthly") or []
+        monthly_sum = sum(m for m in monthly if isinstance(m, (int, float)))
+        return t12 == 0 and uw == 0 and monthly_sum == 0
+    dropped_subtotals = []
+    income_keep, expense_keep = [], []
+    for it in income:
+        if _is_empty_subtotal_row(it):
+            dropped_subtotals.append(it.get("sellerName"))
+        else:
+            income_keep.append(it)
+    for it in expenses:
+        if _is_empty_subtotal_row(it):
+            dropped_subtotals.append(it.get("sellerName"))
+        else:
+            expense_keep.append(it)
+    income[:]   = income_keep
+    expenses[:] = expense_keep
+    if dropped_subtotals:
+        financials.setdefault("_extractionChecks", []).append({
+            "item": "Methodology subtotal collapse",
+            "check": "no empty-value 'Total ___' rows",
+            "status": "warn",
+            "detail": (f"Dropped {len(dropped_subtotals)} placeholder "
+                       f"section-subtotal row(s) with zero values: "
+                       f"{dropped_subtotals}. The LLM collapsed a section "
+                       "(typically '5700 Total Personnel') without bringing "
+                       "the leaf GLs across. Underlying dollars likely "
+                       "missing from this workbook — verify the source P&L "
+                       "leaf GL accounts landed individually."),
+        })
+
     def _record(category, before, after, basis):
         overrides.append({
             "category": category, "before": before, "after": after,
             "basis": basis,
         })
 
+    # ── Force Omitt routing from seller-notes (deterministic) ───────────
+    # The methodology prompt instructs the LLM to route Non-recurring /
+    # Discontinued / Seller-Specific lines to Omitt, but LLMs miss this
+    # rule under prompt-only schema enforcement (Haiku) and on multi-run
+    # voting where one run disagrees. Force it in Python so the gold-
+    # standard Omitt routing (see CorrectOutput Data Consolidation rows
+    # 11, 17, 24, 48, 73, 86) happens every time.
+    OMITT_MARKERS = (
+        "non-recurring", "non recurring", "nonrecurring",
+        "discontinued", "seller specific", "seller-specific",
+        "one-time", "one time", "non-operating",
+    )
+    def _force_omitt(items, target_category):
+        for it in items:
+            notes = (it.get("_sellerNotes") or "").lower()
+            if any(m in notes for m in OMITT_MARKERS):
+                current = (it.get("ggcCategory") or "").strip()
+                if current and current != target_category:
+                    _record(
+                        f"{it.get('sellerName', '?')}: {current} → {target_category}",
+                        current, target_category,
+                        f"sellerNotes={it.get('_sellerNotes')!r}")
+                    it["ggcCategory"] = target_category
+    _force_omitt(income,   "Omitt Income")
+    _force_omitt(expenses, "Omitt Expense")
+
+    # Vehicle-related expenses → Omitt Expense regardless of GL prefix.
+    # Catches Car Insurance (5051), Vehicle Fuel (5401), and similar lines
+    # the LLM sometimes lands in Insurance or Gas/Fuel.
+    VEHICLE_MARKERS = ("car insurance", "vehicle insurance", "vehicle fuel",
+                       "fuel for vehicle", "auto insurance", "truck",
+                       "vehicle maintenance")
+    for it in expenses:
+        sn = (it.get("sellerName") or "").lower()
+        if any(m in sn for m in VEHICLE_MARKERS):
+            current = (it.get("ggcCategory") or "").strip()
+            if current and current != "Omitt Expense":
+                _record(
+                    f"{it.get('sellerName', '?')}: {current} → Omitt Expense",
+                    current, "Omitt Expense",
+                    "vehicle line — not property opex")
+                it["ggcCategory"] = "Omitt Expense"
+
     # ── Bad debt sign: always negative ──────────────────────────────────
     for it in income:
-        if (it.get("ggcCategory") or "").strip() == "Less: Bad Debt":
+        if (it.get("ggcCategory") or "").strip() == "Bad Debt":
             for fld in ("t12Total", "ggcUnderwritten", "fyPrior",
                         "fyCurrent", "brokerProforma"):
                 v = it.get(fld)
@@ -3862,8 +4172,13 @@ def apply_ggc_overrides(financials, property_info):
                 ]
 
     # ── Effective Gross Income (post bad-debt sign fix) ────────────────
+    # EXCLUDE "Omitt Income" — that's the explicit non-operating bucket;
+    # including it would oversize the management-fee percentage (which is
+    # the EGI consumer downstream) by the omit amount on every deal.
     egi = 0.0
     for it in income:
+        if (it.get("ggcCategory") or "").strip() == "Omitt Income":
+            continue
         v = it.get("ggcUnderwritten")
         if isinstance(v, (int, float)):
             egi += v
@@ -3956,14 +4271,18 @@ def apply_ggc_overrides(financials, property_info):
                     _record("RE Taxes", before, floor,
                             f"T12 ${t12:,.0f} × 1.15 (was below floor)")
 
-    # ── CapEx reserve: $50/unit/year ───────────────────────────────────
+    # ── CapEx reserve: $75/unit/year (gold standard per CorrectOutput I43) ───────────────────────────────────
     try:
         units = int(rr.get("totalUnits") or 0) or int(
             str(property_info.get("units", "")).strip() or 0)
     except (ValueError, TypeError):
         units = 0
     if units > 0:
-        capex_target = float(units * 50)
+        # GGC standard: $75/site/year — matches CorrectOutput's I43 formula
+        # (`=J43 × N7` with J43 hardcoded to $75). Earlier CLAUDE.md said
+        # $50 but the gold-standard Whaleshead model uses $75.
+        capex_per_unit = 75
+        capex_target = float(units * capex_per_unit)
         capex_lines = [e for e in expenses
                        if (e.get("ggcCategory") or "").strip() == "Cap-Ex Reserve"]
         if capex_lines:
@@ -3974,9 +4293,9 @@ def apply_ggc_overrides(financials, property_info):
             primary["confidence"] = "high"
             primary["notes"] = ((primary.get("notes") or "").strip()
                                 + (" || " if primary.get("notes") else "")
-                                + f"GGC override: $50 × {units} units")
+                                + f"GGC override: ${capex_per_unit} × {units} units")
             _record("Cap-Ex Reserve", before, capex_target,
-                    f"$50 × {units} units")
+                    f"${capex_per_unit} × {units} units")
             for extra in capex_lines[1:]:
                 _record("Cap-Ex Reserve (duplicate)",
                         extra.get("ggcUnderwritten"), 0, "deduped")
@@ -3991,10 +4310,10 @@ def apply_ggc_overrides(financials, property_info):
                 "monthly":         [capex_target / 12] * 12,
                 "ggcUnderwritten": capex_target,
                 "confidence":      "high",
-                "notes": f"GGC override (no seller line): $50 × {units} units",
+                "notes": f"GGC override (no seller line): ${capex_per_unit} × {units} units",
             })
             _record("Cap-Ex Reserve (inserted)", None, capex_target,
-                    f"$50 × {units} units")
+                    f"${capex_per_unit} × {units} units")
 
     # Drop the override log if nothing actually changed — keeps the
     # Extraction Check tab focused on real events.
@@ -4002,9 +4321,16 @@ def apply_ggc_overrides(financials, property_info):
         financials.pop("_ggcOverrides", None)
     else:
         # Surface a single summary check so the reviewer sees what changed
-        # without scrolling through every individual override.
+        # without scrolling through every individual override. `after` is
+        # numeric for value overrides (mgmt fee, capex, ins, taxes) but a
+        # string for category-reroute overrides (sellerNotes-driven Omitt
+        # forcing) — format accordingly.
+        def _fmt(after):
+            if isinstance(after, (int, float)):
+                return f"${after:,.0f}"
+            return str(after) if after else ""
         summary = "; ".join(
-            f"{o['category']}: → ${(o['after'] or 0):,.0f}"
+            f"{o['category']}: → {_fmt(o['after'])}"
             for o in overrides[:6]
         )
         more = f" (+{len(overrides) - 6} more)" if len(overrides) > 6 else ""
@@ -4481,6 +4807,76 @@ def _set_addr(ws, addr, value):
     return True
 
 
+def _structural_rows(ws, row_start, row_end, value_cols=(4, 5, 6, 7)):
+    """Return the set of row indices inside [row_start, row_end] whose value
+    columns (default D, E, F, G — the FY Prior / FY Current / Broker / T12
+    cells) hold pre-wired template formulas. These rows hold structural
+    subtotals (income SUM at row 23, expense SUM at row 60, NOI at row 64,
+    reconciliation IF-checks at rows 25/62, header repeats at row 27) — the
+    Data Consolidation write loop must SKIP them or it lands category labels
+    in column A on rows whose value columns hold huge SUM formulas, and the
+    Underwriting tab's SUMIFS then pulls those formula outputs as line item
+    values. (That is the bug that drove 17June's Advertising T-12 to $1.17M
+    and R&M to $263k vs the seller's actual $2.5k and $10.4k — see
+    Outputs/17June diagnostic for the original symptom.)
+    """
+    out = set()
+    for r in range(row_start, row_end + 1):
+        for c in value_cols:
+            v = ws.cell(row=r, column=c).value
+            if isinstance(v, str) and v.startswith("="):
+                out.add(r)
+                break
+    return out
+
+
+# Common variations the methodology LLM emits when structured-output grammar
+# masking is unavailable and prompt-only enforcement is the only line of
+# defense (Anthropic structured-outputs is rejected for some pinned model
+# snapshots — see _call_anthropic fallback path). The Underwriting tab's
+# SUMIFS keys on EXACT template strings, so an unmapped variant silently
+# zeros the line. Defense-in-depth: normalize at write-back AND in
+# apply_ggc_overrides.
+_GGC_CATEGORY_ALIASES = {
+    "general and administrative": "G&A",
+    "general & administrative":   "G&A",
+    "g & a":                      "G&A",
+    "g and a":                    "G&A",
+    "capex reserve":              "Cap-Ex Reserve",
+    "capital expenditures":       "Cap-Ex Reserve",
+    "capex":                      "Cap-Ex Reserve",
+    "home rent expense":          "Home Rent Expense (MH)",
+    "home rent expense (poh)":    "Home Rent Expense (MH)",
+    "electrcitiy":                "Electricity",      # gold-typo lands on canonical
+    "trash":                      "Trash Removal",
+    "water/sewer":                "Water and Sewer",
+    "water & sewer":              "Water and Sewer",
+}
+
+
+def _normalize_ggc_category(cat):
+    """Strip "Less: " prefixes and map well-known label variants to the
+    canonical enum strings the template SUMIFS expect. Called on every
+    ggcCategory before it lands in Data Consolidation column A, so the
+    workbook is correct even when the methodology LLM emits variant
+    strings under prompt-only schema enforcement.
+    """
+    if not isinstance(cat, str):
+        return cat
+    s = cat.strip()
+    # Drop the "Less: " prefix some runs emit on Bad Debt / Vacancy /
+    # Concessions despite the prompt's ban. UW SUMIFS look up the bare
+    # category, so the prefixed string silently zeros the line.
+    low = s.lower()
+    if low.startswith("less:"):
+        s = s[5:].strip()
+        low = s.lower()
+    # Apply alias map.
+    if low in _GGC_CATEGORY_ALIASES:
+        return _GGC_CATEGORY_ALIASES[low]
+    return s
+
+
 def fill_template(financials, market, output_path):
     if not TEMPLATE_PATH.exists():
         raise FileNotFoundError(
@@ -4494,19 +4890,102 @@ def fill_template(financials, market, output_path):
     formula_blocks_total = [0]
 
     # ── Data Consolidation ────────────────────────────────────────────────
-    # Income rows 3-21, Expense rows 28-58
+    # Income rows 3-36 (34 slots), Expense rows 43-102 (60 slots) — the
+    # patched Underwriting tab's SUMIFS span those ranges.
     # Cols: A=GGC Cat, B=Source Name, D=FY Prior, E=FY Current, F=Broker PF,
-    #       G=T12, J-U=monthly (12), H=annualization (formula — don't touch)
+    #       G=T12, J-U=monthly (12), H=annualization (formula — don't touch),
+    #       V=row total (formula).
+    #
+    # STRUCTURAL ROWS inside those write ranges hold pre-wired SUM / IF / NOI
+    # formulas in the template (rows 22-27 inside the income band; rows 60,
+    # 62, 64 inside the expense band). We MUST skip them — writing a category
+    # label into column A of one of these rows makes the Underwriting tab's
+    # SUMIFS pick up the row's formula output as if it were a line item,
+    # which is exactly how 17June ended up with Advertising T-12 = $1.17M
+    # and R&M T-12 = $263k (the row-60 expense-subtotal and row-64 NOI
+    # formula outputs were summed into the line). Scan once at template
+    # load and use the resulting slot lists to lay items out.
     ws = wb["Data Consolidation"]
+    income_structural  = _structural_rows(ws, 3, 36)
+    expense_structural = _structural_rows(ws, 43, 102)
+    income_slots  = [r for r in range(3, 37)  if r not in income_structural]
+    expense_slots = [r for r in range(43, 103) if r not in expense_structural]
     _protect_formulas(ws)
-    income_items = financials.get("income", [])
-    expense_items = financials.get("expenses", [])
 
-    # Income rows 3-36 (34 slots), Expense rows 43-102 (60 slots). The
-    # patched Underwriting tab's SUMIFS now spans those ranges; writing
-    # past them would land outside the SUMIFS reach and silently get lost.
-    for i, item in enumerate(income_items[:34]):
-        r = 3 + i
+    # Strip noise rows before writing. The methodology occasionally emits:
+    #   - "Choose Expense Category" — a leftover from the template/prompt
+    #     example that should never reach the workbook
+    #   - Section-subtotal rows from the seller's chart of accounts
+    #     ("4100 Total Rental Income (non-posting)", "5700 Total Personnel")
+    #     — display artifacts; only the leaf GLs beneath them carry real
+    #     data. The methodology prompt bans emitting them, but defense-in-
+    #     depth here in case prompt-only enforcement (structured-outputs
+    #     fallback) lets one through.
+    _SKIP_SENTINEL_CATEGORIES = {"Choose Income Category",
+                                  "Choose Expense Category", ""}
+    def _keep(item):
+        if _looks_like_subtotal(item.get("sellerName")):
+            return False
+        # Drop rows with zero T-12 AND zero monthly AND zero underwritten
+        # whose sellerName screams "subtotal" — that's the LLM collapsing
+        # a section header without bringing the underlying values across.
+        # Real $0 line items keep their row.
+        t12 = item.get("t12Total") or 0
+        uw  = item.get("ggcUnderwritten") or 0
+        monthly = item.get("monthly") or []
+        monthly_sum = sum(m for m in monthly if isinstance(m, (int, float)))
+        if t12 == 0 and uw == 0 and monthly_sum == 0:
+            sn = (item.get("sellerName") or "").lower()
+            if any(t in sn for t in ("total", "subtotal", "non-posting")):
+                return False
+        return True
+
+    # Normalize every ggcCategory before write-back. Strip the "Less: "
+    # prefix and map LLM variants ("General and Administrative" → "G&A")
+    # to the canonical strings the UW SUMIFS expect. Belt-and-suspenders
+    # in case structured-outputs grammar masking is silently unavailable
+    # (the _call_anthropic fallback prints a warning but still proceeds).
+    def _prep(items):
+        out = []
+        for it in items or []:
+            if not _keep(it):
+                continue
+            cat = _normalize_ggc_category(it.get("ggcCategory"))
+            if cat in _SKIP_SENTINEL_CATEGORIES:
+                continue
+            it = dict(it)  # copy so we don't mutate caller's data
+            it["ggcCategory"] = cat
+            out.append(it)
+        return out
+
+    income_items  = _prep(financials.get("income"))
+    expense_items = _prep(financials.get("expenses"))
+
+    # Overflow → hard fail. Silent truncation past the SUMIFS range would
+    # understate every UW line and is exactly the kind of invisible
+    # accuracy degradation CLAUDE.md §0 forbids.
+    if len(income_items) > len(income_slots):
+        dropped = [it.get("sellerName") for it in income_items[len(income_slots):]]
+        financials.setdefault("_extractionChecks", []).append({
+            "item": "Data Consolidation income capacity",
+            "check": f"≤ {len(income_slots)} non-structural rows in $A$3:$A$36",
+            "status": "fail",
+            "detail": (f"Methodology emitted {len(income_items)} income line "
+                       f"items; only {len(income_slots)} non-structural rows "
+                       f"are available. Dropped: {dropped}"),
+        })
+    if len(expense_items) > len(expense_slots):
+        dropped = [it.get("sellerName") for it in expense_items[len(expense_slots):]]
+        financials.setdefault("_extractionChecks", []).append({
+            "item": "Data Consolidation expense capacity",
+            "check": f"≤ {len(expense_slots)} non-structural rows in $A$43:$A$102",
+            "status": "fail",
+            "detail": (f"Methodology emitted {len(expense_items)} expense line "
+                       f"items; only {len(expense_slots)} non-structural rows "
+                       f"are available. Dropped: {dropped}"),
+        })
+
+    def _write_item(r, item):
         ws.cell(row=r, column=1, value=item.get("ggcCategory", ""))
         ws.cell(row=r, column=2, value=item.get("sellerName", ""))
         ws.cell(row=r, column=4, value=item.get("fyPrior", 0))
@@ -4522,22 +5001,30 @@ def fill_template(financials, market, output_path):
             for m_i in range(12):
                 ws.cell(row=r, column=10 + m_i, value=even)
 
-    for i, item in enumerate(expense_items[:60]):
-        r = 43 + i
-        ws.cell(row=r, column=1, value=item.get("ggcCategory", ""))
-        ws.cell(row=r, column=2, value=item.get("sellerName", ""))
-        ws.cell(row=r, column=4, value=item.get("fyPrior", 0))
-        ws.cell(row=r, column=5, value=item.get("fyCurrent", 0))
-        ws.cell(row=r, column=6, value=item.get("brokerProforma", 0))
-        ws.cell(row=r, column=7, value=item.get("t12Total", 0))
-        monthly = item.get("monthly") or []
-        if len(monthly) == 12:
-            for m_i, val in enumerate(monthly):
-                ws.cell(row=r, column=10 + m_i, value=val)
-        elif item.get("t12Total"):
-            even = (item["t12Total"] or 0) / 12
-            for m_i in range(12):
-                ws.cell(row=r, column=10 + m_i, value=even)
+    written_income_rows = set()
+    for item, r in zip(income_items, income_slots):
+        _write_item(r, item)
+        written_income_rows.add(r)
+    written_expense_rows = set()
+    for item, r in zip(expense_items, expense_slots):
+        _write_item(r, item)
+        written_expense_rows.add(r)
+
+    # Clear any trailing slots the template ships with default text
+    # ("Choose Expense Category", "Input Source Data", etc.) so the
+    # workbook doesn't display placeholder rows the methodology never
+    # populated. Skip structural rows (their formulas must remain) and
+    # rows we just wrote.
+    for r in range(3, 37):
+        if r in income_structural or r in written_income_rows:
+            continue
+        ws.cell(row=r, column=1, value=None)
+        ws.cell(row=r, column=2, value=None)
+    for r in range(43, 103):
+        if r in expense_structural or r in written_expense_rows:
+            continue
+        ws.cell(row=r, column=1, value=None)
+        ws.cell(row=r, column=2, value=None)
 
     # ── Rent Roll Input ────────────────────────────────────────────────────
     # Restructured column layout (matches Unit Mix Summary COUNTIFS/SUMIFS):
@@ -4682,6 +5169,30 @@ def fill_template(financials, market, output_path):
     # keep I22 = J22*N7 (per-unit) and I23 = D23*1.05 (T12 × 1.05) — no
     # methodology MAX branches, no flood surcharge. The Flood Zone is
     # still written below to R5 as informational metadata only.
+    #
+    # Per-site RE Tax rate: CorrectOutput's I22 formula is `=J22 × N7`
+    # (a per-site tax assumption × unit count). The template ships J22 as
+    # a hardcoded number; if the user provides `tax_per_site` on the form
+    # we write it here so a single per-site update flows through I22, the
+    # cap rate (P6 = I47/P4), and the Pro Forma chain. Skip when blank so
+    # the template's existing J22 value is preserved.
+    try:
+        tax_per_site = float(prop.get("taxPerSite") or 0)
+    except (TypeError, ValueError):
+        tax_per_site = 0
+    if tax_per_site > 0:
+        # Sanity-clamp: real MHC per-site taxes run roughly $100-$2,000/site
+        # depending on county. A 10× typo (e.g. 4000 for 400) would silently
+        # inflate I22 by an order of magnitude. Flag clearly when outside.
+        if tax_per_site < 100 or tax_per_site > 2_000:
+            financials.setdefault("_extractionChecks", []).append({
+                "item": "Per-site tax assumption",
+                "check": "$100-$2,000/site is typical",
+                "status": "warn",
+                "detail": (f"tax_per_site=${tax_per_site:,.0f} is outside the "
+                           f"typical MHC range. Confirm this isn't a typo."),
+            })
+        _set_addr(underw, "J22", tax_per_site)
 
     # Underwritten date stamp at N2. Today's date is the default; the
     # reviewer can overwrite in-cell if they want to date-stamp to a
@@ -5789,6 +6300,10 @@ def analyze():
         "city":        request.form.get("city", ""),
         "county":      request.form.get("county", ""),
         "countyTaxRate": request.form.get("county_tax_rate", ""),
+        # Per-site RE tax assumption ($/unit/year). When provided, the
+        # write-back overrides the template's J22 default. CorrectOutput
+        # used $400/site for Whaleshead (148 sites × $400 = $59,200 I22).
+        "taxPerSite":    request.form.get("tax_per_site", ""),
         "pohCount":    request.form.get("poh_count", "0"),
         "state":       request.form.get("state", ""),
         "units":       request.form.get("units", ""),
