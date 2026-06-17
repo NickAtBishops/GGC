@@ -1193,6 +1193,20 @@ def _accepts_sampling(model_id):
                            "claude-opus-4-2"))  # ...-4-2 = claude-opus-4-20250514
 
 
+def _supports_adaptive_thinking(model_id):
+    """True if the model accepts `thinking: {type: 'adaptive'}`. Haiku models
+    don't expose extended thinking (Anthropic returns 400 with
+    `adaptive thinking is not supported on this model`). Opus 4.x and Fable 5
+    do. Used to silently disable thinking when an Economy-mode run lands on
+    Haiku, instead of crashing the analysis."""
+    mid = (model_id or "").lower()
+    if mid.startswith("claude-haiku-"):
+        return False
+    if mid.startswith(("claude-opus-", "claude-fable-", "claude-sonnet-")):
+        return True
+    return True  # Default to true so new model families don't silently lose thinking.
+
+
 def call_claude(api_key, system_prompt, user_content, tools=None,
                 use_thinking=True, temperature=None, model=None,
                 output_schema=None, max_tokens=None):
@@ -1233,6 +1247,15 @@ def call_claude(api_key, system_prompt, user_content, tools=None,
             "system": system_field,
             "messages": [{"role": "user", "content": user_content}],
             "stream": True,}
+    # Silently disable thinking when the chosen model doesn't expose
+    # adaptive thinking (e.g. Haiku 4.5). Without this guard, an Economy-
+    # mode run that lands on Haiku 400s with "adaptive thinking is not
+    # supported on this model" and the whole analysis crashes — even
+    # though the methodology call would have run fine without thinking.
+    if use_thinking and not _supports_adaptive_thinking(body["model"]):
+        print(f"[Claude] {body['model']} does not support adaptive thinking — "
+              f"running without it.")
+        use_thinking = False
     if use_thinking:
         body["thinking"] = {"type": "adaptive"}
         body["output_config"] = {"effort": THINKING_EFFORT}
