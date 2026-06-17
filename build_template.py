@@ -280,6 +280,45 @@ def main():
             k_cell.value = f"=I{r}+J{r}"
     print(f"[build] Seeded {n_seeded} new Rent Roll Input row-formula pairs")
 
+    # ── 4c. Rewrite Unit Mix Summary COUNTIFS to match engine output ─────
+    # CorrectOutput's Unit Mix Summary hunts column C of Rent Roll Input
+    # for the analyst's INTERNAL CODES "Type 1" / "Type 2" / "Type 3" /
+    # "Type 4". But backend.py's _canonicalize_unit_type writes the
+    # canonical strings "TOH MH Site" / "POH-Infilled units" /
+    # "Long term RV Site" / "Retail/Commercial" directly to column C.
+    # Result on Run3: every COUNTIFS returns 0, Unit Mix Summary stays
+    # blank, every Underwriting cell that references unit counts (Total
+    # Units N7, Occupancy N8, GPR via Unit Mix Rent Growth, etc.) breaks.
+    # Rewrite the criterion strings so the SUMIFS hit the canonical names.
+    TYPE_CODE_MAP = {
+        '"Type 1"': '"TOH MH Site"',
+        '"Type 2"': '"POH-Infilled units"',
+        '"Type 3"': '"Long term RV Site"',
+        '"Type 4"': '"Retail/Commercial"',
+    }
+    ums = wb["Unit Mix Summary"]
+    n_rewritten = 0
+    for row in ums.iter_rows():
+        for cell in row:
+            v = cell.value
+            if not isinstance(v, str) or "Type " not in v:
+                continue
+            new = v
+            for old, repl in TYPE_CODE_MAP.items():
+                new = new.replace(old, repl)
+            if new != v:
+                cell.value = new
+                n_rewritten += 1
+    print(f"[build] Unit Mix Summary: rewrote {n_rewritten} COUNTIFS/SUMIFS "
+          f"criteria from 'Type N' → canonical unit-type strings")
+
+    # Also fix the typo in the display label B7 ("Retail/Comemrcial" →
+    # "Retail/Commercial") so the visible row label matches the actual
+    # COUNTIFS criterion the engine emits.
+    if ums["B7"].value == "Retail/Comemrcial":
+        ums["B7"].value = "Retail/Commercial"
+        print(f"[build] Unit Mix Summary: fixed 'Retail/Comemrcial' typo at B7")
+
     # ── 5. Comps — strip comp data rows ──────────────────────────────────
     if "Comps" in wb.sheetnames:
         cp = wb["Comps"]
