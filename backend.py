@@ -5062,18 +5062,24 @@ def _set_addr(ws, addr, value):
     return True
 
 
-def _structural_rows(ws, row_start, row_end, value_cols=(4, 5, 6, 7)):
+def _structural_rows(ws, row_start, row_end, value_cols=(4, 5, 6)):
     """Return the set of row indices inside [row_start, row_end] whose value
-    columns (default D, E, F, G — the FY Prior / FY Current / Broker / T12
-    cells) hold pre-wired template formulas. These rows hold structural
-    subtotals (income SUM at row 23, expense SUM at row 60, NOI at row 64,
-    reconciliation IF-checks at rows 25/62, header repeats at row 27) — the
-    Data Consolidation write loop must SKIP them or it lands category labels
-    in column A on rows whose value columns hold huge SUM formulas, and the
-    Underwriting tab's SUMIFS then pulls those formula outputs as line item
-    values. (That is the bug that drove 17June's Advertising T-12 to $1.17M
-    and R&M to $263k vs the seller's actual $2.5k and $10.4k — see
-    Outputs/17June diagnostic for the original symptom.)
+    columns (default D, E, F — FY Prior / FY Current / Broker proforma)
+    hold pre-wired template formulas. These are structural subtotal rows
+    (income SUM at row 38, expense SUM at row 104, reconciliation IF-checks)
+    that the Data Consolidation write loop must SKIP — writing a category
+    label into column A on a row whose value columns hold huge SUM formulas
+    makes the Underwriting tab's SUMIFS pick up the formula output as if it
+    were a line item. (That is the bug that drove 17June's Advertising T-12
+    to $1.17M and R&M to $263k vs the seller's actual $2.5k and $10.4k.)
+
+    Note: column G (T-12) is INTENTIONALLY NOT scanned. CorrectOutput's
+    Data Consolidation puts `=V<row>` forwarder formulas in G of every
+    leaf income/expense row — the actual T-12 input lives in V (which
+    itself sums the monthly columns J-U). Scanning G would falsely flag
+    every leaf row as structural and zero out the entire workbook.
+    The real structural rows have formulas in D/E/F too (SUM aggregates),
+    so D/E/F is the reliable signal.
     """
     out = set()
     for r in range(row_start, row_end + 1):
