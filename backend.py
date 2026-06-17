@@ -1207,6 +1207,26 @@ def _supports_adaptive_thinking(model_id):
     return True  # Default to true so new model families don't silently lose thinking.
 
 
+# Per-model max-output-tokens cap. Anthropic rejects requests above each
+# model's hard ceiling (400 with `max_tokens: N > LIMIT`). The methodology
+# stage requests 96K to leave headroom for thinking on Opus/Fable 5, which
+# is fine for them but blows past Haiku 4.5's 64K cap. Clamp at the call
+# site so a single Economy-mode run doesn't crash.
+_MODEL_MAX_OUTPUT_TOKENS = {
+    "claude-haiku-":  64_000,
+    "claude-sonnet-": 64_000,
+    "claude-opus-":  128_000,
+    "claude-fable-": 128_000,
+}
+
+def _clamp_max_tokens(model_id, requested):
+    mid = (model_id or "").lower()
+    for prefix, cap in _MODEL_MAX_OUTPUT_TOKENS.items():
+        if mid.startswith(prefix):
+            return min(int(requested), cap)
+    return int(requested)
+
+
 def call_claude(api_key, system_prompt, user_content, tools=None,
                 use_thinking=True, temperature=None, model=None,
                 output_schema=None, max_tokens=None):
@@ -1242,8 +1262,9 @@ def call_claude(api_key, system_prompt, user_content, tools=None,
     else:
         system_field = system_prompt
 
-    body = {"model": model or MODEL_MARKET,
-            "max_tokens": max_tokens or MAX_TOKENS,
+    chosen_model = model or MODEL_MARKET
+    body = {"model": chosen_model,
+            "max_tokens": _clamp_max_tokens(chosen_model, max_tokens or MAX_TOKENS),
             "system": system_field,
             "messages": [{"role": "user", "content": user_content}],
             "stream": True,}
