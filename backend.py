@@ -5351,25 +5351,28 @@ def fill_template(financials, market, output_path):
                     "tenantName": "", "lotRent": 0, "homeRent": 0,
                 })
 
-    # Template formulas (COUNTIFS / SUMIFS) only scan rows 3:1002, so the
-    # rent roll capacity is 1000 rows. Surface a fail check when a deal
-    # exceeds that — silent truncation would understate Total Units (N7)
-    # and Occupancy (N8), which then poisons every downstream calc.
-    if len(individual_units) > 1000:
+    # Template formulas (COUNTIFS / SUMIFS) scan rows 3:2002, so the rent
+    # roll capacity is 2000 rows. Surface a fail check when a deal exceeds
+    # that — silent truncation would understate Total Units (N7) and
+    # Occupancy (N8), which then poisons every downstream calc. To bump
+    # higher: change RENT_ROLL_CAPACITY in build_template.py, rerun it to
+    # regenerate the .xlsx with extended SUMIFS ranges, then update both
+    # the cap below and the warning text.
+    RENT_ROLL_CAPACITY = 2000
+    if len(individual_units) > RENT_ROLL_CAPACITY:
         financials.setdefault("_extractionChecks", []).append({
             "item": "Rent Roll capacity",
-            "check": "≤ 1000 rows",
+            "check": f"≤ {RENT_ROLL_CAPACITY:,} rows",
             "status": "fail",
             "detail": (
                 f"Rent roll has {len(individual_units):,} units; template "
-                "scans only rows 3:1002 so the last "
-                f"{len(individual_units) - 1000:,} were dropped. "
-                "Extend the SUMIFS/COUNTIFS ranges in fix_template.py "
-                "(search '1002') and the truncate cap below."
+                f"scans rows 3:{2 + RENT_ROLL_CAPACITY} so the last "
+                f"{len(individual_units) - RENT_ROLL_CAPACITY:,} were dropped. "
+                "Bump RENT_ROLL_CAPACITY in build_template.py + this file."
             ),
         })
 
-    for i, unit in enumerate(individual_units[:1000]):
+    for i, unit in enumerate(individual_units[:RENT_ROLL_CAPACITY]):
         r = 3 + i
         ws.cell(row=r, column=2,  value=unit.get("unitId", ""))      # B
         ws.cell(row=r, column=3,  value=unit.get("unitType", ""))    # C

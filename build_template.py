@@ -27,11 +27,19 @@ role of patching the legacy blank. fix_template.py is kept as a thin
 compatibility layer for any backend.py imports that still reference it.
 """
 from __future__ import annotations
+import re
 from pathlib import Path
 from openpyxl import load_workbook
 
 SRC  = Path(__file__).parent / "Claude" / "CorrectOutput.xlsx"
 DEST = Path(__file__).parent / "GGC_Blank_Underwriting_Sizer_Extended.xlsx"
+
+# Rent Roll Input capacity. CorrectOutput was hand-tailored to Whaleshead's
+# 148 units (scan range `Rent Roll Input!$X$3:$X$150`), but the deployed
+# template needs to cover any deal. backend.py truncates at this same cap
+# and emits a hard-fail extraction check when a real deal exceeds it.
+RENT_ROLL_CAPACITY = 2000   # 2000 tenant rows → scan range 3:2002
+LAST_RR_ROW = 2 + RENT_ROLL_CAPACITY
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -82,11 +90,12 @@ DC_EXPENSE_LEAF_ROWS = list(range(43, 103)) # rows 43-102
 DC_STRIP_COLS = ["A", "B", "D", "E", "F", "G"]    # cat, name, fyPrior, fyCurrent, brokerProforma, t12
 DC_STRIP_MONTHLY_COLS = list("JKLMNOPQRSTU")      # 12 monthly cols (J-U)
 
-# Rent Roll Input: data rows 3-1002 (1000 rows after the 2 header rows).
-# Strip columns B-J (unit id, type, status, name, type detail, type code,
-# lot rent, home rent) — keep column A (Count formula = previous + 1) and
-# column K (Combined formula = lot + home).
-RR_DATA_ROWS = list(range(3, 1003))
+# Rent Roll Input: data rows 3 to LAST_RR_ROW (RENT_ROLL_CAPACITY rows
+# after the 2 header rows). Strip columns B-J (unit id, type, status,
+# name, type detail, type code, lot rent, home rent) — keep column A
+# (Count formula = previous + 1) and column K (Combined formula = lot
+# + home).
+RR_DATA_ROWS = list(range(3, LAST_RR_ROW + 1))
 RR_STRIP_COLS = list("BCDEFGHIJ")
 
 # Comps: strip rows 3+ (comp data). Keep row 2 header. The engine adds a
@@ -194,6 +203,47 @@ def main():
                 n_cleared += 1
     print(f"[build] Rent Roll Input: cleared {n_cleared} per-tenant input cells "
           f"({len(RR_DATA_ROWS)} rows × {len(RR_STRIP_COLS)} cols)")
+
+    # ── 4b. Extend Rent Roll scan ranges + per-row formulas ──────────────
+    # CorrectOutput's Unit Mix Summary COUNTIFS/SUMIFS scan only rows 3:150
+    # of Rent Roll Input (Whaleshead-specific 148-unit fit). Bump every
+    # such reference to row LAST_RR_ROW (2002 with the default cap) so the
+    # template works on any deal up to RENT_ROLL_CAPACITY tenants.
+    print(f"[build] Extending Rent Roll scan ranges to row {LAST_RR_ROW}...")
+    _range_pat = re.compile(
+        r"(Rent Roll Input'?!\$?[A-Z]+\$?)(\d+):(\$?[A-Z]+\$?)(\d+)"
+    )
+    n_extended = 0
+    for sname in wb.sheetnames:
+        ws = wb[sname]
+        for row in ws.iter_rows():
+            for cell in row:
+                v = cell.value
+                if not isinstance(v, str) or "Rent Roll Input" not in v:
+                    continue
+                def _bump(m):
+                    return f"{m.group(1)}{m.group(2)}:{m.group(3)}{LAST_RR_ROW}"
+                new = _range_pat.sub(_bump, v)
+                if new != v:
+                    cell.value = new
+                    n_extended += 1
+    print(f"[build] Rewrote {n_extended} formulas referencing Rent Roll Input ranges")
+
+    # Extend the per-row formulas in column A (=A_prev+1 row count) and
+    # column K (=I+J combined rent) so the new rows participate in the
+    # count chain and combined-rent display. Without this, rows past 150
+    # have no row count and combined-rent column stays blank.
+    rr_ws = wb["Rent Roll Input"]
+    n_seeded = 0
+    for r in range(3, LAST_RR_ROW + 1):
+        a_cell = rr_ws.cell(row=r, column=1)
+        if a_cell.value is None or (isinstance(a_cell.value, int) and a_cell.value == r - 2):
+            a_cell.value = f"=A{r-1}+1" if r > 3 else 1
+            n_seeded += 1
+        k_cell = rr_ws.cell(row=r, column=11)
+        if k_cell.value is None:
+            k_cell.value = f"=I{r}+J{r}"
+    print(f"[build] Seeded {n_seeded} new Rent Roll Input row-formula pairs")
 
     # ── 5. Comps — strip comp data rows ──────────────────────────────────
     if "Comps" in wb.sheetnames:
