@@ -115,6 +115,18 @@ BASE_BACKOFF_SEC  = 2
 # pinned to a model snapshot where only the beta path is recognized.
 STRUCTURED_OUTPUTS_BETA = "structured-outputs-2025-11-13"
 USE_STRUCTURED_OUTPUTS  = os.environ.get("USE_STRUCTURED_OUTPUTS", "1") == "1"
+# Hard-raise instead of silently falling back to prompt-only enforcement when
+# the API rejects Structured Outputs (per CLAUDE.md §0: "If the schema is
+# ever too large to compile and falls back to prompt-only enforcement, that
+# fallback is a HARD verification fail — never a silent degradation.").
+# Default off until we confirm the GA path is stable across all pinned
+# snapshots; set STRICT_STRUCTURED_OUTPUTS=1 once stable.
+STRICT_STRUCTURED_OUTPUTS = os.environ.get("STRICT_STRUCTURED_OUTPUTS", "0") == "1"
+# Module-level counter incremented whenever a call silently falls back to
+# prompt-only schema enforcement. The methodology / extraction wrappers
+# read it before/after to detect a fallback on their specific call, so
+# the workbook can surface "schema-degraded" on Extraction Check.
+_SCHEMA_FALLBACK_COUNT = 0
 # Default to off — GA path doesn't need it. Flip on if your pinned snapshot
 # rejects output_config.format without the legacy beta header.
 SO_LEGACY_BETA_HEADER   = os.environ.get("SO_LEGACY_BETA_HEADER", "0") == "1"
@@ -1094,11 +1106,19 @@ def extraction_cache_key(file_blocks, property_info, n_extraction_runs,
     PARSER_BACKEND affects what's *in* file_blocks (the parser's markdown is
     embedded directly).
     """
+    # Resolve per-stage models the way the call sites do — picks up the
+    # cost-mode override out of property_info. Without this the cache
+    # would key on the module-level defaults (Opus) and return a stale
+    # Opus result when the form is set to Economy mode (or vice versa).
+    model_x = _model_for_stage(property_info, "extraction")
+    model_m = _model_for_stage(property_info, "methodology")
+    model_k = _model_for_stage(property_info, "market")
     key_obj = {
         "files":        _hash_obj(file_blocks),
         "property":     _hash_obj(property_info),
-        "model_x":      MODEL_EXTRACTION,
-        "model_m":      MODEL_METHODOLOGY,
+        "model_x":      model_x,
+        "model_m":      model_m,
+        "model_k":      model_k,
         "use_so":       USE_STRUCTURED_OUTPUTS,
         "parser":       PARSER_BACKEND,
         "parser_v":     PARSER_VERSION,
@@ -1334,14 +1354,27 @@ def call_claude(api_key, system_prompt, user_content, tools=None,
             if resp.status_code != 200:
                 # If structured outputs is rejected for the pinned snapshot,
                 # drop it and retry — prompt + Pydantic still enforce the
-                # shape, just without grammar-level masking.
+                # shape, just without grammar-level masking. CLAUDE.md §0
+                # calls this a HARD verification fail by design; in STRICT
+                # mode we raise instead of silently degrading, and in the
+                # permissive mode we still bump _SCHEMA_FALLBACK_COUNT so
+                # the workbook can surface the fact on Extraction Check.
                 if resp.status_code == 400 and use_so:
                     err_text = resp.text[:500].lower()
                     if any(t in err_text for t in ("structured", "beta", "output_config", "schema")):
-                        print(f"[Claude] Structured outputs rejected for "
-                              f"{body['model']} ({resp.status_code}: "
-                              f"{resp.text[:160]}); falling back to "
-                              f"prompt-only schema")
+                        global _SCHEMA_FALLBACK_COUNT
+                        _SCHEMA_FALLBACK_COUNT += 1
+                        msg = (f"Structured outputs rejected for "
+                               f"{body['model']} ({resp.status_code}: "
+                               f"{resp.text[:160]}); falling back to "
+                               f"prompt-only schema")
+                        if STRICT_STRUCTURED_OUTPUTS:
+                            raise RuntimeError(
+                                f"[STRICT_STRUCTURED_OUTPUTS=1] {msg}. "
+                                "Per CLAUDE.md §0, schema fallback is a "
+                                "hard verification fail. Unset the env var "
+                                "to allow degraded operation.")
+                        print(f"[Claude] WARN — {msg}")
                         headers.pop("anthropic-beta", None)
                         if isinstance(body.get("output_config"), dict):
                             body["output_config"].pop("format", None)
@@ -2255,10 +2288,13 @@ Extract the income statement, rent roll, and reporting period into the structure
     last_extracted = None
 
     model_id = _model_for_stage(property_info, "extraction")
+    global _SCHEMA_FALLBACK_COUNT
+    extraction_fallback_seen = False
     for attempt in range(MAX_PARSE_RETRIES + 1):
         print(f"[Claude] Stage 1/2 — EXTRACTION attempt "
               f"{attempt+1}/{MAX_PARSE_RETRIES+1} ({model_id})...")
         t0 = time.time()
+        so_before = _SCHEMA_FALLBACK_COUNT
         response = call_claude(api_key, EXTRACTION_PROMPT, user_blocks,
                                use_thinking=False, temperature=0,
                                model=model_id,
@@ -2266,7 +2302,14 @@ Extract the income statement, rent roll, and reporting period into the structure
         elapsed = time.time() - t0
         print(f"[Claude] Extraction returned in {elapsed:.1f}s "
               f"(stop_reason: {response.get('stop_reason', '?')})")
+        if _SCHEMA_FALLBACK_COUNT > so_before:
+            extraction_fallback_seen = True
         extracted = extract_json(response)
+        if extraction_fallback_seen and isinstance(extracted, dict):
+            # Annotate so the methodology / write-back layer can surface
+            # the degradation on Extraction Check. Cleared on a clean
+            # retry where SO succeeds.
+            extracted["_schemaFallback"] = True
         last_extracted = extracted
 
         # Layer (b1): Pydantic structural check
@@ -2388,10 +2431,35 @@ def verify_extraction(extracted, property_info):
     # ── Rent roll row count vs user-stated unit count ────────────────────
     rr = extracted.get("rentRoll", {}) or {}
     rows = rr.get("totalRowsInRentRoll")
+    per_row = rr.get("rentRollRows") or []
+    unit_types_listed = rr.get("unitTypes") or []
     try:
         stated_units = int(str(property_info.get("units", "")).strip() or 0)
     except (ValueError, TypeError):
         stated_units = 0
+
+    # ── rentRollRows emission check ──────────────────────────────────────
+    # The Rent Roll Input tab populates from per-row data when present
+    # (preserves real tenant names + unit IDs) and falls back to
+    # unitGroups expansion otherwise (synthesizes uniform rows). The
+    # synthesized path is the cause of 17June's "every row Occupied, all
+    # rents uniform" symptom — it fires whenever extraction doesn't emit
+    # rentRollRows. Surface as WARN so the reviewer knows the displayed
+    # rent roll is synthesized, not transcribed.
+    if unit_types_listed and not per_row:
+        checks.append({
+            "item":   "Rent roll per-row data",
+            "check":  "rentRollRows[] populated when unit types known",
+            "status": "warn",
+            "detail": (f"{len(unit_types_listed)} unit type(s) summarized "
+                       "but no per-tenant rows extracted. Rent Roll Input "
+                       "tab will be synthesized from group averages "
+                       "(uniform rents, placeholder tenant names). Verify "
+                       "the source rent roll was readable and that "
+                       "structured-outputs enforced the `rentRollRows` "
+                       "field on the extraction call."),
+        })
+
     if rows is not None and stated_units:
         if rows == stated_units:
             checks.append({"item": "Rent roll rows vs unit count", "check": "Match",
@@ -2805,6 +2873,44 @@ def verify_methodology(financials):
                     "detail": f"{n_meth} methodology rows ≥ {n_ext} extraction leaves.",
                 })
 
+    # ── Rent-roll per-row data check. Without per-tenant rows the
+    # template's Unit Mix Summary COUNTIFS hits zero and the whole
+    # Underwriting tab collapses (this was the 17June bug). Compare the
+    # extracted rentRollRows count against the methodology's totalUnits.
+    if isinstance(extracted, dict):
+        ext_rows = ((extracted.get("rentRoll") or {}).get("rentRollRows") or [])
+        meth_rr  = financials.get("rentRoll") or {}
+        meth_units = int(meth_rr.get("totalUnits") or 0)
+        n_rows = len(ext_rows) if isinstance(ext_rows, list) else 0
+        if meth_units > 0 and n_rows == 0:
+            checks.append({
+                "item": "Rent-roll per-tenant data",
+                "check": "Extraction emits rentRollRows[]",
+                "status": "fail",
+                "detail": (f"Methodology says {meth_units} units but the "
+                           "extraction stage returned 0 per-tenant rows. "
+                           "fill_template will fall back to synthetic "
+                           "placeholder tenants — Unit Mix Summary "
+                           "COUNTIFS will mis-count and the Underwriting "
+                           "tab's per-unit metrics will be wrong."),
+            })
+        elif meth_units > 0 and n_rows > 0 and n_rows < meth_units * 0.5:
+            checks.append({
+                "item": "Rent-roll per-tenant data",
+                "check": "Extraction emits rentRollRows[]",
+                "status": "warn",
+                "detail": (f"{n_rows} extracted rent-roll rows < half of "
+                           f"{meth_units} stated units. Confirm the "
+                           "extraction caught every tenant row."),
+            })
+        elif n_rows > 0:
+            checks.append({
+                "item": "Rent-roll per-tenant data",
+                "check": "Extraction emits rentRollRows[]",
+                "status": "ok",
+                "detail": f"{n_rows} per-tenant rows extracted.",
+            })
+
     # ── Unit/pad ID uniqueness — if per-row data is present. The rent
     # roll's COUNTIFS in the template assumes unique unit IDs; duplicates
     # would inflate occupancy counts and double-charge GPR.
@@ -2860,27 +2966,40 @@ def _check_template_wiring(financials):
     expenses = financials.get("expenses") or []
     inc_canonical = set(GGC_INCOME_CATEGORIES)
     exp_canonical = set(GGC_EXPENSE_CATEGORIES)
+    # Omitt buckets are canonical strings BUT the Underwriting tab's I19
+    # EGI and I44 OpEx SUMIFS deliberately exclude them — Omitt is the
+    # explicit non-operating exclusion. So for the implied-NOI math we
+    # treat Omitt as "categorized but not summed into NOI" and report
+    # the excluded amount separately, mirroring the Omitt KPI tile.
+    OMITT = {"Omitt Income", "Omitt Expense"}
 
     def _split(items, canonical):
-        in_total, out_total = 0.0, 0.0
+        in_total, out_total, omitt_total = 0.0, 0.0, 0.0
         bad = []
         for it in items:
             v = float(it.get("t12Total") or it.get("ggcUnderwritten") or 0)
             cat = (it.get("ggcCategory") or "").strip()
-            if cat in canonical:
+            if cat in OMITT:
+                omitt_total += v
+            elif cat in canonical:
                 in_total += v
             else:
                 out_total += v
                 if cat:
                     bad.append((cat, v))
-        return in_total, out_total, bad
+        return in_total, out_total, omitt_total, bad
 
-    in_inc, out_inc, bad_inc = _split(income, inc_canonical)
-    in_exp, out_exp, bad_exp = _split(expenses, exp_canonical)
-    expected_egi  = in_inc + out_inc
-    expected_opex = in_exp + out_exp
-    expected_noi = expected_egi - expected_opex
+    in_inc, out_inc, omitt_inc, bad_inc = _split(income, inc_canonical)
+    in_exp, out_exp, omitt_exp, bad_exp = _split(expenses, exp_canonical)
+    # expected vs implied: both EXCLUDE Omitt (mirrors workbook I47).
+    # `expected` is what the workbook would compute if every non-canonical
+    # string were also a canonical hit. `implied` is what it actually
+    # computes given current strings.
+    expected_noi = (in_inc + out_inc) - (in_exp + out_exp)
     implied_noi  = in_inc - in_exp
+    omitt_note = ("" if omitt_inc == 0 and omitt_exp == 0
+                  else f" Excluded from NOI: Omitt Income ${omitt_inc:,.0f}, "
+                       f"Omitt Expense ${omitt_exp:,.0f}.")
 
     if bad_inc or bad_exp:
         bad_strings = sorted(set([c for c, _ in bad_inc + bad_exp]))
@@ -2896,7 +3015,7 @@ def _check_template_wiring(financials):
                        f"These will not match the Underwriting!I47 SUMIFS "
                        f"criteria. Expected NOI ${expected_noi:,.0f}; the "
                        f"workbook will compute ${implied_noi:,.0f} "
-                       f"(off by ${loss:,.0f})."),
+                       f"(off by ${loss:,.0f}).{omitt_note}"),
         })
     else:
         checks.append({
@@ -2906,7 +3025,7 @@ def _check_template_wiring(financials):
             "detail": (f"All categories canonical. Implied NOI "
                        f"${implied_noi:,.0f} = EGI ${in_inc:,.0f} − "
                        f"OpEx ${in_exp:,.0f}. Compare against I47 "
-                       f"after opening the workbook."),
+                       f"after opening the workbook.{omitt_note}"),
         })
 
     return checks
@@ -3736,6 +3855,14 @@ Apply the GGC methodology and return the structured JSON."""
     print(f"[Claude] Stage 2/2 — METHODOLOGY ({model_id}, "
           f"effort={THINKING_EFFORT})...")
     t0 = time.time()
+    # Snapshot the module-level Structured-Outputs fallback counter; if it
+    # ticks during this call, we know the methodology JSON came back from
+    # prompt-only enforcement (grammar masking was unavailable) and we
+    # must surface that on Extraction Check — silent degradation here
+    # caused 17June's "General and Administrative" / "Less: Bad Debt"
+    # variant strings, which then mis-routed via the SUMIFS.
+    global _SCHEMA_FALLBACK_COUNT
+    so_fallback_before = _SCHEMA_FALLBACK_COUNT
     response = call_claude(api_key, FINANCIAL_PARSE_PROMPT, user_blocks,
                            use_thinking=True, model=model_id,
                            output_schema=METHODOLOGY_OUTPUT_SCHEMA,
@@ -3744,6 +3871,18 @@ Apply the GGC methodology and return the structured JSON."""
     print(f"[Claude] Methodology returned in {elapsed:.1f}s "
           f"(stop_reason: {response.get('stop_reason', '?')})")
     parsed = extract_json(response)
+    if _SCHEMA_FALLBACK_COUNT > so_fallback_before:
+        parsed.setdefault("_extractionChecks", []).append({
+            "item": "Structured Outputs (methodology)",
+            "check": "Anthropic grammar-mask enforces ggcCategory enum",
+            "status": "warn",
+            "detail": ("Structured Outputs was rejected for "
+                       f"{model_id} — methodology call fell back to "
+                       "prompt-only enforcement. Category strings may "
+                       "drift from the enum and require defensive "
+                       "normalization. Verify pinned model snapshot "
+                       "supports structured-outputs-2025-11-13."),
+        })
 
     # Activate the methodology-line validators. They reject any income
     # row whose ggcCategory isn't in GGC_INCOME_CATEGORIES (likewise for
@@ -4335,23 +4474,57 @@ def apply_ggc_overrides(financials, property_info):
                         f"T12 ${t12:,.0f} × {ins_mult:.2f}"
                         + (" (flood)" if flood else ""))
 
-    # ── Taxes: never below historical × 1.15 ───────────────────────────
+    # ── Taxes: MAX of (historical × 1.15 floor, per-unit × units) ──────
+    # CorrectOutput's UW I22 uses $400/unit on 148 units = $59,200, which
+    # is materially above the historical × 1.15 floor for Whaleshead
+    # ($15,391 × 1.15 = $17,700). Reassessment-aware underwriting needs a
+    # per-unit method as a third option alongside primary (purchase-price ×
+    # assessment ratio × rate, computed by the LLM) and the historical
+    # floor. We take the MAX so taxes never under-reserve.
+    try:
+        tax_units = int(rr.get("totalUnits") or 0) or int(
+            str(property_info.get("units", "")).strip() or 0)
+    except (ValueError, TypeError):
+        tax_units = 0
+    try:
+        per_unit_tax = float(os.environ.get("PER_UNIT_TAX", "400"))
+    except (ValueError, TypeError):
+        per_unit_tax = 400.0
     for e in expenses:
         if (e.get("ggcCategory") or "").strip() == "RE Taxes":
             t12 = e.get("t12Total") or 0
             llm_val = e.get("ggcUnderwritten") or 0
-            if isinstance(t12, (int, float)) and t12 > 0:
-                floor = round(t12 * 1.15, 2)
-                if not isinstance(llm_val, (int, float)) or llm_val < floor:
-                    before = e.get("ggcUnderwritten")
-                    e["ggcUnderwritten"] = floor
-                    e["monthly"] = [floor / 12] * 12
-                    e["confidence"] = "high"
-                    e["notes"] = ((e.get("notes") or "").strip()
-                                  + (" || " if e.get("notes") else "")
-                                  + "GGC override: T12 × 1.15 historical floor")
-                    _record("RE Taxes", before, floor,
-                            f"T12 ${t12:,.0f} × 1.15 (was below floor)")
+            if not isinstance(t12, (int, float)):
+                t12 = 0
+            if not isinstance(llm_val, (int, float)):
+                llm_val = 0
+            floor      = round(t12 * 1.15, 2) if t12 > 0 else 0
+            per_unit_v = round(per_unit_tax * tax_units, 2) if tax_units > 0 else 0
+            candidates = {
+                "LLM (primary method)":          llm_val,
+                "Historical T12 × 1.15 floor":   floor,
+                f"Per-unit ${per_unit_tax:.0f} × {tax_units} units": per_unit_v,
+            }
+            # MAX, but skip zero entries so a deal with no per-unit input
+            # (tax_units==0) doesn't drag the result down to zero.
+            non_zero = {k: v for k, v in candidates.items() if v > 0}
+            if not non_zero:
+                continue
+            method, target = max(non_zero.items(), key=lambda kv: kv[1])
+            if target == llm_val and method == "LLM (primary method)":
+                continue  # LLM method already drives — nothing to override
+            before = e.get("ggcUnderwritten")
+            e["ggcUnderwritten"] = target
+            e["monthly"] = [target / 12] * 12
+            e["confidence"] = "high"
+            e["notes"] = ((e.get("notes") or "").strip()
+                          + (" || " if e.get("notes") else "")
+                          + f"GGC override: {method} = ${target:,.0f}")
+            _record("RE Taxes", before, target,
+                    f"MAX of (LLM ${llm_val:,.0f}, "
+                    f"T12×1.15 ${floor:,.0f}, "
+                    f"${per_unit_tax:.0f}/unit×{tax_units} ${per_unit_v:,.0f}) "
+                    f"→ {method}")
 
     # ── CapEx reserve: $75/unit/year (gold standard per CorrectOutput I43) ───────────────────────────────────
     try:
@@ -5237,8 +5410,49 @@ def fill_template(financials, market, output_path):
     # N5 where the Address label sits) — fixed here to match correct.
     if prop.get("name"):
         _set_addr(underw, "N4", prop.get("name"))
-    if prop.get("address"):
-        _set_addr(underw, "N5", prop.get("address"))
+    # Upgrade a partial address (e.g. "19921 Whaleshead Rd, Or" — as the
+    # 17June Whaleshead run was given) to the geocoder's formatted address
+    # ("19921 Whaleshead Rd, Brookings, OR 97415, USA") so the Comps tab,
+    # Street View embed, and the address that downstream consumers see
+    # are all complete. Heuristic for "looks partial": no comma OR no
+    # 5-digit zip OR < 3 comma-separated parts. The geocoder call already
+    # caches per address — repeat upgrades are free.
+    addr_raw = prop.get("address") or ""
+    addr_final = addr_raw
+    if addr_raw:
+        import re as _re
+        looks_partial = (
+            "," not in addr_raw
+            or not _re.search(r"\b\d{5}(?:-\d{4})?\b", addr_raw)
+            or len([p for p in addr_raw.split(",") if p.strip()]) < 3
+        )
+        if looks_partial and GOOGLE_MAPS_API_KEY:
+            geo = geocode_address(addr_raw)
+            if geo and geo.get("formatted_address"):
+                addr_final = geo["formatted_address"]
+                financials.setdefault("_extractionChecks", []).append({
+                    "item":   "Property address auto-completed",
+                    "check":  "Full city/state/zip via Google geocoder",
+                    "status": "ok",
+                    "detail": (f"Form input {addr_raw!r} upgraded to "
+                               f"{addr_final!r}. Comps + Street View use "
+                               "the completed address."),
+                })
+                # Persist back to propertyInfo so anything downstream
+                # (Comps tab, prefills) sees the upgraded string too.
+                prop["address"] = addr_final
+        elif looks_partial:
+            financials.setdefault("_extractionChecks", []).append({
+                "item":   "Property address looks partial",
+                "check":  "Full city/state/zip on N5",
+                "status": "warn",
+                "detail": (f"Address {addr_raw!r} is missing city, state, or "
+                           "zip. Google Maps API key not configured, so "
+                           "auto-completion was skipped. Re-run with the "
+                           "full address in the form, or set "
+                           "GOOGLE_MAPS_API_KEY."),
+            })
+        _set_addr(underw, "N5", addr_final)
     if prop.get("propertyType"):
         _set_addr(underw, "N6", prop.get("propertyType"))
     if prop.get("acreage") is not None:
