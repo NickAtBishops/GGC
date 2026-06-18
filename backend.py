@@ -3430,6 +3430,30 @@ DECISION RULES (expense):
   - WORKED EXAMPLE — the seller's P&L shows: `5700 Personnel (non-posting)` (header) then `5701 Wages $48,650`, `5702 Health Ins $1,026`, `5703 Casual Labour $22,505`, `5704 UI $3,118`, `5705 Payroll Svc $1,475`, `5706 FUTA $93`, `5708 SS $4,432`, `5713 OR-WBF $251`, `5716 Workers Comp $1,660`, then `5700 Total Personnel $83,210`. CORRECT methodology output: 9 rows (one per leaf GL, each ggcCategory="Payroll", each with its real t12Total). WRONG output: a single row with sellerName="5700 Total Personnel" and t12Total=$0 — that drops every payroll dollar from the workbook.
 - HARD RULE: every emitted row MUST have a numeric t12Total (zero is allowed; null is NOT allowed when the source P&L shows a value). If the extracted data has a value, the methodology row must carry it through. A row whose sellerName contains "Total"/"Subtotal"/"non-posting" AND has t12Total=0 across all value columns will be DROPPED by the write-back as a placeholder — emit the leaf GLs instead.
 
+## QuickBooks-style P&L special handling (Parkwood Green Village pattern)
+
+Some sellers (QuickBooks-based, smaller MHC operators) emit P&Ls with descriptive line NAMES instead of numbered GL accounts. They also tend to put each individual tenant or contract as a SEPARATE line. Specific rules for these P&Ls:
+
+INCOME side:
+- "Gain on Installment Sales" / "Gain on Sale of Homes" / "Sale of Home" → "Omitt Income". GGC underwrites lot rent, not home-sale gain.
+- "Interest Income" / "Investment Income" / "Dividend Income" → "Omitt Income". Non-operating financial income.
+- "Insurance Premium for LC Homes" (income side) / "Insurance Recovery" → "Omitt Income". LC-home-related recovery; non-operating.
+- "Sales Tax - Electric" / "Sales Tax on Electric" → "Utility Reimbursement". This is a tax pass-through component of the electric utility billing.
+- "Uncategorized Income" / "Uncategorized Revenue" → "Omitt Income".
+- "Lawn Maintenance (income)" / lawn-maintenance contra entries → "Omitt Income".
+- NEGATIVE-value "Other Income" / "Sales of Product Income" / "Returned" entries with abs value < $5k → "Omitt Income" (corrections/contras).
+
+EXPENSE side:
+- "Picnic 2025" / "Holiday Party" / "Resident Event" / "Tenant Appreciation" / "Christmas Party" → "Omitt Expense". One-time events.
+- "Uncategorized Expenses" → "Omitt Expense".
+- "Tax & Title for Mobile Home" / "Title Transfer" / "Inventory Transfer" → "Omitt Expense". Home inventory transfer costs from LC sales, non-recurring.
+- "Depreciation Expense" / "Amortization Expense" → "Omitt Expense". Non-cash, GGC underwrites cash flow.
+- "Interest Expense" / "Loan Interest" / "Mortgage Interest" → "Omitt Expense". Debt service, not operating.
+- "Charitable Donations" / "Meals and Entertainment" / "Travel Expense" / "Lodging" → "Omitt Expense". Non-operating discretionary.
+- "Automobile Expense" / "Auto" / "Vehicle Maintenance" → "Omitt Expense". Vehicle costs are not property opex.
+
+These post-pass rules are mirrored in Python (`apply_ggc_overrides`) as a safety net for when the LLM gets a routing wrong. Following them in the methodology output lets the post-pass run silently with no overrides recorded.
+
 REJECT any deviation from the exact category strings above. The downstream Excel SUMIFS keys on these exact strings; even a trailing space or different capitalization will silently zero out the line.
 
 ## ggcUnderwritten — choosing the underwritten value
@@ -4487,6 +4511,26 @@ def apply_ggc_overrides(financials, property_info):
                 "per-tenant lot rent line — not non-operating")
             it["ggcCategory"] = "Gross Potential Rent"
 
+    # ── Capture implicit credit losses BEFORE consolidation ────────────
+    # Negative-value rows in GPR / Home Rent Income (typical of QuickBooks-
+    # style LC adjustment entries — the "KCA Ventures / Tenant #X" -$1,400
+    # contra lines on Parkwood's P&L) represent realized credit losses.
+    # After the consolidation pass merges them with positive GPR rows, we
+    # can no longer tell what was loss vs. principal. Sum them now so the
+    # Bad Debt step at the end can avoid double-counting.
+    implicit_credit_loss = 0.0
+    for it in income:
+        cat = (it.get("ggcCategory") or "").strip()
+        t12 = it.get("t12Total")
+        if (cat in ("Gross Potential Rent", "Home Rent Income")
+                and isinstance(t12, (int, float)) and t12 < 0):
+            implicit_credit_loss += abs(t12)
+    if implicit_credit_loss > 0:
+        financials["_implicitCreditLoss"] = implicit_credit_loss
+        print(f"[GGC Overrides] Captured implicit credit loss of "
+              f"${implicit_credit_loss:,.0f} from negative GPR/HRI rows "
+              f"(seller LC contract adjustments).")
+
     # ── Consolidate per-tenant rows to fit Data Consolidation's slots ───
     # The Data Consolidation block has 34 income + 60 expense slots. When
     # the seller emits 50+ per-tenant lines (QuickBooks-style), they'd
@@ -4507,7 +4551,7 @@ def apply_ggc_overrides(financials, property_info):
     # the LLM sometimes lands in Insurance or Gas/Fuel.
     VEHICLE_MARKERS = ("car insurance", "vehicle insurance", "vehicle fuel",
                        "fuel for vehicle", "auto insurance", "truck",
-                       "vehicle maintenance")
+                       "vehicle maintenance", "automobile")
     for it in expenses:
         sn = (it.get("sellerName") or "").lower()
         if any(m in sn for m in VEHICLE_MARKERS):
@@ -4518,6 +4562,112 @@ def apply_ggc_overrides(financials, property_info):
                     current, "Omitt Expense",
                     "vehicle line — not property opex")
                 it["ggcCategory"] = "Omitt Expense"
+
+    # ── Tier B: comprehensive name-pattern routing ──────────────────────
+    # Catches the categorization errors observed on Parkwood's QuickBooks-
+    # style P&L (which has no GL numbers — only descriptive line names).
+    # The methodology prompt should pre-route these correctly, but this
+    # deterministic post-pass is the safety net for when the LLM gets it
+    # wrong. Each entry is (pattern_substrings, target_category, reason).
+    #
+    # Patterns are normalized lower-case substring matches. ALL patterns
+    # in a row must NOT-match for the rule to skip; first matching rule
+    # wins. Rules are scoped (income vs expense) because the same word
+    # means different things in each section.
+
+    _INCOME_NAME_PATTERNS = [
+        # Non-operating financial / installment-sale income → Omitt Income
+        (("gain on installment", "gain on sale", "gain on installment sales",
+          "installment sale gain", "sale of home", "home sale gain"),
+         "Omitt Income", "non-operating: home-sale gain, not lot rent"),
+        (("interest income", "investment income", "dividend",
+          "dividend income"),
+         "Omitt Income", "non-operating: financial income"),
+        # LC-related insurance reimbursements from related parties
+        (("insurance premium for lc home", "insurance premium for lc"),
+         "Omitt Income", "LC-home insurance recovery, non-operating"),
+        # "Other Income" with negative value and tiny absolute size is
+        # almost always a correction/contra entry — Omitt is the safer
+        # bucket. Handled below as a value-aware rule, not a name pattern.
+        # Lawn maintenance booked as income (rare — usually a contra)
+        (("lawn maintenance (income", "lawn maintenance income",
+          "lawnmaint (income"),
+         "Omitt Income", "lawn maintenance contra/recovery, non-operating"),
+        # Sales of Product (Quickbooks default for misc retail) when
+        # negative → contra. Caught by the value-aware rule below.
+        # Sales Tax pass-through on electric is utility-related
+        (("sales tax - electric", "sales tax electric",
+          "sales tax on electric"),
+         "Utility Reimbursement", "electric utility tax pass-through"),
+        # Uncategorized → Omitt
+        (("uncategorized income", "uncategorized revenue"),
+         "Omitt Income", "literal uncategorized → cannot underwrite forward"),
+    ]
+
+    _EXPENSE_NAME_PATTERNS = [
+        # One-time events / resident parties → Omitt Expense
+        (("picnic", "holiday party", "resident event", "resident party",
+          "resident appreciation", "tenant party",
+          "holiday gifts", "christmas party"),
+         "Omitt Expense", "one-time event, not recurring opex"),
+        # Uncategorized → Omitt
+        (("uncategorized expense", "uncategorized exp"),
+         "Omitt Expense", "literal uncategorized → cannot underwrite forward"),
+        # Inventory transfer costs from selling LC homes
+        (("tax & title for mobile home", "tax and title for mobile home",
+          "tax title mobile home", "tax title for mh",
+          "title transfer", "inventory transfer"),
+         "Omitt Expense", "home inventory transfer cost, non-recurring"),
+        # Depreciation — not a cash expense
+        (("depreciation expense", "depreciation",
+          "amortization expense"),
+         "Omitt Expense", "non-cash, GGC underwrites cash flow"),
+        # Interest expense — not opex (handled in debt service)
+        (("interest expense", "loan interest", "mortgage interest"),
+         "Omitt Expense", "debt service, not operating expense"),
+        # Charitable donations / meals / travel → Omitt
+        (("charitable donation", "charitable contribution",
+          "donation", "meals and entertainment",
+          "meals & entertainment", "travel expense", "lodging",
+          "airline"),
+         "Omitt Expense", "non-operating discretionary spend"),
+    ]
+
+    def _route_by_name(items, rules, section_label):
+        for it in items:
+            sn = (it.get("sellerName") or "").lower()
+            current = (it.get("ggcCategory") or "").strip()
+            for patterns, target, reason in rules:
+                if any(p in sn for p in patterns):
+                    if current and current != target:
+                        _record(
+                            f"{it.get('sellerName', '?')}: {current} → {target}",
+                            current, target, reason)
+                        it["ggcCategory"] = target
+                    break  # first matching rule wins
+
+    _route_by_name(income, _INCOME_NAME_PATTERNS, "income")
+    _route_by_name(expenses, _EXPENSE_NAME_PATTERNS, "expense")
+
+    # Value-aware rule: any "Other Income" / "Sales of Product" /
+    # "Returned" line with a NEGATIVE value under $5K is almost always a
+    # correction/contra entry the seller booked to fix prior-period
+    # mistakes. These aren't underwrite-forward income. Route to Omitt.
+    _SMALL_CONTRA_NAMES = ("other income", "sales of product",
+                            "returned", "refund", "credit memo")
+    for it in income:
+        sn = (it.get("sellerName") or "").lower()
+        t12 = it.get("t12Total")
+        current = (it.get("ggcCategory") or "").strip()
+        if (current != "Omitt Income"
+                and isinstance(t12, (int, float))
+                and t12 < 0 and abs(t12) < 5000
+                and any(n in sn for n in _SMALL_CONTRA_NAMES)):
+            _record(
+                f"{it.get('sellerName', '?')}: {current} → Omitt Income",
+                current, "Omitt Income",
+                f"small negative ({t12:,.0f}) contra/correction entry")
+            it["ggcCategory"] = "Omitt Income"
 
     # ── Bad debt sign: always negative ──────────────────────────────────
     for it in income:
@@ -4533,6 +4683,42 @@ def apply_ggc_overrides(financials, property_info):
                     -m if isinstance(m, (int, float)) and m > 0 else m
                     for m in monthly
                 ]
+
+    # ── Tier C: bad-debt awareness when implicit losses already in GPR ──
+    # Parkwood's seller P&L has 40+ negative-value "KCA Ventures" lines
+    # that represent realized credit losses on land-contract receivables.
+    # The rescue pass moved them to Gross Potential Rent; the consolidation
+    # pass merged them with positive GPR rows. If the methodology ALSO
+    # synthesized a Bad Debt plug to make NRI tie to historical collections,
+    # we'd double-count the credit losses:
+    #   - Once via the negative GPR adjustments (captured pre-consolidation
+    #     in financials["_implicitCreditLoss"])
+    #   - Again via the synthesized Bad Debt line
+    #
+    # When implicit losses ≥ $10K were captured upstream, zero out the
+    # Bad Debt line and add a note explaining the implicit capture.
+    implicit_credit_loss = float(financials.get("_implicitCreditLoss") or 0)
+    if implicit_credit_loss >= 10_000:
+        for it in income:
+            if (it.get("ggcCategory") or "").strip() != "Bad Debt":
+                continue
+            old_t12 = it.get("t12Total") or 0
+            if abs(old_t12) < 100:
+                continue  # already ~0, nothing to do
+            _record(
+                f"Bad Debt: ${old_t12:,.0f} → 0",
+                old_t12, 0,
+                f"implicit credit loss of ${implicit_credit_loss:,.0f} "
+                f"already captured in consolidated LC contract adjustments")
+            it["t12Total"] = 0
+            it["ggcUnderwritten"] = 0
+            it["monthly"] = [0] * 12
+            note = (it.get("notes") or "").strip()
+            it["notes"] = (note + " || " if note else "") + (
+                f"Bad Debt zeroed: credit losses of ~${implicit_credit_loss:,.0f} "
+                "are already captured implicitly in the consolidated LC contract "
+                "adjustment row on GPR (per the seller's negative KCA Ventures / "
+                "LC Payment entries).")
 
     # ── Effective Gross Income (post bad-debt sign fix) ────────────────
     # EXCLUDE "Omitt Income" — that's the explicit non-operating bucket;
@@ -5448,26 +5634,85 @@ def fill_template(financials, market, output_path):
     # canonical bucket. Required because we dropped the JSON-schema enum
     # constraint on unitType to keep the structured-outputs grammar
     # compilable. We still want Unit Mix Summary's COUNTIFS to match.
+    #
+    # Parkwood's rent roll uses lot-type strings the original 3-bucket
+    # mapping didn't explicitly handle: "TOH", "TOH - LC", "TOH - Flourish",
+    # "TOH - Bennetts", "TOH - Flourish Erika McC", "POH", "POH *Title Issue".
+    # Most fell through to the default-TOH branch (correct), but explicit
+    # patterns are defensive and make the mapping auditable.
+    #
+    # IMPORTANT MAPPING DECISIONS:
+    #   - All TOH variants (LC, Flourish, Bennetts, plain) → "TOH MH Site"
+    #     because every LC variant is still tenant-owned; the LC is just a
+    #     financing arrangement. They live in the same Unit Mix Summary
+    #     bucket and pay the same lot rent.
+    #   - "POH *Title Issue" → "POH-Infilled units" — title problem doesn't
+    #     change the unit type, just adds a diligence flag.
+    #   - "Vacant" type field → keep the unit-type the source assigns; the
+    #     status field on the row carries "Vacant" separately.
     def _canonicalize_unit_type(raw):
         if not isinstance(raw, str):
             return "TOH MH Site"
         s = raw.strip().lower()
         if not s:
             return "TOH MH Site"
-        if "poh" in s or "park owned" in s or "park-owned" in s or "infilled" in s:
+
+        # Order matters — check POH first because "POH *Title Issue" would
+        # otherwise hit "rv" / "retail" never, but a TOH variant containing
+        # "rv" (e.g. "TOH - RV trailer") shouldn't be RV.
+
+        # POH variants
+        if any(p in s for p in ("poh", "park owned", "park-owned",
+                                 "park-rented", "infilled", "infill",
+                                 "title issue")):
+            # "title issue" alone shouldn't catch a TOH lot with a title
+            # problem note — require POH context for the title-issue mapping.
+            # Safe ordering: only title-issue cases that ALSO say POH get
+            # routed here. A bare "title issue" with TOH stays TOH below.
+            if "title issue" in s and "poh" not in s and "park" not in s:
+                return "TOH MH Site"
             return "POH-Infilled units"
-        if "rv" in s or "annual rv" in s or "long term rv" in s or "long-term rv" in s:
+
+        # TOH variants (LC = Land Contract, Flourish = Flourish Investments
+        # LLC's LC portfolio, Bennetts = trustee arrangement, etc.). All
+        # are tenant-owned manufactured homes paying lot rent.
+        if any(p in s for p in ("toh", "tenant owned", "tenant-owned",
+                                 "tenant own", "mh lot", "mh site",
+                                 "lot rent", "site rent", "pad",
+                                 " lc ", "-lc", "land contract",
+                                 "flourish", "bennett", "trustee")):
+            return "TOH MH Site"
+
+        # RV variants
+        if any(p in s for p in ("rv ", "rv-", " rv", "annual rv",
+                                 "long term rv", "long-term rv",
+                                 "long term", "rv lot", "rv site",
+                                 "motorcoach", "motor coach")):
             return "Long term RV Site"
-        if "retail" in s or "commercial" in s or "storage" in s or "storefront" in s:
+
+        # Retail / Commercial / Storage
+        if any(p in s for p in ("retail", "commercial", "storage",
+                                 "storefront", "boat", "garage",
+                                 "office space")):
             return "Retail/Commercial"
+
+        # Catch-all: assume TOH MH Site. Most MHC sellers use TOH-shaped
+        # labels by default, so this is the safest fallback.
         return "TOH MH Site"
 
     individual_units = []
     if per_row:
         for row in per_row:
+            raw_type = row.get("unitType", "") or ""
             individual_units.append({
                 "unitId":    row.get("unitId", "") or "",
-                "unitType":  _canonicalize_unit_type(row.get("unitType")),
+                "unitType":  _canonicalize_unit_type(raw_type),
+                # Preserve the seller's original lot-type label (e.g.
+                # "TOH - LC", "TOH - Flourish", "POH *Title Issue") so the
+                # analyst can see the sub-type breakdown on the Rent Roll
+                # Input tab even though Unit Mix Summary rolls everything
+                # up to 4 canonical types.
+                "sellerType": raw_type,
                 "status":    row.get("status", "Occupied") or "Occupied",
                 "tenantName": row.get("tenantName", "") or "",
                 "lotRent":   row.get("lotRent", 0) or 0,
@@ -5517,9 +5762,19 @@ def fill_template(financials, market, output_path):
     for i, unit in enumerate(individual_units[:RENT_ROLL_CAPACITY]):
         r = 3 + i
         ws.cell(row=r, column=2,  value=unit.get("unitId", ""))      # B
-        ws.cell(row=r, column=3,  value=unit.get("unitType", ""))    # C
+        ws.cell(row=r, column=3,  value=unit.get("unitType", ""))    # C (canonical)
         ws.cell(row=r, column=4,  value=unit.get("status", ""))      # D
         ws.cell(row=r, column=6,  value=unit.get("tenantName", ""))  # F
+        # Column G holds the seller's ORIGINAL lot-type label (e.g.
+        # "TOH - LC", "TOH - Flourish", "POH *Title Issue"). Column C
+        # has the canonical type for the COUNTIFS to find; column G
+        # preserves the sub-type detail so analysts can spot LC vs
+        # Flourish vs trustee arrangements without re-reading the rent
+        # roll PDF. Only writes when different from canonical to avoid
+        # noise on Whaleshead-style sellers whose label already matches.
+        seller_type = unit.get("sellerType", "") or ""
+        if seller_type and seller_type.strip() != unit.get("unitType", "").strip():
+            ws.cell(row=r, column=7, value=seller_type)              # G
         ws.cell(row=r, column=9,  value=unit.get("lotRent", 0))      # I
         ws.cell(row=r, column=10, value=unit.get("homeRent", 0))     # J
         # A (Count) and K (Combined) are formulas seeded by fix_template.py
