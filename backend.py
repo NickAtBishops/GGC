@@ -3378,10 +3378,20 @@ INCOME:
 | 4913 | Application Fees | "Other Income" |
 | 4914 | Late Fees | "Other Income" |
 | 4915 | NSF Fees | "Other Income" |
-| Home Rent / POH Rent / Lease-to-Own income | Home Rent | "Home Rent Income" |
+| Home Rent / POH Rent / Lease-to-Own income / "LTO" lines | Home Rent | "Home Rent Income" |
+| QuickBooks-style per-tenant lot rent lines: "Lot Rent Income", "MH Lot Rent", "Site Rent", named-tenant rent lines | Lot Rent | "Gross Potential Rent" — AGGREGATE into one row per the aggregation rule below |
+| QuickBooks-style per-tenant LTO/home-rent lines: "LC Payment - <tenant>", "<Tenant Name> LC", "Land Contract <tenant>", "Installment Sale rent <tenant>", "KCA Ventures / <tenant> #<unit>" | Per-tenant LTO rent | "Home Rent Income" — AGGREGATE into one row per the aggregation rule below |
+| "Home sale" / "Sale of Home" / "Gain on Sale of Homes" (recurring LTO contract sale price recognition) | Home sale | "Home Rent Income" (treated as part of the LTO revenue stream — GGC values lot rent at 5.5% cap and home rent + home sale at 12% cap) |
 
 DECISION RULES (income):
-- HARD RULE: any line whose sellerNotes field contains "Discontinued", "Non-recurring", "Seller Specific", "Seller-Specific", "One-time", or "Non-operating" → "Omitt Income". This overrides the GL-prefix routing above. The Omitt bucket is the gold-standard exclusion path for items GGC will not underwrite forward.
+- HARD RULE: any line whose sellerNotes field EXPLICITLY contains "Discontinued", "Non-recurring", "Seller Specific", "Seller-Specific", "One-time", or "Non-operating" → "Omitt Income". This overrides the GL-prefix routing above. The Omitt bucket is the gold-standard exclusion path for items GGC will not underwrite forward.
+- HARD RULE — DO NOT route to Omitt based on the seller's line NAME alone. The Omitt routing is driven by the seller's EXPLICIT notes column ONLY. Examples that look unusual but are NOT Omitt unless the seller marks them so:
+  - Lines named after specific tenants (e.g., "KCA Ventures / Tenant Name #unit", "LC Payment - Hayden #47", "Smith Family LC Payment"). These are INDIVIDUAL LOT RENT or LEASE-TO-OWN payments, NOT non-operating items. They go to "Gross Potential Rent" (if lot rent) or "Home Rent Income" (if LTO home rent).
+  - Lines with "LC" or "Land Contract" in the name. These are lease-to-own home rent → "Home Rent Income".
+  - Lines with "Installment", "Sale" if recurring tenant payments. These are POH home rent on LTO contracts → "Home Rent Income".
+  - Only Omitt when the seller writes "Discontinued" / "Non-recurring" / "Seller Specific" in the notes column.
+
+- HARD RULE — AGGREGATION when the seller emits one GL line per tenant. When the seller's chart of accounts has more than 10 individual tenant lines under what is clearly a single income type (most commonly: 50+ separate "Tenant Name #lot" lot-rent contracts, or many "LC Payment - tenant" home-rent contracts), AGGREGATE them into ONE row with the category set correctly (Gross Potential Rent for lot rent, Home Rent Income for LTO/POH). Use sellerName like "Aggregated 47 lot-rent contracts (KCA Ventures portfolio)" with t12Total = sum of all the per-tenant t12Totals and monthly = element-wise sum of the per-tenant monthly arrays. Note in `notes` how many sub-accounts were rolled up. This is REQUIRED — the Data Consolidation block has 34 income slots and 60 expense slots; emitting 50+ per-tenant rows will overflow the slots and corrupt the workbook. The analyst's hand-built version preserves individual rows but the engine must consolidate to fit the structure.
 - "Utility Reimbursement" = tenant pass-through of metered/billed utility consumption (water, sewer, electric, gas, trash). If the line item represents a CONSUMPTION pass-through to a tenant, it's Utility Reimbursement.
 - "Other Income" = revenue-sharing arrangements (cable, internet, laundry, vending), application/late/NSF/pet fees, damages, legal recoveries. If the line is a fee, fine, or revenue share rather than a utility pass-through, it's Other Income.
 - NEGATIVE income amounts that ARE NOT marked non-recurring: treat as "Other Income" with a `notes` flag explaining the contra. If material negative AND marked non-recurring → "Omitt Income".
@@ -4258,6 +4268,57 @@ def _merge_methodology(runs):
     return merged
 
 
+def _consolidate_per_tenant_lines(items, target_category, label_hint):
+    """When the seller's chart of accounts has many individual per-tenant
+    GL lines under one income type (QuickBooks-style — Parkwood's seller
+    emitted ~50 KCA Ventures lines, one per tenant), collapse them into
+    ONE aggregated row. Without this, the lines overflow Data Consolidation's
+    34-income / 60-expense slots and the workbook truncates.
+
+    Triggers when >= 10 items share the same target_category AND the
+    methodology stage emitted them individually. Sums t12Total, monthly
+    arrays, and historical FY columns; preserves their notes by appending
+    a count summary.
+    """
+    same_cat = [it for it in items
+                if (it.get("ggcCategory") or "").strip() == target_category]
+    if len(same_cat) < 10:
+        return 0
+    # Sum numeric fields across the matched rows.
+    def _sum_field(field):
+        return sum(float(it.get(field) or 0) for it in same_cat)
+    monthly = [0.0] * 12
+    for it in same_cat:
+        m = it.get("monthly") or []
+        if isinstance(m, list) and len(m) == 12:
+            for i in range(12):
+                v = m[i]
+                if isinstance(v, (int, float)):
+                    monthly[i] += v
+    consolidated = {
+        "ggcCategory":     target_category,
+        "sellerName":      f"Aggregated {len(same_cat)} {label_hint} contracts",
+        "fyPrior":         _sum_field("fyPrior"),
+        "fyCurrent":       _sum_field("fyCurrent"),
+        "brokerProforma":  _sum_field("brokerProforma"),
+        "t12Total":        _sum_field("t12Total"),
+        "monthly":         monthly,
+        "ggcUnderwritten": _sum_field("ggcUnderwritten"),
+        "confidence":      "high",
+        "notes":           (f"Consolidated by engine from {len(same_cat)} "
+                            f"per-tenant GL lines (QuickBooks-style chart of "
+                            f"accounts). Individual contract detail preserved "
+                            f"in the Rent Roll Input tab."),
+    }
+    # Replace the per-tenant rows with the single consolidated row.
+    keep = [it for it in items
+            if (it.get("ggcCategory") or "").strip() != target_category]
+    items.clear()
+    items.extend(keep)
+    items.append(consolidated)
+    return len(same_cat)
+
+
 def apply_ggc_overrides(financials, property_info):
     """Force the GGC methodology rules per CLAUDE.md §5.4 onto the merged
     methodology output. These are rules (not LLM judgment), so applying
@@ -4386,6 +4447,60 @@ def apply_ggc_overrides(financials, property_info):
                     it["ggcCategory"] = target_category
     _force_omitt(income,   "Omitt Income")
     _force_omitt(expenses, "Omitt Expense")
+
+    # ── Rescue per-tenant lot-rent / LTO lines from misrouted Omitt ──────
+    # QuickBooks-style sellers emit one GL line per tenant ("KCA Ventures /
+    # Smith #47", "LC Payment - Hayden #47", etc.). The LLM sometimes
+    # misreads these as related-party / non-operating and routes them to
+    # Omitt Income. They're actually individual lot rent or lease-to-own
+    # home rent contracts — they belong in Gross Potential Rent (lot) or
+    # Home Rent Income (LTO/home). Rescue them deterministically. This
+    # also catches the Parkwood KCA Ventures misclassification seen in
+    # ParkwoodOutput1.xlsx vs ParkwoodCorrect.xlsx.
+    LOT_RENT_TENANT_PATTERNS = ("kca ventures", "lc payment", "lot rent",
+                                 "site rent", "pad rent", "mh lot")
+    LTO_TENANT_PATTERNS = ("lc payment", "land contract", "lease-to-own",
+                            "lease to own", " lto ", "installment sale",
+                            "home sale", "home rent")
+    def _has_explicit_omitt_notes(it):
+        notes = (it.get("_sellerNotes") or "").lower()
+        return any(m in notes for m in OMITT_MARKERS)
+    for it in income:
+        current = (it.get("ggcCategory") or "").strip()
+        if current != "Omitt Income":
+            continue
+        # Respect explicit seller notes — those are sacrosanct.
+        if _has_explicit_omitt_notes(it):
+            continue
+        sn = (it.get("sellerName") or "").lower()
+        # LTO patterns take priority (more specific) over generic lot-rent
+        if any(m in sn for m in LTO_TENANT_PATTERNS):
+            _record(
+                f"{it.get('sellerName', '?')}: Omitt Income → Home Rent Income",
+                "Omitt Income", "Home Rent Income",
+                "per-tenant LTO/home-rent line — not non-operating")
+            it["ggcCategory"] = "Home Rent Income"
+        elif any(m in sn for m in LOT_RENT_TENANT_PATTERNS):
+            _record(
+                f"{it.get('sellerName', '?')}: Omitt Income → Gross Potential Rent",
+                "Omitt Income", "Gross Potential Rent",
+                "per-tenant lot rent line — not non-operating")
+            it["ggcCategory"] = "Gross Potential Rent"
+
+    # ── Consolidate per-tenant rows to fit Data Consolidation's slots ───
+    # The Data Consolidation block has 34 income + 60 expense slots. When
+    # the seller emits 50+ per-tenant lines (QuickBooks-style), they'd
+    # overflow. Collapse same-category groups of ≥10 into one row each.
+    n_gpr = _consolidate_per_tenant_lines(income, "Gross Potential Rent", "lot-rent")
+    if n_gpr:
+        _record("Per-tenant aggregation", n_gpr, 1,
+                f"{n_gpr} GPR rows → 1 (Data Consolidation slot fit)")
+        print(f"[GGC Overrides] Consolidated {n_gpr} per-tenant lot-rent rows into 1.")
+    n_hri = _consolidate_per_tenant_lines(income, "Home Rent Income", "LTO/home-rent")
+    if n_hri:
+        _record("Per-tenant aggregation", n_hri, 1,
+                f"{n_hri} Home Rent Income rows → 1 (slot fit)")
+        print(f"[GGC Overrides] Consolidated {n_hri} per-tenant home-rent rows into 1.")
 
     # Vehicle-related expenses → Omitt Expense regardless of GL prefix.
     # Catches Car Insurance (5051), Vehicle Fuel (5401), and similar lines
