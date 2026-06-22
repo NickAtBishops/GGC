@@ -19,12 +19,45 @@ How: this script
      column width, row height, and freeze pane
   4. Restores P4 (Purchase/Offer Price) as a formula reading from P9
      so the engine's single write to P9 cascades correctly
-  5. Saves as `GGC_Blank_Underwriting_Sizer_Extended.xlsx` (the deployed
+  5. Applies a sweep of structural patches that were previously living in
+     fix_template.py but were NOT making it into the runtime template:
+       - label typo fixes ("Uses of Funds of Funds", "Acquistion Fee",
+         "Mortgage Costant", "Principle")
+       - Pro Forma S3 (rows 81-87, BRIDGE LOAN -6 MONTHS) + Scen 4
+         (rows 91-97, Seller Carry) scenario blocks + IRR rows H89/H100
+       - Collections Avg row at G17/H17/H18/H19
+       - Loan Scenario P8/T8/U8 amortization sum ranges fixed off-by-one
+  6. Saves as `GGC_Blank_Underwriting_Sizer_Extended.xlsx` (the deployed
      template that backend.py loads at fill_template time)
+  7. Optionally re-applies fix_template.py on top so any later patch in
+     fix_template lands too. This guarantees fix_template's defects are
+     never silently dropped by a fresh build.
 
-Run: `python3 build_template.py`. This replaces `fix_template.py`'s former
-role of patching the legacy blank. fix_template.py is kept as a thin
-compatibility layer for any backend.py imports that still reference it.
+Run: `python3 build_template.py`. After it finishes the template is
+guaranteed to be in the post-fix state — no separate `python3 fix_template.py`
+step is needed for these patches to land.
+
+INVOCATION CHAIN (the canonical, post-fix state):
+    Claude/CorrectOutput.xlsx
+        ↓ build_template.main()
+        ↓ strips deal-specific cells, applies patches in step (5) above
+        ↓ optionally invokes fix_template.py for label/typo/layout sweeps
+    GGC_Blank_Underwriting_Sizer_Extended.xlsx   (the runtime template)
+        ↓ backend.fill_template(...) per deal
+    populated 16-tab workbook                    (download artifact)
+
+KNOWN GAP (CLAUDE.md §5.2) — NOT folded in here:
+The GGC Underwriting column shift from G/H/I → I/J/K (Stabilized /
+Lot-Rent-Only / UW NOI columns) and the Property Information block move
+from N → P-R are a multi-tab cascade that also touches every cross-tab
+reference in Pro Forma F8:F53, Loan Scenario C27, Investor Return F6:F8,
+Sources & Uses C13. Doing it from build_template.py alone risks decoupling
+the layout from backend.py's writers (which still target N4/P9 etc.) and
+producing a workbook that's structurally right but functionally empty.
+The shift needs to land in lockstep across build_template.py + fix_template.py
++ backend.py writers — see analysis_dumps/parkwood_compare/OUTLINE.md §2
+"GGC Underwriting" for the exact cell map and §3 cross-cutting items
+#13/#14 for the full coordination.
 """
 from __future__ import annotations
 import re
@@ -333,6 +366,67 @@ def main():
                     n_cleared += 1
         print(f"[build] Comps: cleared {n_cleared} cells in data rows")
 
+    # ── 5. Direct label / typo fixes ─────────────────────────────────────
+    # These were historically applied by fix_template.py but did not always
+    # reach the runtime template (fix_template ran against a different
+    # snapshot, or build_template overwrote it). Apply them here so they
+    # are part of every fresh build by construction.
+    LABEL_FIXES = [
+        # (sheet_name, coord, new_value)
+        # CRITICAL: Sources and Uses "Uses of Funds of Funds" typo
+        ("Sources and Uses",            "B12", "Uses of Funds"),
+        ("Sources and Uses",            "H12", "Uses of Funds"),
+        # "Acquistion Fee" → "Acquisition Fee"
+        ("Sources and Uses",            "B15", "Acquisition Fee (2%)"),
+        ("Sources and Uses",            "H15", "Acquisition Fee (2%)"),
+        # Loan Scenario "Mortgage Costant" → "Mortgage Constant"
+        ("Loan Scenario (acquisition)", "B17", "Mortgage Constant"),
+        # Loan Scenario "Principle" → "Principal"
+        ("Loan Scenario (acquisition)", "L7",  "Principal"),
+    ]
+    n_label_fixes = 0
+    for sheet_name, coord, new_value in LABEL_FIXES:
+        if sheet_name in wb.sheetnames:
+            wb[sheet_name][coord] = new_value
+            n_label_fixes += 1
+    print(f"[build] Applied {n_label_fixes} label / typo fixes")
+
+    # NOTE: Pro Forma S3 / Scen 4 scenario blocks are applied AFTER
+    # fix_template.py runs (see "_apply_post_fix_patches" below). fix_template
+    # writes "Free Cash Flow" labels to F84 / F97 / F100 from a stale layout
+    # that pre-dated the scenario blocks moving to rows 81-87 / 91-97.
+    # Doing those writes here would let fix_template silently overwrite them.
+
+    # ── 5c. Collections — Avg row at G17/H17/H18/H19 ─────────────────────
+    # CorrectOutput has an Avg row immediately below the 11 monthly rows
+    # (rows 6-16). Templates that don't carry this row force the analyst
+    # to compute T11 monthly averages by hand. Add the row so every deal
+    # gets the avg / annualized / sum block.
+    if "Collections" in wb.sheetnames:
+        coll = wb["Collections"]
+        coll["G17"] = "Avg"
+        coll["H17"] = "=AVERAGE(H6:H16)"
+        coll["H18"] = "=H17*12"
+        coll["H19"] = "=SUM(H6:H16)"
+        print(f"[build] Collections: added Avg row at G17/H17/H18/H19")
+
+    # ── 5d. Loan Scenario — fix off-by-one sum ranges at P8 / T8 / U8 ────
+    # The acquisition amort table runs rows 7-126 (Y1-Y120). P7/T7/U7 sum
+    # column I rows 43:54 / 91:102 / 103:114; the immediately-below P8/T8/U8
+    # sum column H over an off-by-one range that drops a row. Repoint to
+    # the matching 12-month windows used by P7/T7/U7.
+    ls_name = (
+        "Loan Scenario (acquisition)"
+        if "Loan Scenario (acquisition)" in wb.sheetnames
+        else "Loan Scenario"
+    )
+    if ls_name in wb.sheetnames:
+        ls = wb[ls_name]
+        ls["P8"] = "=SUM(H43:H54)"
+        ls["T8"] = "=SUM(H91:H102)"
+        ls["U8"] = "=SUM(H103:H114)"
+        print(f"[build] {ls_name}: rewrote P8/T8/U8 amort sum ranges")
+
     # ── 6. Force Excel to fully recalculate on open ──────────────────────
     # Without this, openpyxl-written formulas show blank in Excel until
     # the user presses F9. Setting both calcMode=auto AND fullCalcOnLoad
@@ -346,6 +440,143 @@ def main():
     wb.save(DEST)
     print(f"[build] Wrote {DEST.name}")
     print(f"[build] Final tabs: {load_workbook(DEST).sheetnames}")
+
+    # ── 8. Apply fix_template.py on top ──────────────────────────────────
+    # fix_template.py contains a large body of label / formula / formatting
+    # patches accumulated over the project's history. Historically it was
+    # invoked separately and could silently miss the runtime template if
+    # the order was wrong. Run it here as a guaranteed post-step so any
+    # patch it carries lands on the file we just wrote.
+    #
+    # Skip with BUILD_TEMPLATE_SKIP_FIX=1 if you need a clean
+    # CorrectOutput-strip-only build (e.g. to diff against fix_template's
+    # output and see what it changed).
+    import os
+    if os.environ.get("BUILD_TEMPLATE_SKIP_FIX") != "1":
+        try:
+            print("[build] Running fix_template.py on top of the fresh build...")
+            import importlib
+            import sys
+            # fix_template.py is a top-level script that mutates and saves
+            # the template on import. Re-import every run so it executes.
+            if "fix_template" in sys.modules:
+                del sys.modules["fix_template"]
+            importlib.import_module("fix_template")
+            print("[build] fix_template.py completed")
+        except Exception as e:
+            # Don't fail the build if fix_template trips — log and continue.
+            # The label/typo/scenario-block fixes above are the minimum
+            # guaranteed post-fix state.
+            print(f"[build] WARNING: fix_template.py raised {type(e).__name__}: {e}")
+            print("[build] Continuing with build_template-only patches.")
+
+    # ── 9. Post-fix patches that fix_template.py would otherwise overwrite ──
+    # fix_template.py's label sweep at line ~1154/1175/1176 writes
+    # "Free Cash Flow" and "Avg CoC Y1-Y4" labels to F84, F97, and F100 on
+    # GGC Pro Forma — values that pre-date the scenario blocks moving to
+    # rows 81-87 (S3 bridge) and 91-97 (Scen 4 seller carry). Re-apply the
+    # correct CorrectOutput layout here after fix_template has run.
+    _apply_post_fix_patches()
+    print("[build] Post-fix patches applied (Pro Forma S3 + Scen 4 scenario blocks)")
+
+
+def _apply_post_fix_patches():
+    """Patches that must land AFTER fix_template.py runs because fix_template
+    writes stale labels to the same cells. Loads the template that
+    build_template + fix_template just produced and re-saves it with the
+    canonical Pro Forma scenario block layout from CorrectOutput.
+    """
+    wb = load_workbook(DEST)
+    pf = wb["GGC Pro Forma"]
+
+    # S3 block: rows 81-87 (BRIDGE LOAN -6 MONTHS) — see CorrectOutput
+    # GGC Pro Forma(PW) rows 80-89 for the source layout.
+    pf["H80"] = "BRIDGE LOAN -6 MONTHS"
+    pf["F81"] = "Debt Service"
+    pf["H81"] = "=-'Loan Scenario (acquisition)'!M10"
+    pf["F82"] = "Debt Payoff"
+    pf["F83"] = "Refi Cashout"
+    pf["F84"] = "New Loan"
+    pf["F85"] = "Total Sale - Community"
+    pf["F86"] = "Free Cash Flow "
+    pf["H86"] = "=H53+SUM(H81:H85)"
+    pf["F87"] = "DSCR"
+    pf["H87"] = "=-H53/H81"
+    pf["F89"] = "IRR"
+    pf["H89"] = "=IRR(G86:Q86)"
+
+    # Scen 4 block: rows 91-97 (SELLER CARRY) — H91 derives a 5%
+    # debt-service-only carry off Sources and Uses!J5 (the seller note).
+    pf["F91"] = "Debt Service"
+    pf["H91"] = "=-'Sources and Uses'!$J$5*5%"
+    pf["F92"] = "Debt Payoff"
+    pf["F93"] = "Refi Cashout"
+    pf["F94"] = "New Loan"
+    pf["F95"] = "Total Sale - Community"
+    pf["F96"] = "Free Cash Flow "
+    pf["H96"] = "=H53+SUM(H91:H95)"
+    pf["F97"] = "DSCR"
+    pf["H97"] = "=-H53/H91"
+    pf["F100"] = "IRR"
+    pf["H100"] = "=IRR(G96:Q96)"
+
+    # ── RV Site Rental Income reachability ─────────────────────────────
+    # fix_template.py repurposes GGC Underwriting row 14 (originally
+    # "RV Site Rental Income") to "LTO" so MHC deals like Parkwood get
+    # their land-contract revenue in the right bucket. Without that swap,
+    # the SUMIFS at B/C/D/E/F14 searched for the string "RV Site Rental
+    # Income" and matched it; afterward, they search for "LTO" and the
+    # RV income string has no row at all — any RV deal (Whaleshead-style)
+    # would silently zero that line.
+    #
+    # Add a parallel SUMIFS row at row 18 (currently blank between Other
+    # Income at row 17 and Total EGI at row 19) so both enums stay
+    # reachable. Update the EGI sum at row 19 to include row 18.
+    uw = wb["GGC Underwriting"]
+    if (uw["A18"].value or "").strip() in ("", "None"):
+        uw["A18"] = "RV Site Rental Income"
+        rv_sumifs = {
+            "B": "=SUMIFS('Data Consolidation'!$D$3:$D$36,'Data Consolidation'!$A$3:$A$36,\"RV Site Rental Income\")",
+            "C": "=SUMIFS('Data Consolidation'!$E$3:$E$36,'Data Consolidation'!$A$3:$A$36,\"RV Site Rental Income\")",
+            "D": "=SUMIFS('Data Consolidation'!$G$3:$G$36,'Data Consolidation'!$A$3:$A$36,\"RV Site Rental Income\")",
+            "E": "=SUMIFS('Data Consolidation'!$H$3:$H$36,'Data Consolidation'!$A$3:$A$36,\"RV Site Rental Income\")",
+            "F": "=SUMIFS('Data Consolidation'!$F$3:$F$36,'Data Consolidation'!$A$3:$A$36,\"RV Site Rental Income\")",
+        }
+        for col, formula in rv_sumifs.items():
+            uw[f"{col}18"] = formula
+        uw["G18"] = "=I18"
+        uw["H18"] = "=I18"
+        uw["I18"] = 0
+        uw["J18"] = "=I18/$N$7"
+        # K18 holds a placeholder for the RV income value in the K (UW)
+        # column. Use 0 (not a text note) so it stays numeric and the EGI
+        # SUMs at row 19 don't trip #VALUE! when they include K18. The
+        # analyst can overwrite with a real RV income figure for RV deals.
+        uw["K18"] = 0
+        # Update Total EGI sum at row 19 to include row 18 across every
+        # column where the EGI sum lives. The CorrectOutput-style layout
+        # uses K as the UW column with its own EGI formula at K19, so
+        # patch K too (in addition to the legacy B-I columns).
+        for col in ("B", "C", "D", "E", "F", "G", "H", "I", "K"):
+            cell = uw[f"{col}19"]
+            val = cell.value
+            if isinstance(val, str) and f"{col}17" in val and f"{col}18" not in val:
+                cell.value = val.replace(f"{col}17", f"{col}17+{col}18")
+
+    # ── Storage / Retail Income circular-formula fix ──────────────────
+    # The legacy template wires K15=G15, G15=I15, I15=K15 (three cells
+    # each referencing the next). Same chain at row 16. The result is
+    # #VALUE! → poisons I19 EGI → I44 Total OpEx → I47 NOI Total. CorrectOutput
+    # short-circuits the cycle by setting G15/G16 to literal 0; do the
+    # same here so MHC deals (which have no Storage or Retail income)
+    # don't trip the cascade. The analyst can type a value into G15/G16
+    # for a deal that actually has storage / retail revenue (Whaleshead).
+    if isinstance(uw["G15"].value, str) and "=" in str(uw["G15"].value):
+        uw["G15"] = 0
+    if isinstance(uw["G16"].value, str) and "=" in str(uw["G16"].value):
+        uw["G16"] = 0
+
+    wb.save(DEST)
 
 
 if __name__ == "__main__":

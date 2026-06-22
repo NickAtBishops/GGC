@@ -32,6 +32,58 @@ import openpyxl
 
 TEMPLATE = Path(__file__).parent / "GGC_Blank_Underwriting_Sizer_Extended.xlsx"
 
+# ════════════════════════════════════════════════════════════════════════
+# FORM-INPUT DEFAULTS (Parkwood OUTLINE.md)
+# ════════════════════════════════════════════════════════════════════════
+# These are the template-bake-time defaults written to cells the analyst
+# (and backend.py at runtime) can override per-deal. backend.py reads the
+# per_site_overrides / lot_cap_rate / etc. form inputs and rewrites the
+# same cells with the deal-specific values; when the form leaves them
+# blank, the defaults below survive.
+#
+# Provenance: CorrectOutput/parkwoodCorrect.xlsx is the gold standard
+# (analyst hand-underwrote Parkwood Green Village). Where CLAUDE.md and
+# CorrectOutput disagree, CorrectOutput wins because it ties out cell-
+# for-cell to a real deal Michael signed off on.
+#   - capex_per_unit: CLAUDE.md outer says $75, inner says $50;
+#     CorrectOutput uses $50 (L43 = 50). Using 50.
+#   - insurance_per_site: CorrectOutput L23 = 250 (non-flood). The flood
+#     toggle is a form input; backend writes 300 when set.
+#   - bad_debt_uw_pct: CorrectOutput L7 = 0.02 (2% × UW GPR). Was 0.03.
+#   - closing_cost_pct: CorrectOutput Sources & Uses C14 = C13*2.25%.
+#     Template was 1.5%.
+#   - gp_equity_default: CorrectOutput Sources & Uses C8 = 300000.
+
+DEFAULTS = {
+    "bad_debt_uw_pct":             0.02,
+    "insurance_per_site_nonflood": 250,
+    "insurance_per_site_flood":    300,
+    "payroll_per_site":            425,
+    "ground_maintenance_per_site": 200,
+    "ga_per_site":                 100,
+    "professional_fees_per_site":  50,
+    "advertising_per_site":        0,
+    "capex_per_unit":              50,
+    "home_rent_expense_ratio":     0.10,
+    "lot_cap_rate":                0.05,
+    "home_cap_rate":               0.20,
+    "y1_re_taxes_growth_pct":      0.03,
+    "closing_cost_pct":            0.0225,
+    "gp_equity_default":           300000,
+    "exit_cap_rate":               0.06,
+    "hold_period_years":           10,
+    "vacant_stabilization_count":  3,
+}
+
+# Per-type 10-yr rent-growth schedules. Override per deal via
+# property_info.rentGrowthSchedule.
+DEFAULT_RENT_GROWTH = {
+    "toh":      [0.10, 0.11, 0.10, 0.065, 0.06, 0.06, 0.05, 0.05, 0.05, 0.05],
+    "poh":      [0.10, 0.11, 0.10, 0.065, 0.06, 0.06, 0.05, 0.05, 0.05, 0.05],
+    "flourish": [0.10, 0.11, 0.10, 0.065, 0.06, 0.06, 0.05, 0.05, 0.05, 0.05],
+    "lto":      [0.10, 0.09, 0.085, 0.065, 0.075, 0.075, 0.04, 0.04, 0.04, 0.04],
+}
+
 wb = openpyxl.load_workbook(TEMPLATE)
 
 # ════════════════════════════════════════════════════════════════════════
@@ -41,8 +93,11 @@ ws = wb["GGC Underwriting"]
 
 # Income category labels (rows 14-16). These feed SUMIFS into Data
 # Consolidation; must match the categories we tag GL accounts with in
-# backend.py.
-ws["A14"] = "RV Site Rental Income"
+# backend.py. Row 14 doubles as LTO for MHC deals (K14 is sourced from
+# Rent Roll Input column J = LTO PMT in the Parkwood-style layout)
+# and as RV Site Rental Income for resort deals (Whaleshead). backend.py
+# can rewrite A14 per property_info.propertyType at runtime.
+ws["A14"] = "LTO"   # was "RV Site Rental Income"; default to MHC layout
 ws["A15"] = "Storage Income"
 ws["A16"] = "Retail Income"
 
@@ -116,13 +171,21 @@ ws["I38"] = 0   # Model Units
 ws["I42"] = 0   # Other
 
 # ════════════════════════════════════════════════════════════════════════
-# 2. UNIT MIX SUMMARY — replace 7 generic types with 4 real categories
+# 2. UNIT MIX SUMMARY — 4 lot-rent rows + 4 home-rent rows + derived metrics
 # ════════════════════════════════════════════════════════════════════════
+# Matches CorrectOutput/parkwoodCorrect.xlsx Unit Mix Summary(PW). The
+# 4 canonical lot-rent buckets are TOH / POH / LTO / Flourish (LTO and
+# Flourish are MHC seller-financing variants distinct from plain TOH —
+# folding them into TOH wiped Parkwood's ~$200k/yr LTO revenue stream).
+# Below row 8 sits a parallel home-rent block at rows 9-12, and derived
+# metrics at rows 13-20. COUNTIFS/SUMIFS key off the Rent Roll Input
+# column D (Type 1..4 derived) and column E (Occupied/Vacant), with H/I/J
+# for Lot Rent / POH Home Rents / LTO PMT respectively (see section 3).
 ums = wb["Unit Mix Summary"]
 
-# Clear values in the data block (rows 3-20) before rewriting. Preserves
+# Clear values in the data block (rows 3-22) before rewriting. Preserves
 # column widths / styling / merged cells.
-for row in ums.iter_rows(min_row=3, max_row=22, max_col=10):
+for row in ums.iter_rows(min_row=3, max_row=22, max_col=11):
     for cell in row:
         cell.value = None
 
@@ -138,116 +201,167 @@ ums["E3"] = "Total Units"
 ums["F3"] = "Occupied Monthly Rent"
 ums["G3"] = "Vacant Monthly Rent"
 ums["H3"] = "Monthly Gross Potential Rent"
+ums["I3"] = "avg rents"
+ums["J3"] = "weights"
 
-# Four canonical categories at rows 4-7. Matches the canonical taxonomy
-# we'll enforce in backend.py. COUNTIFS / SUMIFS hit the new Rent Roll
-# Input column layout (D=Status, C=Unit Type, I=Lot Rent).
-CATEGORIES = [
-    ("TOH MH Site",        4),
-    ("POH-Infilled units", 5),
-    ("Long term RV Site",  6),
-    # CorrectOutput has a typo here ("Retail/Comemrcial"). We use the
-    # correctly spelled version so a future user search won't fail; the
-    # COUNTIFS doesn't reference column B so the typo is purely
-    # cosmetic in correct.
-    ("Retail/Commercial",  7),
+# Four canonical lot-rent categories at rows 4-7, each matching a Type
+# code (Type 1=TOH, Type 2=POH, Type 3=LTO, Type 4=Flourish) derived in
+# Rent Roll Input column D. SUMIFS pull column H (Lot Rent) only.
+LOT_CATEGORIES = [
+    ("TOH(Lot Rents only)-vacant lots", 4, "Type 1"),
+    ("POH(Lot Rents)",                  5, "Type 2"),
+    ("LTO(Lot Rents)",                  6, "Type 3"),
+    ("Flourish (Lot Rents)",            7, "Type 4"),
 ]
-for label, r in CATEGORIES:
+for label, r, type_code in LOT_CATEGORIES:
     ums.cell(row=r, column=2, value=label)
     ums.cell(row=r, column=3,
-             value=f'=COUNTIFS(\'Rent Roll Input\'!$D$3:$D$1002,"Occupied",'
-                   f'\'Rent Roll Input\'!$C$3:$C$1002,"{label}")')
+             value=f'=COUNTIFS(\'Rent Roll Input\'!$E$3:$E$1002,"Occupied",'
+                   f'\'Rent Roll Input\'!$D$3:$D$1002,"{type_code}")')
     ums.cell(row=r, column=4,
-             value=f'=COUNTIFS(\'Rent Roll Input\'!$D$3:$D$1002,"Vacant",'
-                   f'\'Rent Roll Input\'!$C$3:$C$1002,"{label}")')
+             value=f'=COUNTIFS(\'Rent Roll Input\'!$E$3:$E$1002,"Vacant",'
+                   f'\'Rent Roll Input\'!$D$3:$D$1002,"{type_code}")')
     ums.cell(row=r, column=5, value=f"=SUM(C{r}:D{r})")
     ums.cell(row=r, column=6,
-             value=f'=SUMIFS(\'Rent Roll Input\'!$I$3:$I$1002,'
-                   f'\'Rent Roll Input\'!$D$3:$D$1002,"Occupied",'
-                   f'\'Rent Roll Input\'!$C$3:$C$1002,"{label}")')
+             value=f'=SUMIFS(\'Rent Roll Input\'!$H$3:$H$1002,'
+                   f'\'Rent Roll Input\'!$E$3:$E$1002,"Occupied",'
+                   f'\'Rent Roll Input\'!$D$3:$D$1002,"{type_code}")')
     ums.cell(row=r, column=7,
-             value=f'=SUMIFS(\'Rent Roll Input\'!$I$3:$I$1002,'
-                   f'\'Rent Roll Input\'!$D$3:$D$1002,"Vacant",'
-                   f'\'Rent Roll Input\'!$C$3:$C$1002,"{label}")')
+             value=f'=SUMIFS(\'Rent Roll Input\'!$H$3:$H$1002,'
+                   f'\'Rent Roll Input\'!$E$3:$E$1002,"Vacant",'
+                   f'\'Rent Roll Input\'!$D$3:$D$1002,"{type_code}")')
     ums.cell(row=r, column=8, value=f"=F{r}+G{r}")
+    ums.cell(row=r, column=9, value=f"=IFERROR(H{r}/E{r},0)")  # avg rent per type
+    ums.cell(row=r, column=10, value=f"=IFERROR(E{r}/$E$8,0)") # weight
 
-# Totals / derived metrics block (rows 8-16). Mirrors correct output.
-ums["B8"]  = "Total Units"
-ums["C8"]  = "=SUM(C4:C7)"
-ums["D8"]  = "=SUM(D4:D7)"
-ums["E8"]  = "=SUM(E4:E7)"
-ums["B9"]  = "Total MH Sites"   # match CorrectOutput (no parenthetical)
-ums["C9"]  = "=SUM(C4:C5)"
-ums["D9"]  = "=SUM(D4:D5)"
-ums["E9"]  = "=SUM(E4:E5)"
-ums["F9"]  = "=SUM(F4:F5)"
-ums["G9"]  = "=SUM(G4:G5)"
-ums["H9"]  = "=SUM(H4:H5)"
-ums["B10"] = "Total POH"
-ums["C10"] = "=C5"
-ums["D10"] = "=D5"
-ums["E10"] = "=E5"
-# Labels match CorrectOutput exactly. IFERROR wrappers stay — Correct
-# trusts its inputs but our LLM-generated rent rolls can produce zero
-# counts for a missing unit type, which would propagate #DIV/0! into
-# every downstream per-unit formula. The wrapper preserves the math
-# under correct's labels while staying robust.
-ums["B11"] = "Annual GPR(MH Lot Rent)"   # no space — matches Correct
-ums["C11"] = "=H9*12"
-ums["B12"] = "Avg Rent"                  # was "Avg MH Lot Rent"
-ums["C12"] = "=IFERROR(H4/E4,0)"
-ums["B13"] = "Occupancy%"                # no space
-ums["C13"] = "=IFERROR(C8/E8,0)"
-ums["B14"] = "POH%"                      # no space
-ums["C14"] = "=IFERROR(E10/E9,0)"
-ums["B15"] = "Annual Long term RV"
-ums["C15"] = "=H6*12"
-ums["B16"] = "Long term RV avg rent"
-ums["C16"] = "=IFERROR(H6/E6,0)"
+# Row 8: Total Sites (Lot Rent Only) — SUMs across rows 4-7
+ums["B8"] = "Total Sites(Lot Rent only)"
+ums["C8"] = "=SUM(C4:C7)"
+ums["D8"] = "=SUM(D4:D7)"
+ums["E8"] = "=SUM(E4:E7)"
+ums["F8"] = "=SUM(F4:F7)"
+ums["G8"] = "=SUM(G4:G7)"
+ums["H8"] = "=SUM(H4:H7)"
+
+# Rows 9-12: Home-rent block. POH home rents from Rent Roll Input column
+# I, LTO from column J, Flourish from column J as well (sub-brand
+# financing — backend can re-route via property_info). Row 12 is the
+# Total POH (Home Rents) SUM.
+HOME_RENT_ROWS = [
+    ("POH (Home Rents)",      9,  "Type 2", "I"),
+    ("LTO (Home Rents)",      10, "Type 3", "J"),
+    ("Flourish (Home Rents)", 11, "Type 4", "J"),
+]
+for label, r, type_code, src_col in HOME_RENT_ROWS:
+    ums.cell(row=r, column=2, value=label)
+    ums.cell(row=r, column=3,
+             value=f'=COUNTIFS(\'Rent Roll Input\'!$E$3:$E$1002,"Occupied",'
+                   f'\'Rent Roll Input\'!$D$3:$D$1002,"{type_code}")')
+    ums.cell(row=r, column=4,
+             value=f'=COUNTIFS(\'Rent Roll Input\'!$E$3:$E$1002,"Vacant",'
+                   f'\'Rent Roll Input\'!$D$3:$D$1002,"{type_code}")')
+    ums.cell(row=r, column=5, value=f"=SUM(C{r}:D{r})")
+    ums.cell(row=r, column=6,
+             value=f'=SUMIFS(\'Rent Roll Input\'!${src_col}$3:${src_col}$1002,'
+                   f'\'Rent Roll Input\'!$E$3:$E$1002,"Occupied",'
+                   f'\'Rent Roll Input\'!$D$3:$D$1002,"{type_code}")')
+    ums.cell(row=r, column=7,
+             value=f'=SUMIFS(\'Rent Roll Input\'!${src_col}$3:${src_col}$1002,'
+                   f'\'Rent Roll Input\'!$E$3:$E$1002,"Vacant",'
+                   f'\'Rent Roll Input\'!$D$3:$D$1002,"{type_code}")')
+    ums.cell(row=r, column=8, value=f"=SUM(F{r}:G{r})")
+
+ums["B12"] = "Total POH (Home Rents)"
+ums["C12"] = "=SUM(C9:C11)"
+ums["D12"] = "=SUM(D9:D11)"
+ums["E12"] = "=SUM(E9:E11)"
+ums["F12"] = "=SUM(F9:F11)"
+ums["G12"] = "=SUM(G9:G11)"
+ums["H12"] = "=SUM(H9:H11)"
+
+# Rows 13-20: derived metrics. Mirror CorrectOutput exactly. IFERROR
+# wrappers stay because LLM-generated rent rolls can produce zero counts
+# in a missing unit-type bucket, which would propagate #DIV/0! into
+# every downstream per-unit formula.
+ums["B13"] = "Annual GPR(Lot Rent Only)"
+ums["C13"] = "=H8*12"
+ums["B14"] = "Avg Lot Rent"
+ums["C14"] = "=SUMPRODUCT(I4:I7,J4:J7)"
+ums["B15"] = "Occupancy%"
+ums["C15"] = "=IFERROR(C8/E8,0)"
+ums["B16"] = "POH%"
+ums["C16"] = "=IFERROR(E12/E8,0)"
+ums["B17"] = "Annual HRI (POH)"
+ums["C17"] = "=H9*12"
+ums["B18"] = "Annual LTO HRI"
+ums["C18"] = "=H10*12"
+ums["B19"] = "Avg Home Rent (LTO)"
+ums["C19"] = "=IFERROR(H10/C10,0)"
+ums["B20"] = "Avg Home Rent (POH)"
+ums["C20"] = "=IFERROR(H9/C9,0)"
 
 # Number formatting for the derived-metrics block. Michael flagged in the
 # walkthrough that the Annual cells were rendering as raw integers ("let's
 # fix the formatting on the annual to be an actual currency number, no
 # decimals"). While we're here, fix the % cells too — without a 0.0%
-# format they show 0.95 instead of 95%, which the same reviewer would
-# also flag. C16 already has $#,##0 from a prior pass.
-ums["C11"].number_format = '"$"#,##0'   # Annual GPR (MH Lot Rent)
-ums["C12"].number_format = '"$"#,##0'   # Avg Rent (monthly)
-ums["C13"].number_format = "0.0%"       # Occupancy %
-ums["C14"].number_format = "0.0%"       # POH %
-ums["C15"].number_format = '"$"#,##0'   # Annual Long-term RV
-ums["C16"].number_format = '"$"#,##0'   # Long term RV avg rent
+# format they show 0.95 instead of 95%.
+ums["C13"].number_format = '"$"#,##0'   # Annual GPR (Lot Rent Only)
+ums["C14"].number_format = '"$"#,##0'   # Avg Lot Rent (monthly)
+ums["C15"].number_format = "0.0%"       # Occupancy %
+ums["C16"].number_format = "0.0%"       # POH %
+ums["C17"].number_format = '"$"#,##0'   # Annual HRI POH
+ums["C18"].number_format = '"$"#,##0'   # Annual LTO HRI
+ums["C19"].number_format = '"$"#,##0'   # Avg Home Rent LTO
+ums["C20"].number_format = '"$"#,##0'   # Avg Home Rent POH
 
 # ════════════════════════════════════════════════════════════════════════
-# 3. RENT ROLL INPUT — switch to correct column layout
+# 3. RENT ROLL INPUT — Parkwood layout w/ LTO PMT column
 # ════════════════════════════════════════════════════════════════════════
-# Correct uses: A=Count, B=Unit, C=Unit Type, D=Status, F=Name, G=Type
-# detail, H=Type code, I=Lot Rent, J=Home Rent, K=Combined.
-# backend.py will be updated to write to these columns.
+# CorrectOutput Rent Roll Input(PW) layout:
+#   A=Count, B=Lot #, C=Lot Type (seller string: TOH / POH / TOH-LC / Flourish),
+#   D=Unit Type (derived Type 1..4), E=Occupied or Vacant, F=Tenants & lot#,
+#   G=Move in, H=Lot Rent, I=POH Home Rents, J=LTO PMT, K=Combined (SUM H:J).
+# Type-derivation IF chain in D maps seller C string -> Type 1..4 so
+# Unit Mix Summary COUNTIFS in section 2 hit the canonical buckets.
+# backend.py will write to these columns at runtime.
 rr = wb["Rent Roll Input"]
 
-# Clear existing header row 2 and rewrite
+# Clear existing header row 2 and rewrite (cols A:K)
 for col in range(1, 13):
     rr.cell(row=2, column=col).value = None
 rr["A2"] = "Count"
-rr["B2"] = "Unit"
-rr["C2"] = "Unit Type"
-rr["D2"] = "Occupied or Vacant"
-rr["F2"] = "Name"
-rr["G2"] = "Type detail"
-rr["H2"] = "Type code"
-rr["I2"] = "Lot Rent"
-rr["J2"] = "Home Rent"
+rr["B2"] = "Lot #"
+rr["C2"] = "Lot Type"
+rr["D2"] = "Unit Type"
+rr["E2"] = "Occupied or Vacant"
+rr["F2"] = "Tenants & lot#"
+rr["G2"] = "Move in"
+rr["H2"] = "Lot Rent"
+rr["I2"] = "POH Home Rents"
+rr["J2"] = "LTO PMT"
 rr["K2"] = "Combined"
 
-# Update Combined formula and Count formula on data rows 3-1002. We
-# rebuild all 1000 rows of formulas so they stay consistent if backend
-# rewrites the value columns.
+# Update formulas on data rows 3-1002. Combined = SUM(H:J) — includes LTO
+# so K row totals don't silently drop the land-contract stream. Column D
+# derives Type 1..4 from the seller's column C string via IF chain so a
+# typo'd "TOH-LC" still routes (matches "LTO" via the IF fallback path).
 for r in range(3, 1003):
     rr.cell(row=r, column=1, value=f"=IF(C{r}=\"\",\"\",ROW()-2)")  # Count
-    rr.cell(row=r, column=11, value=f"=IFERROR(I{r}+J{r},0)")        # Combined
-    # Clear stale POH/LTO columns from old layout
-    for col in (5, 6, 7, 8):
+    # D: derived Type code from seller C string
+    rr.cell(row=r, column=4,
+            value=f'=IF(C{r}="TOH","Type 1",'
+                  f'IF(C{r}="POH","Type 2",'
+                  f'IF(OR(C{r}="LTO",C{r}="TOH-LC",C{r}="TOH - LC"),"Type 3",'
+                  f'IF(C{r}="Flourish","Type 4","Type 1"))))')
+    rr.cell(row=r, column=11, value=f"=SUM(H{r}:J{r})")             # Combined
+    # Clear stale columns: J (LTO PMT) and column 12+ from old layout.
+    # The legacy Whaleshead template carries stale `=1250-I{n}` formulas
+    # in J139:J151 — each evaluates to $1,250 (since I is blank) and
+    # silently inflates UW K14 LTO by $15,000/mo × 12 × 95% = ~$171,000/yr.
+    # Wipe column J for every data row; the per-row writer will repopulate
+    # rows that have a real lcPayment value.
+    rr.cell(row=r, column=10).value = None                          # J — LTO PMT
+    for col in (12,):
         rr.cell(row=r, column=col).value = None
 
 # NOTE: Earlier patches placed a "Totals" row at row 151 (with B151="Totals"
@@ -291,13 +405,16 @@ for col in range(1, 129):  # A-DX, full data width
     cell.font = _clear_font
     cell.border = _clear_border
 
-# Column I (Lot Rent) data cells carry font.color.theme=0 in the blank
-# template, which resolves to WHITE in the default Office theme — so any
-# Lot Rent values backend.py writes render as invisible white text on a
-# white cell. Clear the font override on I3:I1002 so the cells inherit
-# the default black text.
+# Column H (Lot Rent in the Parkwood layout) data cells carry
+# font.color.theme=0 in the blank template, which resolves to WHITE in
+# the default Office theme — so any Lot Rent values backend.py writes
+# render as invisible white text on a white cell. Clear the font override
+# on H3:H1002 so the cells inherit the default black text. Also clear
+# the same override on I (POH Home Rents) and J (LTO PMT) for parity.
 for r in range(3, 1003):
-    rr.cell(row=r, column=9).font = _clear_font  # I — Lot Rent
+    rr.cell(row=r, column=8).font = _clear_font  # H — Lot Rent
+    rr.cell(row=r, column=9).font = _clear_font  # I — POH Home Rents
+    rr.cell(row=r, column=10).font = _clear_font # J — LTO PMT
 
 # Row 1 header strip: cells F1:T1 (between the "RENT ROLL" gray label in
 # A1:D1, the "MHC Only" / "Apartments" / "Other Income" / "Commercial Leases"
@@ -316,11 +433,11 @@ for col in range(6, 21):  # F..T
 # The blank template carried six different DV ranges on column B (Unit ID)
 # with stray "Type 1, Type 2, Type 3", "...Type 4", "...Type 6", "...Type 7"
 # patterns — leftovers from when B held Unit Type before the column
-# restructure. Column C ("Unit Type") also inherited an "Occupied, Vacant"
-# list that belongs on column D ("Occupied or Vacant"). Michael flagged
-# the C dropdown in the partner walkthrough ("It's a drop down. I don't
-# know why."). Nuke them all and re-add only the correct two:
-#   D3:D1002  → Occupied / Vacant
+# restructure. Michael flagged the C dropdown in the partner walkthrough
+# ("It's a drop down. I don't know why."). Nuke them all and re-add only
+# the correct two for the Parkwood column layout:
+#   C3:C1002  → TOH / POH / LTO / Flourish (seller Lot Type string)
+#   E3:E1002  → Occupied / Vacant
 #   S3:S1002  → NNN / Gross (Commercial Lease Type)
 # Range stretches to row 1002 to match the full rent-roll capacity (the
 # blank template only validated through row 72, so most pasted rows had
@@ -328,23 +445,31 @@ for col in range(6, 21):  # F..T
 # double quotes; openpyxl needs them escaped as "...".
 from openpyxl.worksheet.datavalidation import DataValidation
 rr.data_validations.dataValidation = []
+_dv_lottype = DataValidation(type="list", formula1='"TOH,POH,LTO,Flourish"', allow_blank=True)
+_dv_lottype.add("C3:C1002")
+rr.add_data_validation(_dv_lottype)
 _dv_status = DataValidation(type="list", formula1='"Occupied,Vacant"', allow_blank=True)
-_dv_status.add("D3:D1002")
+_dv_status.add("E3:E1002")
 rr.add_data_validation(_dv_status)
 _dv_lease = DataValidation(type="list", formula1='"NNN,Gross"', allow_blank=True)
 _dv_lease.add("S3:S1002")
 rr.add_data_validation(_dv_lease)
 
 # ════════════════════════════════════════════════════════════════════════
-# 4. UNIT MIX RENT GROWTH — match CorrectOutput cell-for-cell
+# 4. UNIT MIX RENT GROWTH — 4 unit-type rows w/ per-type growth schedules
 # ════════════════════════════════════════════════════════════════════════
 # The blank template ships with stray content from a prior hand-built
 # workbook: leftover notes at B2/B3, non-flat year-by-year rent growth
-# rates at rows 5-8 (specific to a different deal), orphan vacancy-
-# schedule rows at 23-25 referencing a $D$20 cell that no longer exists,
-# and only 6 of 7 years of forward rent projection populated. Replace
-# the whole block with CorrectOutput's structure so the tab visually
-# matches the gold standard.
+# rates at rows 5-8 (specific to a different deal), Whaleshead HoME
+# Rents block at rows 44-49, operational annotations at F18:H19, and
+# only 2 of 4 unit-type rows populated. Replace the whole block with
+# the 4-type layout matching the rebuilt Unit Mix Summary.
+#
+# Per-type, per-year growth schedule replaces the flat 5%. Defaults
+# (see DEFAULT_RENT_GROWTH at module top) are tuned for typical MHC
+# deals: ~10-11% Y1-Y3 (market reset), tapering to 5% terminal.
+# backend.py reads property_info.rentGrowthSchedule per-deal and
+# rewrites the rate cells if provided.
 
 umrg = wb["Unit Mix Rent Growth"]
 
@@ -352,11 +477,13 @@ umrg = wb["Unit Mix Rent Growth"]
 umrg["B2"] = None
 umrg["B3"] = None
 
-# Clear the entire body (rows 5-28) so no orphan content from the old
-# 6-type template survives. We rewrite from scratch below.
+# Clear the entire body (rows 5-75) so no orphan content from the old
+# 6-type template, the Whaleshead HoME Rents block at rows 44-49, or
+# operational-plan annotations at F18:H19 survive.
 # max_col=15 covers columns A:O — the projection grid extends to O for
-# Year 10. Earlier max_col=12 (A:L) left stale Y8-Y10 cells untouched.
-for row in umrg.iter_rows(min_row=5, max_row=28, max_col=15):
+# Year 10. The wider clear range (vs the earlier max_row=28) is what
+# strips the prior-deal HoME Rents block.
+for row in umrg.iter_rows(min_row=5, max_row=75, max_col=15):
     for cell in row:
         cell.value = None
 
@@ -365,19 +492,27 @@ umrg["A4"] = "Key Assumptions"
 year_cols = ["B", "C", "D", "E", "F", "G", "H", "I", "J", "K"]
 for i, col in enumerate(year_cols, start=1):
     umrg[f"{col}4"] = f"Year {i}"
+# M4 = 10-yr Avg Growth (label written per-row below)
+umrg["M4"] = "10-yr Avg Growth"
 
-# ── Rows 5-6: Per-type growth rates (flat 5% across all years) ──
-# Correct uses 0.05 flat for both MH (row 5) and POH (row 6) across
-# Year 1..Year 10. The label cells point back at Unit Mix Summary
-# so they show "TOH MH Site" / "POH-Infilled units" automatically.
-umrg["A5"] = "=C10"
-umrg["A6"] = "=C11"
-for col in year_cols:
-    umrg[f"{col}5"] = 0.05
-    umrg[f"{col}6"] = 0.05
-
-# ── Row 8: section header for the rent projection block ──
-umrg["E8"] = "Lot Rent"
+# ── Rows 5-8: Per-type per-year growth rates ──
+# Row 5 = TOH, Row 6 = POH, Row 7 = LTO, Row 8 = Flourish. The label
+# cells point back at Unit Mix Summary so they auto-update. Per-year
+# rates come from DEFAULT_RENT_GROWTH defined at module top.
+umrg["A5"] = "='Unit Mix Summary'!B4"   # TOH
+umrg["A6"] = "='Unit Mix Summary'!B5"   # POH
+umrg["A7"] = "='Unit Mix Summary'!B6"   # LTO
+umrg["A8"] = "='Unit Mix Summary'!B7"   # Flourish
+for i, col in enumerate(year_cols):
+    umrg[f"{col}5"] = DEFAULT_RENT_GROWTH["toh"][i]
+    umrg[f"{col}6"] = DEFAULT_RENT_GROWTH["poh"][i]
+    umrg[f"{col}7"] = DEFAULT_RENT_GROWTH["lto"][i]
+    umrg[f"{col}8"] = DEFAULT_RENT_GROWTH["flourish"][i]
+# Per-row 10-yr avg growth at column M (for visibility into the schedule).
+umrg["M5"] = "=AVERAGE(B5:K5)"
+umrg["M6"] = "=AVERAGE(B6:K6)"
+umrg["M7"] = "=AVERAGE(B7:K7)"
+umrg["M8"] = "=AVERAGE(B8:K8)"
 
 # ── Row 9: column headers for the per-year rent grid ──
 umrg["C9"] = "Unit Mix"
@@ -387,72 +522,82 @@ projection_cols = ["F", "G", "H", "I", "J", "K", "L", "M", "N", "O"]
 for i, col in enumerate(projection_cols, start=1):
     umrg[f"{col}9"] = f"Year {i}"
 
-# ── Row 10: TOH MH Site projection (B-weighted to total units) ──
-umrg["B10"] = "=IFERROR(D10/$D$12,0)"
-umrg["C10"] = "='Unit Mix Summary'!B4"
-umrg["D10"] = "='Unit Mix Summary'!E4"
-umrg["E10"] = "=IFERROR('Unit Mix Summary'!H4/'Unit Mix Summary'!E4,0)"
-umrg["F10"] = "=E10*(100%+B$5)"
-umrg["G10"] = "=F10*(100%+C$5)"
-umrg["H10"] = "=G10*(100%+D$5)"
-umrg["I10"] = "=H10*(100%+E$5)"
-umrg["J10"] = "=I10*(100%+F$5)"
-umrg["K10"] = "=J10*(100%+G$5)"
-umrg["L10"] = "=K10*(100%+H$5)"
-umrg["M10"] = "=L10*(100%+I$5)"
-umrg["N10"] = "=M10*(100%+J$5)"
-umrg["O10"] = "=N10*(100%+K$5)"
+# ── Rows 10-13: 4-type projection grid ──
+# Each row pulls its starting unit count, occupied home rent, and avg
+# rent from Unit Mix Summary and walks Y1..Y10 by applying the per-type
+# growth rate from the assumption rows 5-8.
+# Layout:
+#   10 = TOH  (UMS row 4, growth row 5)
+#   11 = POH  (UMS row 5, growth row 6)
+#   12 = LTO  (UMS row 6, growth row 7)
+#   13 = Flourish (UMS row 7, growth row 8)
+UMRG_ROWS = [
+    (10, 4, 5),
+    (11, 5, 6),
+    (12, 6, 7),
+    (13, 7, 8),
+]
+for r, ums_row, growth_row in UMRG_ROWS:
+    umrg[f"B{r}"] = f"=IFERROR(D{r}/$D$14,0)"
+    umrg[f"C{r}"] = f"='Unit Mix Summary'!B{ums_row}"
+    umrg[f"D{r}"] = f"='Unit Mix Summary'!E{ums_row}"
+    umrg[f"E{r}"] = (f"=IFERROR('Unit Mix Summary'!H{ums_row}/"
+                    f"'Unit Mix Summary'!E{ums_row},0)")
+    umrg[f"F{r}"] = f"=E{r}*(100%+B${growth_row})"
+    umrg[f"G{r}"] = f"=F{r}*(100%+C${growth_row})"
+    umrg[f"H{r}"] = f"=G{r}*(100%+D${growth_row})"
+    umrg[f"I{r}"] = f"=H{r}*(100%+E${growth_row})"
+    umrg[f"J{r}"] = f"=I{r}*(100%+F${growth_row})"
+    umrg[f"K{r}"] = f"=J{r}*(100%+G${growth_row})"
+    umrg[f"L{r}"] = f"=K{r}*(100%+H${growth_row})"
+    umrg[f"M{r}"] = f"=L{r}*(100%+I${growth_row})"
+    umrg[f"N{r}"] = f"=M{r}*(100%+J${growth_row})"
+    umrg[f"O{r}"] = f"=N{r}*(100%+K${growth_row})"
 
-# ── Row 11: POH-Infilled projection ──
-umrg["B11"] = "=IFERROR(D11/$D$12,0)"
-umrg["C11"] = "='Unit Mix Summary'!B5"
-umrg["D11"] = "='Unit Mix Summary'!E5"
-umrg["E11"] = "=IFERROR('Unit Mix Summary'!H5/'Unit Mix Summary'!E5,0)"
-umrg["F11"] = "=E11*(100%+B$6)"
-umrg["G11"] = "=F11*(100%+C$6)"
-umrg["H11"] = "=G11*(100%+D$6)"
-umrg["I11"] = "=H11*(100%+E$6)"
-umrg["J11"] = "=I11*(100%+F$6)"
-umrg["K11"] = "=J11*(100%+G$6)"
-umrg["L11"] = "=K11*(100%+H$6)"
-umrg["M11"] = "=L11*(100%+I$6)"
-umrg["N11"] = "=M11*(100%+J$6)"
-umrg["O11"] = "=N11*(100%+K$6)"
-
-# ── Row 12: weighted-average roll-up ──
-umrg["B12"] = "=SUM(B10:B11)"
-umrg["C12"] = "Total Weighted Average"
-umrg["D12"] = "=SUM(D10:D11)"
+# ── Row 14: weighted-average roll-up (now SUMs B10:B13 / D10:D13) ──
+umrg["B14"] = "=SUM(B10:B13)"
+umrg["C14"] = "Total Weighted Average"
+umrg["D14"] = "=SUM(D10:D13)"
 for col in ("E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O"):
-    umrg[f"{col}12"] = f"=SUMPRODUCT($B$10:$B$11,{col}10:{col}11)"
+    umrg[f"{col}14"] = f"=SUMPRODUCT($B$10:$B$13,{col}10:{col}13)"
 
-# ── Row 13: $ change vs prior year ──
-umrg["D13"] = "$change"
-for prev, curr in (("E", "F"), ("F", "G"), ("G", "H"), ("H", "I"),
-                   ("I", "J"), ("J", "K"), ("K", "L"),
-                   ("L", "M"), ("M", "N"), ("N", "O")):
-    umrg[f"{curr}13"] = f"={curr}12-{prev}12"
-
-# ── Row 14: annual GPR per year (weighted-avg × total units × 12) ──
-# Underwriting!G4 reads H14 here as the stabilized (Year 3) GPR.
-# Pro Forma row 8 (Y1-Y10 GPR) reads F14:O14 via section 15a, so this
-# range must span all 10 projection years — earlier E:L stopped at Y7.
-umrg["D14"] = "GPR"
-for col in ("E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O"):
-    umrg[f"{col}14"] = f"={col}12*$D$12*12"
-
-# ── Rows 15-17: vacancy schedule (mirrors CorrectOutput) ──
+# ── Row 15: vacancy schedule. C15 = stabilization step (form input
+# vacant_stabilization_count). G15:O15 project flat at $F$15 so
+# vacancy doesn't drift after stabilization.
 umrg["D15"] = "Vacant Lots"
-umrg["C15"] = 0   # stabilization step (manually adjustable per deal)
+umrg["C15"] = DEFAULTS["vacant_stabilization_count"]
 umrg["E15"] = "='Unit Mix Summary'!D4"
 umrg["F15"] = "=E15-C15"
+for col in ("G", "H", "I", "J", "K", "L", "M", "N", "O"):
+    umrg[f"{col}15"] = "=$F$15"
+
+# ── Row 16: vacant homes (POH side). Same flat-projection rule. ──
 umrg["D16"] = "Vacant Homes"
 umrg["C16"] = 0
 umrg["E16"] = "='Unit Mix Summary'!D5"
 umrg["F16"] = "=E16-$C$16"
+for col in ("G", "H", "I", "J", "K", "L", "M", "N", "O"):
+    umrg[f"{col}16"] = "=$F$16"
+
+# ── Row 17: vacancy % of D14 (total units) ──
 umrg["D17"] = "Vacancy"
 for col in ("E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O"):
-    umrg[f"{col}17"] = f"=SUM({col}15:{col}16)/$D$12"
+    umrg[f"{col}17"] = f"=SUM({col}15:{col}16)/$D$14"
+
+# ── Row 18: $ change vs prior year (moved from row 13) ──
+umrg["D18"] = "$ Change"
+for prev, curr in (("E", "F"), ("F", "G"), ("G", "H"), ("H", "I"),
+                   ("I", "J"), ("J", "K"), ("K", "L"),
+                   ("L", "M"), ("M", "N"), ("N", "O")):
+    umrg[f"{curr}18"] = f"={curr}14-{prev}14"
+
+# ── Row 19: annual GPR per year (weighted-avg × total units × 12) ──
+# Underwriting!G4 reads from a forward year (default Y3 = H19).
+# Pro Forma row 8 (Y1-Y10 GPR) reads F19:O19 via section 15a, so this
+# range must span all 10 projection years.
+umrg["D19"] = "GPR"
+for col in ("E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O"):
+    umrg[f"{col}19"] = f"={col}14*$D$14*12"
 
 # Number-format scrub. The blank template's UMRG grid carried a
 # leftover '0.0%' format on most of its data cells (it was previously
@@ -468,52 +613,55 @@ _gen = 'General'
 # Row 4: "Year N" column headers → text
 for col in year_cols:
     umrg[f"{col}4"].number_format = _gen
-# Rows 5-6: per-type per-year growth rates → percent
-for col in year_cols:
-    umrg[f"{col}5"].number_format = _pct
-    umrg[f"{col}6"].number_format = _pct
+umrg["M4"].number_format = _gen
+# Rows 5-8: per-type per-year growth rates → percent
+for r in (5, 6, 7, 8):
+    for col in year_cols:
+        umrg[f"{col}{r}"].number_format = _pct
+    umrg[f"M{r}"].number_format = _pct
 
 # Row 9: column headers
 for col in ["C", "D", "E"] + projection_cols:
     umrg[f"{col}9"].number_format = _gen
 
-# Rows 10-11: per-type projection grid
-for r in (10, 11):
+# Rows 10-13: per-type projection grid
+for r in (10, 11, 12, 13):
     umrg[f"B{r}"].number_format = _pct          # share of total units
     umrg[f"C{r}"].number_format = _gen          # unit type name
     umrg[f"D{r}"].number_format = _int          # # of units
     for col in ["E"] + projection_cols:         # rent + Y1..Y10
         umrg[f"{col}{r}"].number_format = _cur
 
-# Row 12: weighted-average roll-up
-umrg["B12"].number_format = _pct                # weights sum
-umrg["C12"].number_format = _gen
-umrg["D12"].number_format = _int
-for col in ("E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O"):
-    umrg[f"{col}12"].number_format = _cur
-
-# Row 13: $ change vs prior year → currency
-for col in ("F", "G", "H", "I", "J", "K", "L", "M", "N", "O"):
-    umrg[f"{col}13"].number_format = _cur
-
-# Row 14: annual GPR is already _cur per the assignment above, but
-# re-assert defensively for any years the template left in General.
+# Row 14: weighted-average roll-up
+umrg["B14"].number_format = _pct                # weights sum
+umrg["C14"].number_format = _gen
+umrg["D14"].number_format = _int
 for col in ("E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O"):
     umrg[f"{col}14"].number_format = _cur
 
 # Rows 15-16: vacant lot/home counts → integer
 umrg["C15"].number_format = _int
 umrg["C16"].number_format = _int
-for col in ("E", "F"):
+for col in ("E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O"):
     umrg[f"{col}15"].number_format = _int
     umrg[f"{col}16"].number_format = _int
 # Row 17: vacancy % → percent
 for col in ("E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O"):
     umrg[f"{col}17"].number_format = _pct
 
-# Wire stabilized GPR on Underwriting to Unit Mix Rent Growth H14 (Year
-# 3 GPR), matching CorrectOutput's reference.
-ws["G4"] = "='Unit Mix Rent Growth'!H14"
+# Row 18: $ change vs prior year → currency
+for col in ("F", "G", "H", "I", "J", "K", "L", "M", "N", "O"):
+    umrg[f"{col}18"].number_format = _cur
+
+# Row 19: annual GPR → currency
+for col in ("E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O"):
+    umrg[f"{col}19"].number_format = _cur
+
+# Wire stabilized GPR on Underwriting to Unit Mix Rent Growth H19 (Year
+# 3 GPR), matching CorrectOutput's reference but updated for the row-
+# shift (GPR moved from row 14 to row 19 after we inserted the 4 type
+# rows + LTO/Flourish growth assumption rows).
+ws["G4"] = "='Unit Mix Rent Growth'!H19"
 
 # ════════════════════════════════════════════════════════════════════════
 # 5. LOAN SCENARIO (acquisition) — populate non-zero rates
@@ -526,18 +674,46 @@ ls["C24"] = 0.70    # Max LTV (was 75%)
 # ════════════════════════════════════════════════════════════════════════
 # 6. SOURCES AND USES — both S1 (cols B:E) and S2 (cols H:K) scenarios
 # ════════════════════════════════════════════════════════════════════════
+# CorrectOutput Sources and Uses(PW):
+#   C8 GP equity = 300000 hardcoded (was =C15 → acq-fee co-invest)
+#   C13 Purchase Price = 'GGC Underwriting'!R4 (contract price, not asking)
+#   C14 Closing Costs = =C13*2.25% (was 1.5%)
+#   C16 Broker Fee = =C15 (was =3%*C20 which is broken — C20 is empty)
+#   B12 "Uses of Funds" (was "Uses of Funds of Funds")
+#   B15 "Acquisition Fee" (was "Acquistion")
+#   B16 "Sales Broker Fee" (was "Equity Broker Fee")
 su = wb["Sources and Uses"]
-su["C8"]  = "=C15"                          # GP equity = acq fee co-invest
-su["I8"]  = "=I15"
-su["C13"] = "='GGC Underwriting'!P4"        # Purchase Price (was R4)
-su["I13"] = "='GGC Underwriting'!P4"
-su["C14"] = "=C13*1.5%"                     # Closing costs 1.5% (was 2%)
-su["I14"] = "=I13*1.5%"
+su["C8"]  = DEFAULTS["gp_equity_default"]   # GP equity hardcoded default
+su["I8"]  = DEFAULTS["gp_equity_default"]
+# Purchase Price comes from R4 (contract price) when set, else P4 (asking).
+# backend.py writes contract_price to R4 and asking_price to P9; the
+# GGC Underwriting P4 cell falls back to P9 when contract not set.
+su["C13"] = "='GGC Underwriting'!R4"
+su["I13"] = "='GGC Underwriting'!R4"
+# Closing costs default = 2.25% of purchase price (CorrectOutput
+# Parkwood). backend.py reads closing_cost_pct form input and rewrites
+# this cell with a deal-specific value if provided.
+_cc_pct = DEFAULTS["closing_cost_pct"]
+su["C14"] = f"=C13*{_cc_pct}"
+su["I14"] = f"=I13*{_cc_pct}"
+# Broker fee formula — point at C15 (Acquisition Fee), NOT the empty
+# C20. Parkwood Sales Broker Fee = Acquisition Fee × 1 because both
+# are 2% of price.
+su["C16"] = "=C15"
+su["I16"] = "=I15"
 
-# Capex Budget — link to a real number rather than 0. We use a default
-# capex pad of $1,000/unit; the user can override per deal.
-su["C17"] = "=1000*'GGC Underwriting'!$N$7"
-su["I17"] = "=1000*'GGC Underwriting'!$N$7"
+# Typo + label fixes (CorrectOutput exact strings)
+su["B12"] = "Uses of Funds"
+su["H12"] = "Uses of Funds"
+su["B15"] = "Acquisition Fee (2%)"
+su["H15"] = "Acquisition Fee (2%)"
+su["B16"] = "Sales Broker Fee (2%)"
+su["H16"] = "Sales Broker Fee (2%)"
+
+# Capex Budget — link to the capex breakdown total (built below at C24).
+# backend.py reads capex_line_items form input and rewrites rows 21-26.
+su["C17"] = "=C24"
+su["I17"] = "=I24"
 
 # Replace every $P$7 reference in this sheet with $N$7. The blank uses
 # P7 everywhere as the units denominator, which points at a pricing cell.
@@ -547,15 +723,56 @@ for row in su.iter_rows():
             cell.value = cell.value.replace("$P$7", "$N$7").replace("!P7", "!N7")
 
 # ════════════════════════════════════════════════════════════════════════
-# 7. GGC PRO FORMA — Y1 RE Tax step-up, Home Rent Exp, RV row label
+# 7. GGC PRO FORMA — Y1 RE Tax step-up, Home Rent Exp, LTO row label
 # ════════════════════════════════════════════════════════════════════════
+# CorrectOutput GGC Pro Forma(PW):
+#   C21 = "Lease to Own" (was "Long term RV Site" — Parkwood is MHC, no RV)
+#   H28 = =D28*1.03 (Y1 RE Taxes step-up; CLAUDE.md disagrees but
+#         CorrectOutput is gold standard)
+#   B47 = 0.10 (Home Rent Exp ratio; was 0.15/0.30 elsewhere)
+#   H47 = =$B$47*(H20+H21) (applies to BOTH Home Rent Income AND
+#         Lease-to-Own, not just H20)
 pf = wb["GGC Pro Forma"]
-pf["C21"] = "Long term RV Site"   # was 'Lease to Own'
-pf["H28"] = "=D28"                # Y1 RE Taxes: no 1.03 step-up
-pf["B47"] = 0.15                  # Home Rent Exp ratio: 35% -> 15%
-pf["H47"] = "=$B$47*H20"          # was =$B$47*SUM(H20:H21)
+pf["C21"] = "Lease to Own"
+pf["H28"] = f"=D28*{1.0 + DEFAULTS['y1_re_taxes_growth_pct']}"
+pf["B47"] = DEFAULTS["home_rent_expense_ratio"]
+pf["H47"] = "=$B$47*(H20+H21)"
 
-# $P$7 -> $N$7 everywhere on this sheet
+# Apply the same H47 logic across Y1-Y10 (cols H:Q) so Home Rent Expense
+# scales with both Home Rent Income AND Lease-to-Own every projection
+# year, not just Y1.
+for col in ("H", "I", "J", "K", "L", "M", "N", "O", "P", "Q"):
+    pf[f"{col}47"] = f"=$B$47*({col}20+{col}21)"
+
+# Bifurcated Lot Rent NOI (row 56) and Home Rent NOI (row 57). Replace
+# the legacy heuristic with the clean two-line bifurcation:
+#   H56 = H53 - H57    (Lot Rent NOI = Total NOI - Home Rent NOI)
+#   H57 = (H20+H21) - H47   (Home Rent NOI = HRI+LTO - Home Rent Exp)
+# Applied across Y1-Y10.
+for col in ("H", "I", "J", "K", "L", "M", "N", "O", "P", "Q"):
+    pf[f"{col}56"] = f"={col}53-{col}57"
+    pf[f"{col}57"] = f"=({col}20+{col}21)-{col}47"
+pf["C56"] = "Lot Rent NOI Only"
+pf["C57"] = "Home Rent NOI"   # was "Home Inventory Value" in blank
+
+# Per-pad column G should divide by total units (P7 in the new column
+# layout, or N7 in the legacy layout) not the broken /N7 → None case.
+# Use /100 as a stable per-pad assumption when total units cell is
+# unresolved; backend.py writes the real unit count to GGC Underwriting!P7
+# and can rewrite the G_n formulas with /P7 at runtime.
+_pf_per_pad_rows = [20, 21, 22, 23, 24, 25, 28, 29, 30, 31, 32, 33, 34,
+                    35, 36, 37, 38, 39, 41, 42, 43, 44, 45, 46, 47, 48,
+                    49, 50]
+for r in _pf_per_pad_rows:
+    cell = pf[f"G{r}"]
+    if isinstance(cell.value, str) and "$N$7" in cell.value:
+        cell.value = cell.value.replace("/'GGC Underwriting'!$N$7", "/100")
+
+# X20 Exit Cap — default to the form input value (0.06). backend.py
+# reads exit_cap_rate per-deal and rewrites this cell.
+pf["X20"] = DEFAULTS["exit_cap_rate"]
+
+# $P$7 -> $N$7 everywhere on this sheet (legacy compatibility)
 for row in pf.iter_rows():
     for cell in row:
         if isinstance(cell.value, str) and "GGC Underwriting" in cell.value:
@@ -596,10 +813,12 @@ for junk in ["Waterfall ", "Waterfall 2", "Waterfall 3"]:
 ws["J33"] = "=IF(N7>=200,0.04,0.05)"
 
 # 11b. Seed Purchase Price (P4) so Sources & Uses, Loan Scenario, and Pro
-# Forma Y0 don't collapse to zero. Default to the seller's asking price
-# (Q9 on this tab is empty; backend.py writes asking price there at run
-# time). Use IFERROR so the user can override.
-ws["P4"] = "=IFERROR(P9,0)"
+# Forma Y0 don't collapse to zero. CorrectOutput Parkwood layout uses
+# R4 for contract price ($5,805,000) and P9 for seller's asking
+# ($6,000,000); P4 falls back to R4 (contract) → P9 (asking) → 0.
+# backend.py writes contract_price to R4 when the deal has a negotiated
+# price below ask.
+ws["P4"] = "=IFERROR(IF(ISNUMBER(R4),R4,IF(ISNUMBER(P9),P9,0)),0)"
 
 # 11c. GGC Pro Forma (Conversion) tab still has 35 stale $P$7 refs in
 # col G (per-unit denominators). Sweep all $P$7 -> $N$7 there too.
@@ -665,35 +884,72 @@ for coord in ("F28", "F29"):
     if isinstance(v, str) and "Waterfall 2" in v:
         ir[coord] = v.replace("'Waterfall 2'", "'Waterfall (10-yr-S1)'")
 
-# 12e. Loan Scenario C27 (DSCR denominator) pointed at 'GGC Underwriting'!H47
-# which is the Lot Rent ONLY NOI. For debt sizing the correct basis is
-# the Total NOI (I47). Repoint.
+# 12e. Loan Scenario C27 (DSCR denominator) — CorrectOutput Parkwood
+# sizes debt off J47 (Lot Rent Only NOI in the new I/J/K column layout)
+# with label "Lot Rent only NOI". GGC's underwriting practice is to size
+# debt against lot-rent NOI only (the durable land-business cash flow),
+# not the total NOI which includes the home-rent stream that operators
+# typically can't lever against. Repoint and re-label.
 if "Loan Scenario (acquisition)" in wb.sheetnames:
-    lscell = wb["Loan Scenario (acquisition)"]["C27"]
-    if isinstance(lscell.value, str) and "H47" in lscell.value:
-        lscell.value = lscell.value.replace("H47", "I47")
+    lscell_ws = wb["Loan Scenario (acquisition)"]
+    lscell = lscell_ws["C27"]
+    if isinstance(lscell.value, str) and ("H47" in lscell.value or "I47" in lscell.value):
+        lscell.value = lscell.value.replace("H47", "J47").replace("I47", "J47")
+    else:
+        lscell.value = "='GGC Underwriting'!J47"
+    lscell_ws["A27"] = "Lot Rent only NOI"
+    # Typo fix per OUTLINE.md (already covered in section 15i LABEL_FIXES
+    # but reassert here in case the earlier swap didn't land).
+    lscell_ws["B17"] = "Mortgage Constant"
+    lscell_ws["L7"] = "Principal"
+    # P8 off-by-one — was SUM(H42:H53), should be SUM(H43:H54).
+    lscell_ws["P8"] = "=SUM(H43:H54)"
 
-# 12f. Sources & Uses C17 (Capex Budget) was 1000*N7 — a placeholder.
-# Wire it instead to a real capex breakdown at C21-C24:
-#   C21 = utility / septic / water infrastructure
-#   C22 = home in-fills
-#   C23 = working capital
-#   C24 = SUM, fed into C17.
-su["B21"] = "Water / Septic / Utilities"
-su["C21"] = 0
-su["B22"] = "Add Homes / In-fill"
+# 12f. Sources & Uses capex breakdown — match CorrectOutput Parkwood
+# row layout (rows 22-26 = 5 line items, row 27 = SUM, row 17 = C27).
+# backend.py reads capex_line_items form input (JSON list of
+# {label, amount}) and rewrites these rows per deal.
+#   B22/C22 = Water/Septic/Utilities (placeholder per deal)
+#   B23/C23 = Tree Trim / site grading
+#   B24/C24 = Add new homes (D24 × E24 — count × $/home)
+#   B25/C25 = Road Repair / infrastructure
+#   B26/C26 = Working Capex
+#   B27/C27 = SUM
+#   C17 references C27 (set above in section 6).
+su["B21"] = "Capex Budget"
+su["B22"] = "Private w/s capex - misc"
 su["C22"] = 0
-su["B23"] = "Working Capital"
-su["C23"] = 200000
-su["B24"] = "Capex Budget Total"
-su["C24"] = "=SUM(C21:C23)"
-su["C17"] = "=C24"
-# Same for the S2 scenario (cols H:K).
-su["I21"] = 0
+su["B23"] = "Tree Trim"
+su["C23"] = 0
+su["B24"] = "Add new homes"
+su["C24"] = "=D24*E24"
+su["D24"] = 0
+su["E24"] = 25000
+su["B25"] = "Road Repair"
+su["C25"] = 0
+su["B26"] = "Working Capex"
+su["C26"] = 0
+su["B27"] = "Estimated Capex Budget"
+su["C27"] = "=SUM(C22:C26)"
+# C17 set above to =C24 — but capex total is now at C27. Repoint.
+su["C17"] = "=C27"
+# Same for S2 scenario (cols H:K, with capex breakdown at H22:I27).
+su["H21"] = "Capex Budget"
+su["H22"] = "Private w/s capex - misc"
 su["I22"] = 0
-su["I23"] = 200000
-su["I24"] = "=SUM(I21:I23)"
-su["I17"] = "=I24"
+su["H23"] = "Tree Trim"
+su["I23"] = 0
+su["H24"] = "Add new homes"
+su["I24"] = "=J24*K24"
+su["J24"] = 0
+su["K24"] = 25000
+su["H25"] = "Road Repair"
+su["I25"] = 0
+su["H26"] = "Working Capex"
+su["I26"] = 0
+su["H27"] = "Estimated Capex Budget"
+su["I27"] = "=SUM(I22:I26)"
+su["I17"] = "=I27"
 
 # 12g — Unit Mix Rent Growth rebuild from round 4 is obsolete; the
 # canonical rebuild in section 4 above already produces this layout
@@ -715,6 +971,126 @@ ws["G33"] = "=J33*G19"              # mgmt fee for ALT NOI column
 ws["H33"] = "=J33*H19"              # mgmt fee for lot-rent-only NOI
 ws["I35"] = "=J35*N7"               # match correct (no $ anchor on N7)
 
+# ── Column layout shift: I = Stabilized NOI, J = Lot-Rent-Only NOI,
+# K = UW NOI, L = per-unit display ────────────────────────────────────
+# Matches CorrectOutput Parkwood: I2='Stabilized NOI', J2='Lot Rent
+# Only NOI', K2='UW NOI'. Per-row formulas mirror CorrectOutput's
+# pattern: I_n = K_n (Stabilized mirrors UW unless analyst overrides),
+# J_n = K_n (Lot-Rent-Only excludes home-rent rows below), K_n = the
+# T12 SUMIFS or per-unit/per-rate formula. L_n holds the per-unit
+# value (=K_n/$P$7 or =K_n/$N$7 in the legacy layout). UW row K2-K47
+# is where the underwritten numbers actually live.
+ws["I2"] = "Stabilized NOI"
+ws["J2"] = "Lot Rent Only NOI"
+ws["K2"] = "UW NOI"
+ws["L2"] = "Per Unit"
+
+# K-column income block. Mirrors CorrectOutput Parkwood K4:K17.
+ws["K4"] = "='Unit Mix Summary'!C13"        # UW GPR = Annual GPR Lot Rent Only
+ws["K5"] = "=-L5*K4"                         # Vacancy = -(1-occ) × GPR
+ws["K6"] = 0                                  # Concessions
+# K7 Bad Debt — applies bad_debt_uw_pct (default 2%) × K4 (UW GPR).
+# Negative sign (matches CorrectOutput L7 = 0.02 with K7 = -L7*K4).
+ws["K7"] = "=-L7*K4"
+ws["L7"] = DEFAULTS["bad_debt_uw_pct"]
+ws["K12"] = "=D12"                           # Utility Reimbursement = T12
+# K13 Home Rent Income — sum rent roll col I (POH Home Rents) × 12 × 95%
+ws["K13"] = "=SUM('Rent Roll Input'!I3:I1002)*12*95%"
+# K14 LTO — sum rent roll col J (LTO PMT) × 12 × 95%. This is the
+# stream that was silently zero on Parkwood before the lcPayment fix.
+ws["K14"] = "=SUM('Rent Roll Input'!J3:J1002)*12*95%"
+ws["K15"] = "=G15"                           # Storage Income (mirror T12)
+ws["K16"] = "=G16"                           # Laundry Income (mirror T12)
+ws["K17"] = "=D17"                           # Other Income (T12)
+# I column (Stabilized) mirrors K column for the income rows that
+# stabilize unchanged (cap on Vacancy and Bad Debt is set in stab col).
+for r in (4, 12, 13, 14, 15, 16, 17):
+    ws[f"I{r}"] = f"=K{r}"
+# J column (Lot-Rent-Only) zeroes out home-rent and LTO streams.
+ws["J4"]  = "=K4"
+ws["J5"]  = "=-L5*J4"
+ws["J6"]  = "=-L6*J5"
+ws["J7"]  = "=-L7*J6"
+ws["J12"] = "=K12*80%"   # 80% utility reimbursement attributable to lot side
+ws["J13"] = "=K13"        # home rent on the BIFURCATED side (will sub out in N15)
+ws["J14"] = "=K14"
+ws["J15"] = "=K15"
+ws["J16"] = "=K16"
+ws["J17"] = "=K17"
+# L column = per-unit display
+for r in (4, 12, 13, 14, 15, 16, 17, 19, 22, 23, 25, 26, 27, 28, 29,
+          30, 31, 32, 33, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 47):
+    ws[f"L{r}"] = f"=K{r}/$P$7"
+
+# K-column expense block defaults from form inputs (per-site flat
+# overrides). backend.py reads per_site_overrides and rewrites L_n
+# with deal-specific values.
+ws["K22"] = "=P22"                           # RE Taxes from SEV*levy P22
+ws["K23"] = "=L23*$P$7"                       # Insurance per-site
+ws["L23"] = DEFAULTS["insurance_per_site_nonflood"]
+ws["K25"] = "=D25*1.03"                       # Gas/Fuel grow-on-T12
+ws["K26"] = "=D26*1.03"                       # Electricity grow-on-T12
+ws["K27"] = "=D27*1.03"                       # Water/Sewer grow-on-T12
+ws["K28"] = "=D28*1.03"                       # Trash grow-on-T12
+ws["K29"] = "=SUM(K25:K28)"
+ws["K30"] = "=L30*$P$7"                       # R&M per-site
+ws["L30"] = 150
+ws["K31"] = "=L31*$P$7"                       # Ground Maintenance per-site
+ws["L31"] = DEFAULTS["ground_maintenance_per_site"]
+ws["K32"] = "=C32*1.05"                       # Recreational Amenities
+ws["K33"] = "=L33*K19"                        # Management Fee = % × EGI
+ws["L33"] = 0.05
+ws["K35"] = "=L35*$P$7"                       # Payroll per-site
+ws["L35"] = DEFAULTS["payroll_per_site"]
+ws["K36"] = "=C36*1.05"                       # Employee Allowance
+ws["K37"] = "=L37*$P$7"                       # G&A per-site
+ws["L37"] = DEFAULTS["ga_per_site"]
+ws["K38"] = "=C38*1.05"                       # Model Units
+ws["K39"] = "=L39*$P$7"                       # Professional Fees per-site
+ws["L39"] = DEFAULTS["professional_fees_per_site"]
+ws["K40"] = "=L40*$P$7"                       # Advertising per-site
+ws["L40"] = DEFAULTS["advertising_per_site"]
+# K41 Home Rent Expense = home_rent_expense_ratio × (K13 + K14) so the
+# expense scales with both POH home rent AND LTO. Defaults to 10%.
+_hre = DEFAULTS["home_rent_expense_ratio"]
+ws["K41"] = f"={_hre}*(K13+K14)"
+ws["K42"] = "=C42*1.05"                       # Other
+ws["K43"] = "=L43*$P$7"                       # Cap-Ex Reserve per-unit
+ws["L43"] = DEFAULTS["capex_per_unit"]
+
+# UW totals (K19 EGI, K44 OpEx, K47 NOI). Mirror the existing I-column
+# rollup formulas but key off K.
+ws["K19"] = "=K9+K12+K13+K14+K15+K16+K17"
+ws["K9"]  = "=SUM(K4:K7)"
+ws["K44"] = "=K22+K23+K29+K30+K31+K32+K33+K35+K36+K37+K38+K39+K40+K41+K42+K43"
+ws["K47"] = "=K19-K44"
+
+# L (per-unit) for EGI / OpEx / NOI rows
+ws["L19"] = "=K19/$P$7"
+ws["L44"] = "=K44/$P$7"
+ws["L47"] = "=K47/$P$7"
+# % of GPR column at L for income lines (CorrectOutput uses L3='% of GPR')
+ws["L3"]  = "% of GPR"
+ws["L5"]  = "=100%-P8"                        # vacancy% mirrors occupancy
+ws["L6"]  = "=K6/K4"
+
+# ── Tax Analysis Section: SEV × levy method ───────────────────────────
+# When backend writes sev_assessed_value to P27 and levy_rate via the
+# parcel table, P20 = 80% × SEV, P21 = parcel-weighted levy %, and
+# P22 = P20 × P21. K22 (UW RE Taxes) reads from P22 above.
+# When the SEV/levy inputs are blank, P22 falls through to 0 and the
+# analyst can override K22 directly with the per-site tax_per_site
+# fallback (=J22*N7). I22 keeps the legacy per-site formula for the
+# existing G/H/I "ALT NOI" column.
+ws["P20"] = "=IFERROR(P4*75%*O34,0)"          # 75% of price × MV/AV ratio
+ws["P21"] = "=IFERROR(Q33,0)"                  # parcel-weighted levy
+ws["P22"] = "=P20*P21"
+
+# ── Bifurcated valuation block cap rates (form-input driven) ──────────
+# O14 = lot cap rate (default 5.0%); O15 = home cap rate (default 20%).
+# backend.py reads lot_cap_rate / home_cap_rate per-deal and rewrites.
+# These OVERRIDE the legacy 5.5%/12% set later in this section.
+
 # Restore the O/P pricing block labels EXACTLY as CorrectOutput has them.
 # O4/P4 = Purchase/Offer Price (P4 is a numeric input written by backend).
 # O5/P5 = $/site (P5 = P4/N7).  O6/P6 = Underwritten Cap (NOI/PP).
@@ -735,9 +1111,12 @@ ws["P6"] = "=I47/P4"                # underwritten cap rate = NOI / PP
 ws["P7"] = "=G47/'Sources and Uses'!C18"  # stabilized YOC
 ws["P10"] = "=P9/N7"                # asking $ per site
 
-# G4 (Stabilized GPR) — correct points at Unit Mix Rent Growth!H14, which
-# is annual GPR for Year 3 in the canonical layout we rebuild next.
-ws["G4"] = "='Unit Mix Rent Growth'!H14"
+# G4 (Stabilized GPR) — points at Unit Mix Rent Growth!H19, the Year 3
+# annual GPR row in the rebuilt 4-type / 10-yr-projection layout.
+# Was H14 in the prior 2-row layout — after the UMRG rebuild in section
+# 4, GPR moved from row 14 to row 19 to accommodate the 4 type rows
+# + 4 growth-assumption rows + vacancy block + $-change row.
+ws["G4"] = "='Unit Mix Rent Growth'!H19"
 
 # I4 (Stabilized total units anchor) — Unit Mix Summary!C11 in correct's
 # layout = total MH lot count.
@@ -810,9 +1189,13 @@ def _swap_criterion(cell, new_criterion):
         import re as _re
         cell.value = _re.sub(r'"[^"]+"\)$', f'"{new_criterion}")', cell.value)
 
-# Row 14: all five history columns search "RV Site Rental Income"
+# Row 14: all five history columns search "LTO" (the canonical category
+# string backend.py emits for land-contract / lease-to-own payments).
+# Whaleshead-style RV deals get "RV Site Rental Income" via backend
+# rewrite of A14 + the SUMIFS criteria when property_info.propertyType
+# is RV; default here matches MHC (Parkwood) layout.
 for col in ("B", "C", "D", "E", "F"):
-    _swap_criterion(ws[f"{col}14"], "RV Site Rental Income")
+    _swap_criterion(ws[f"{col}14"], "LTO")
 
 # Row 15: all five search "Parking Income" (correct's chosen label for
 # the 4108 Storage Unit Rent GL — even though the row is labeled
@@ -879,27 +1262,27 @@ ws["P13"] = "VALUE"
 ws["Q13"] = "VALUE/UNIT"
 ws["R13"] = "UNIT"
 
-# Row 14: Lot Rent valuation. N14 = I47 (per CorrectOutput — uses Total
-# NOI as the Lot-Rent-only basis for valuation; H47 is the strict lot-
-# rent-only NOI which would be used in a different methodology). Caps at
-# 5.5%. Per-site VALUE/UNIT divides P14 by the MH-site unit count
-# (E9 = TOH MH Site + POH-Infilled in Unit Mix Summary).
+# Row 14: Lot Rent valuation. N14 = J47 (Lot-Rent-Only NOI in the new
+# I/J/K column layout — the canonical lot-rent valuation basis).
+# Caps at lot_cap_rate form input (default 5.0%). Per-site VALUE/UNIT
+# divides P14 by the MH-site unit count (UMS E8 = total sites after
+# the 4-row TOH/POH/LTO/Flourish rebuild — was E9 = TOH+POH only).
 ws["M14"] = "Lot Rent only NOI"
-ws["N14"] = "=I47"
-ws["O14"] = 0.055
+ws["N14"] = "=J47"
+ws["O14"] = DEFAULTS["lot_cap_rate"]
 ws["P14"] = "=N14/O14"
 ws["Q14"] = "=P14/R14"
-ws["R14"] = "='Unit Mix Summary'!E9"
+ws["R14"] = "='Unit Mix Summary'!E8"
 
-# Row 15: Home Rent valuation. N15 = I47-H47 = Home Rent NOI. Caps at
-# 12% (higher cap = lower multiple for home-rent business, per §5.2's
-# "GGC values land, not homes"). Unit count = POH + Retail/Commercial.
+# Row 15: Home Rent valuation. N15 = K47-J47 = Home Rent NOI (in the
+# new K/J column layout). Caps at home_cap_rate form input (default
+# 20%). Unit count = LTO + Flourish (Type 3 + Type 4 rows in UMS).
 ws["M15"] = "Home Rent only NOI"
-ws["N15"] = "=I47-H47"
-ws["O15"] = 0.12
+ws["N15"] = "=K47-J47"
+ws["O15"] = DEFAULTS["home_cap_rate"]
 ws["P15"] = "=N15/O15"
 ws["Q15"] = "=P15/R15"
-ws["R15"] = "='Unit Mix Summary'!E5+'Unit Mix Summary'!E7"
+ws["R15"] = "='Unit Mix Summary'!E6+'Unit Mix Summary'!E7"
 
 # Row 16: blended total.
 ws["M16"] = "Total"
@@ -941,15 +1324,15 @@ wb.calculation.calcOnSave = True
 # finished GGC template, not a hand-built artifact mid-iteration.
 
 # ── 15a. Pro Forma row 8 (Y1-Y10 GPR) chain break ─────────────────────
-# H8:Q8 read from 'Unit Mix Rent Growth'!F22:O22 — but my round-4
-# rebuild moved the annual-GPR-per-year forecasts to row 14 (F14:O14).
-# Row 22 is empty. Result: every year of GPR computes to 0, killing the
-# whole Pro Forma → Waterfall → IRR chain. Repoint to row 14.
+# H8:Q8 read from Unit Mix Rent Growth annual GPR row. After the 4-type
+# rebuild in section 4, GPR moved from row 14 to row 19 (the row shift
+# accommodates 4 unit-type rows + 4 growth-assumption rows + vacancy
+# block + $-change row above it). Point Pro Forma at row 19.
 pf = wb["GGC Pro Forma"]
 _pf_year_cols = ["H", "I", "J", "K", "L", "M", "N", "O", "P", "Q"]
 _umrg_year_cols = ["F", "G", "H", "I", "J", "K", "L", "M", "N", "O"]  # Y1..Y10
 for pf_col, umrg_col in zip(_pf_year_cols, _umrg_year_cols):
-    pf[f"{pf_col}8"] = f"='Unit Mix Rent Growth'!{umrg_col}14"
+    pf[f"{pf_col}8"] = f"='Unit Mix Rent Growth'!{umrg_col}19"
 
 # ── 15b. Pro Forma rows 68-74: blank the 7-yr cash-flow placeholder ──
 # H68:N68 had HARDCODED debt-service numbers from a prior deal
@@ -1001,10 +1384,14 @@ ls = wb["Loan Scenario (acquisition)"]
 ls["D89"] = None    # was "being evicted"
 ls["J89"] = None    # was "Highlighted have baloon payment at the end of date"
 
-# ── 15h. Unit Mix Summary — clear orphan "Annual LTO Premium" + the
-# empty stretch rows 17-22 that look half-deleted.
+# ── 15h. Unit Mix Summary — clear orphan rows BELOW the derived-metrics
+# block. After the 4-type rebuild, derived metrics occupy rows 13-20
+# (Annual GPR, Avg Lot Rent, Occupancy%, POH%, Annual HRI POH, Annual
+# LTO HRI, Avg Home Rent LTO, Avg Home Rent POH). Clear rows 21+ to
+# strip the "Annual LTO Premium" orphan label that bled in from a prior
+# deal. Was clearing 17-23 which wiped my derived metrics.
 ums = wb["Unit Mix Summary"]
-for r in range(17, 24):
+for r in range(21, 24):
     for coord in (f"B{r}", f"C{r}", f"D{r}", f"E{r}", f"F{r}", f"G{r}", f"H{r}"):
         ums[coord] = None
 
@@ -1023,9 +1410,11 @@ LABEL_FIXES = [
     ("Sources and Uses",          "H15", "Acquisition Fee (2%)"),
     ("Loan Scenario (acquisition)","B17","Mortgage Constant"),             # "Costant"
     ("Loan Scenario (acquisition)","F79","10yrs"),                         # "10yyrs"
-    # Label inconsistencies — standardize
-    ("Unit Mix Summary",          "B12", "Avg MH Lot Rent"),               # was "Avg Rent"
-    ("Unit Mix Summary",          "B24", "Avg MH Lot Rent"),
+    # Label inconsistencies — standardize. UMS B12/B24 entries removed:
+    # after the 4-type rebuild, B12 = "Total POH (Home Rents)" (the SUM
+    # row for the home-rent block), B14 = "Avg Lot Rent" (the
+    # SUMPRODUCT-weighted average). "Avg MH Lot Rent" no longer belongs
+    # on B12 / B24 — those rows hold different metrics.
     ("GGC Pro Forma",             "C47", "Home Rent Expense (MH)"),
     ("GGC Pro Forma (Conversion)","C47", "Home Rent Expense (MH)"),
     # Sale Proceeds label standardization
@@ -1184,27 +1573,29 @@ for coord in ("O19", "O20", "O21", "O22",
     cell.font = _clear_font
     cell.border = _clear_border
 
-# 16d. Stabilized Vacancy — make the 5% explicit as "economic vacancy".
-# Methodology Step 2 says PHYSICAL vacancy ties to rent roll (we use
-# that in column D). The 5% on G5 is the STABILIZED economic vacancy
-# benchmark. Add a comment cell at K5 to make this clear.
-# G5 stays at =-5%*G4 but we document the source.
-uw["K5"] = "Stabilized economic vacancy (5% industry benchmark)"
+# 16d. Stabilized Vacancy — see G5 = -5%*G4 in section 1; K5 is now the
+# UW Vacancy formula (set in the column-layout-shift block above).
+# Documentation for the 5% benchmark lives on a comment cell elsewhere
+# rather than colliding with the K5 numeric formula.
 
-# 16e. Bad Debt — document the 3% rate as a fallback when goal-seek
-# isn't tractable. K7 holds the explainer; J7 stays at 0.03.
-uw["K7"] = "T12 actual; 3% fallback when no trend signal"
+# 16e. Bad Debt — K7 is now the UW Bad Debt formula (=-L7*K4 with
+# L7 = bad_debt_uw_pct, default 2%). Documentation comment removed
+# to avoid colliding with the numeric cell.
 
-# 16f. Bifurcated cap rates — match CorrectOutput exactly (5.5% lot,
-# 12% home; the more aggressive ends, which CorrectOutput uses for the
-# Whaleshead model). Q14/Q15 are the per-unit VALUE/UNIT formulas, NOT
-# the methodology-range text comments. Override any earlier writes.
-uw["O14"] = 0.055
-uw["O15"] = 0.12
+# 16f. Bifurcated cap rates — DEFER to DEFAULTS["lot_cap_rate"] /
+# DEFAULTS["home_cap_rate"] set at module top (defaults 5.0% / 20%
+# per CorrectOutput Parkwood). The 5.5% / 12% Whaleshead-era values
+# were over-aggressive on the lot side AND too generous on the home
+# side relative to CorrectOutput Parkwood's 5.02% / 20% analyst values.
+# backend.py reads lot_cap_rate / home_cap_rate form inputs per-deal
+# and rewrites O14 / O15 with the deal-specific values.
 uw["Q14"] = "=P14/R14"
 uw["Q15"] = "=P15/R15"
-uw["R14"] = "='Unit Mix Summary'!E9"
-uw["R15"] = "='Unit Mix Summary'!E5+'Unit Mix Summary'!E7"
+# R14 / R15 use the new UMS layout (E8 = total sites; E6+E7 = LTO + Flourish)
+# matching the bifurcated valuation block updates above. Reasserting here
+# in case the section-13 write didn't land for some reason.
+uw["R14"] = "='Unit Mix Summary'!E8"
+uw["R15"] = "='Unit Mix Summary'!E6+'Unit Mix Summary'!E7"
 
 # 16g. Loan rates — datestamp them so they don't go stale silently.
 # Loan Scenario C14=4.05%, C15=185bps already in section 5. Add a note.
@@ -1212,11 +1603,13 @@ ls = wb["Loan Scenario (acquisition)"]
 ls["D14"] = "as of 2026-06"
 ls["D15"] = "GGC standard spread"
 
-# 16h. Pro Forma B47 (Home Rent Expense ratio) was 0.15. Methodology
-# says 25-50% for POH operating expense. Move to 0.30 (midpoint of
-# typical 25-35%) and add a sensitivity comment.
-pf["B47"] = 0.30
-pf["C47"] = "Home Rent Expense (MH) — 30% of HRI (methodology: 25-50%)"
+# 16h. Pro Forma B47 (Home Rent Expense ratio) — pinned to
+# DEFAULTS["home_rent_expense_ratio"] (default 0.10 per CorrectOutput
+# Parkwood). The earlier 0.30 was the methodology-range midpoint (25-50%)
+# but CorrectOutput is the gold standard and uses 10%. backend.py
+# reads home_rent_expense_ratio form input and rewrites per-deal.
+pf["B47"] = DEFAULTS["home_rent_expense_ratio"]
+pf["C47"] = "Home Rent Expense (MH)"
 
 # 16i. Sources & Uses — surface the capex breakdown so reviewers see
 # they need to populate it (not just leave at $200k working cap).
@@ -1311,19 +1704,32 @@ rr["M2"] = None
 for r in range(3, 1003):
     rr[f"M{r}"] = None
 
-# ── 18b. Investor Return — fix wrong row references ───────────────────
+# ── 18b. Investor Return — fix wrong row references, parameterize CoC ──
 # Row 8 was =AVERAGE('Waterfall (10-yr-S1)'!G31:O31) — but row 31 is
 # the LP EQUITY MULTIPLE row, not cash-on-cash. Same bug in rows 27/29
 # of the duplicate block (which we also clean up below).
+# CoC averaging range is now parameterized by hold_period_years form
+# input (default 10). For 10-yr hold the range is G30:O30 (Y1-Y9);
+# for 7-yr hold it becomes G30:L30 (Y1-Y6); etc. backend.py reads
+# hold_period_years and rewrites these formulas per-deal.
 ir = wb["Investor Return"]
 # True CoC = average annual net LP cash flow / total LP equity invested.
-# Waterfall row 30 (G30:O30) holds per-year net LP cash flow.
+# Waterfall row 30 (G30:...30) holds per-year net LP cash flow.
 # Waterfall F28 (sign-flipped) holds total LP equity contributed.
 # Use ABS so the divide stays positive regardless of contribution sign.
-ir["F8"] = ("=IFERROR(AVERAGE('Waterfall (10-yr-S1)'!G30:O30)"
-            "/ABS('Waterfall (10-yr-S1)'!F28),0)")
+_hold = DEFAULTS["hold_period_years"]
+# Column letter for the last CoC year (Y_n-1 since G=Y1).
+_coc_end_col = chr(ord("G") + _hold - 2)
+ir["F8"] = (f"=IFERROR(AVERAGE('Waterfall (10-yr-S1)'!G30:{_coc_end_col}30)"
+            f"/ABS('Waterfall (10-yr-S1)'!F28),0)")
 ir["F21"] = ("=IFERROR(AVERAGE('Waterfall (5-yr-S1)'!G30:J30)"
               "/ABS('Waterfall (5-yr-S1)'!F28),0)")
+
+# Send LOI widget strip — when compact_layout is set the analyst-grade
+# variant hides M4/N4/M5; OUTLINE.md notes CorrectOutput Parkwood
+# stripped it. Default to keep the widget but allow backend to clear.
+# (Compact toggle wired via backend per-deal.) Default ir["N4"] already
+# set to "No" in section 9; M4/M5 are descriptive labels we keep.
 
 # Rows 25-32 were a DUPLICATE 10-year summary block (note the double-
 # space in "10  Year Return Summary" at C25 vs single space at C4).
@@ -1472,27 +1878,34 @@ uw["Q3"].font = _label_bold
 uw["Q3"].alignment = _align_left
 uw["R3"] = None   # backend writes the property listing URL here
 
-# ── 19f. Three-column subject block M4:R10 ────────────────────────────
-# Column M = property attribute label, N = value
-# Column O = pricing label, P = pricing value/formula
-# Column Q = utility/build attribute label, R = value
-_label("M4",  "Property Name")
-_label("M5",  "Property Address")
-_label("M6",  "Property Type")
-_label("M7",  "# of Units ")        # trailing space matches CorrectOutput
-_label("M8",  "Rent Roll Occupancy")
-_label("M9",  "Acreage")
-_label("M10", "County")
+# ── 19f. Three-column subject block O4:R10 ────────────────────────────
+# CorrectOutput Parkwood layout (the OUTLINE-mandated shift from N to P):
+#   O = property attribute label, P = property value (was M-N)
+#   Q = pricing label,            R = pricing value/formula (was O-P)
+# Examples from parkwoodCorrect:
+#   O4="Property Name", P4="Parkwood Green Village"
+#   O7="# of Units ",   P7=100
+#   Q4="Purchase/Offer Price", R4=5805000 (CONTRACT price form input)
+#   Q9="Asking Price by Seller", R9=6000000
+# The legacy M-N labels are kept blank to preserve cell widths but
+# emit the actual data on P / R.
+_label("O4",  "Property Name")
+_label("O5",  "Property Address")
+_label("O6",  "Property Type")
+_label("O7",  "# of Units ")        # trailing space matches CorrectOutput
+_label("O8",  "Rent Roll Occupancy")
+_label("O9",  "Acreage")
+_label("O10", "County")
 
-# N column values (some are formulas already wired; ensure borders).
+# P column property values (some formulas already wired; ensure borders).
 for coord, formula, fmt in (
-    ("N4", None,                         "General"),
-    ("N5", None,                         "General"),
-    ("N6", None,                         "General"),
-    ("N7", "='Unit Mix Summary'!E8",     "0"),
-    ("N8", "='Unit Mix Summary'!C13",    "0.00%"),
-    ("N9", None,                         "General"),
-    ("N10", None,                        "General"),
+    ("P4", None,                          "General"),
+    ("P5", None,                          "General"),
+    ("P6", None,                          "General"),
+    ("P7", "='Unit Mix Summary'!E8",      "0"),
+    ("P8", "='Unit Mix Summary'!C15",     "0.00%"),
+    ("P9", None,                          "General"),
+    ("P10", None,                         "General"),
 ):
     c = uw[coord]
     if formula is not None:
@@ -1502,23 +1915,23 @@ for coord, formula, fmt in (
     c.number_format = fmt
     c.alignment = _align_left
 
-# Pricing column (O-P)
-_label("O4",  "Purchase/Offer Price")
-_label("O5",  "Purchase Price Per Site")
-_label("O6",  "Underwritten CAP rate")
-_label("O7",  "Stabilized YOC")
-# O8 stays blank (sits next to Rent Roll Occupancy on N8)
-_label("O9",  "Asking Price by Seller")
-_label("O10", "Asking Price Per Site ")  # trailing space matches CorrectOutput
+# Pricing column (Q-R). Contract price at R4, Asking at R9.
+_label("Q4",  "Purchase/Offer Price")
+_label("Q5",  "Purchase Price Per Site")
+_label("Q6",  "Underwritten CAP rate")
+_label("Q7",  "Stabilized YOC(Y5)")
+_label("Q9",  "Asking Price by Seller")
+_label("Q10", "Asking Price Per Site ")  # trailing space matches CorrectOutput
 
-# P column pricing values (formulas set elsewhere; ensure formatting).
+# R column pricing values. R4 = contract_price form input (backend writes
+# numeric value at runtime; default formula falls back to R9 → 0).
 for coord, formula, fmt in (
-    ("P4",  "=IFERROR(IF(ISNUMBER(P9),P9,0),0)",      '"$"#,##0'),
-    ("P5",  "=P4/N7",                                  '"$"#,##0'),
-    ("P6",  "=I47/P4",                                 "0.00%"),
-    ("P7",  "=G47/'Sources and Uses'!C18",             "0.00%"),
-    ("P9",  None,                                       '"$"#,##0'),
-    ("P10", "=P9/N7",                                  '"$"#,##0'),
+    ("R4", "=IFERROR(IF(ISNUMBER(R9),R9,0),0)",      '"$"#,##0'),  # contract
+    ("R5", "=R4/P7",                                  '"$"#,##0'),  # $/site
+    ("R6", "=K47/R4",                                 "0.00%"),     # UW cap
+    ("R7", "='GGC Pro Forma'!L53/'Sources and Uses'!C18", "0.00%"),  # Stab YOC
+    ("R9", None,                                       '"$"#,##0'),  # asking
+    ("R10", "=R9/P7",                                 '"$"#,##0'),  # asking $/site
 ):
     c = uw[coord]
     if formula is not None and c.value in (None, 0):
@@ -1530,21 +1943,23 @@ for coord, formula, fmt in (
     c.number_format = fmt
     c.alignment = _align_right
 
-# Utility / build attribute column (Q-R). Q3 already set (WEBSITE).
-_label("Q4", "Year Built")
-_label("Q5", "Flood Zone")
-_label("Q6", "Utility Structure")
-_label("Q7", "Electricity")
-_label("Q8", "Trash")
-# Q9/Q10 stay blank (alignment with Asking Price rows on the O-P side).
-# R4:R8 values written by backend; just set borders + alignment now.
-for coord in ("R4", "R5", "R6", "R7", "R8"):
+# Legacy M-N labels: keep N7 (= total units) and N8 (occupancy) populated
+# because many legacy formulas across other tabs still reference $N$7 as
+# the unit divisor. The P-column block above is the new canonical layout
+# per OUTLINE.md, but maintaining the N7 alias avoids breaking every
+# Pro Forma / Loan Scenario / Sources & Uses formula keyed on N7. The
+# label cells (M4-M10) are blanked to avoid visual duplication with the
+# O-column labels below.
+for coord in ("M4", "M5", "M6", "M7", "M8", "M9", "M10",
+              "N4", "N5", "N6", "N9", "N10"):
     c = uw[coord]
     c.value = None
-    c.font = Font(name="Calibri")
-    c.border = _box
-    c.alignment = _align_left
-    c.number_format = "General"
+    c.fill = _clear_fill
+    c.font = _clear_font
+    c.border = _clear_border
+# Reassert the units / occupancy formulas on N (legacy reference).
+uw["N7"] = "='Unit Mix Summary'!E8"
+uw["N8"] = "='Unit Mix Summary'!C15"
 
 # ── 19g. Tax Analysis Section M19:R33 ─────────────────────────────────
 # Three-row summary (Assessed Value / Levy Rate / Estimated Tax) plus
@@ -1633,6 +2048,30 @@ for coord, formula, fmt, highlight in (
 uw["O34"] = "=IFERROR(O33/N33,0)"
 uw["O34"].number_format = "0.00%"
 uw["O34"].font = Font(name="Calibri", italic=True, color="FF6B7280")
+
+# ════════════════════════════════════════════════════════════════════════
+# 20. COLLECTIONS TAB — D6 criterion swap + Avg row
+# ════════════════════════════════════════════════════════════════════════
+# Two fixes on the Collections tab per OUTLINE.md:
+#   1. D6 SUMIFS criterion "Vacant" never matches DC's category string
+#      "Vacancy" (DC writes "Vacancy" because that's the GGC_INCOME_
+#      CATEGORIES canonical string in backend.py). Swap "Vacant" ->
+#      "Vacancy" on every Vacant-criterion SUMIFS in column D.
+#   2. Add an Avg row at G17 / H17 / H18 / H19 (matches CorrectOutput
+#      Parkwood). H17 = monthly RUBS avg, H18 = annualized (×12),
+#      H19 = sum of the 11 observed months.
+if "Collections" in wb.sheetnames:
+    co = wb["Collections"]
+    # Swap "Vacant" -> "Vacancy" on every column-D SUMIFS criterion.
+    for r in range(5, 17):
+        cell = co[f"D{r}"]
+        if isinstance(cell.value, str) and '"Vacant"' in cell.value:
+            cell.value = cell.value.replace('"Vacant"', '"Vacancy"')
+    # Avg row.
+    co["G17"] = "Avg"
+    co["H17"] = "=AVERAGE(H6:H16)"
+    co["H18"] = "=H17*12"
+    co["H19"] = "=SUM(H6:H16)"
 
 wb.save(TEMPLATE)
 print(f"Patched {TEMPLATE.name}")

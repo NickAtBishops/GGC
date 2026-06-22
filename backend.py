@@ -315,6 +315,11 @@ GGC_INCOME_CATEGORIES = [
     "Omitt Income",               # Non-recurring / Discontinued / Seller-Specific exclusions
     # POH-related (when present)
     "Home Rent Income",           # POH home-rent component
+    # Lease-to-own / land-contract receivables — separate from Home Rent
+    # because GGC underwrites LC payments as a distinct lot-equivalent
+    # revenue stream (no operating cost attached, contract amortizes).
+    # Parkwood (~$148,879/yr) drove this addition.
+    "LTO",        # 4202 / LC Payment / KCA Ventures land-contract
     # Less-common buckets retained for completeness
     "Employee Allowance",
     "Model Units",
@@ -353,6 +358,13 @@ GGC_EXPENSE_CATEGORIES = [
 CANONICAL_UNIT_TYPES = [
     "TOH MH Site",         # Tenant-owned manufactured-home lots
     "POH-Infilled units",  # Park-owned home rentals
+    # LTO and Flourish are economically distinct from plain TOH. LTO
+    # carries a land-contract payment alongside lot rent; Flourish is a
+    # sub-brand financing arrangement (Bennetts / trustee structures).
+    # Parkwood made the collapse of these into plain TOH the top-ranked
+    # accuracy bug (see analysis_dumps/parkwood_compare/OUTLINE.md §1.1).
+    "LTO MH Site",         # Lease-to-own / land-contract MH lots
+    "Flourish MH Site",    # Flourish / Bennetts / trustee financing
     "Long term RV Site",   # Annual RV lots
     "Retail/Commercial",   # Storefronts, commercial space, storage
 ]
@@ -1845,6 +1857,16 @@ EXTRACTION_OUTPUT_SCHEMA = {
                             "lotRent":    {"type": ["number", "null"]},
                             "homeRent":   {"type": ["number", "null"]},
                             "marketRent": {"type": ["number", "null"]},
+                            # LC / Land Contract / LTO PMT column captured
+                            # verbatim. Do NOT fold into lotRent or homeRent;
+                            # these are seller-financing payments tracked
+                            # separately (Parkwood K14 ~$148,879/yr).
+                            "lcPayment":  {"type": ["number", "null"]},
+                            # Tenant move-in date when surfaced on the rent
+                            # roll. Format: "YYYY-MM-DD" preferred; raw
+                            # seller string accepted when the date can't be
+                            # parsed.
+                            "moveInDate": {"type": ["string", "null"]},
                         },
                     },
                 },
@@ -2035,6 +2057,29 @@ class ExtractedLineItem(BaseModel):
     isSubtotal:    bool = False
     proFormaTotal: float | None = None
     sellerNotes:   str = ""
+
+
+class ExtractedRentRollRow(BaseModel):
+    """Per-tenant rent-roll row. Mirrors EXTRACTION_OUTPUT_SCHEMA's
+    rentRollRows.items so that the schema-side additions (`lcPayment`,
+    `moveInDate`) get equivalent Pydantic validation when callers consume
+    the parsed object directly. Loose by default — accepts extra keys so
+    upstream changes don't break this class."""
+    # Use ConfigDict-style settings via `model_config` for v2.
+    model_config = {"populate_by_name": True, "extra": "allow"}
+
+    tenantName: str = ""
+    unitId:     str = ""
+    unitType:   str = ""
+    status:     str = "Occupied"
+    lotRent:    float | None = None
+    homeRent:   float | None = None
+    marketRent: float | None = None
+    # LC / Land Contract / LTO PMT — kept separate from lotRent/homeRent.
+    lcPayment:   float | None = Field(default=None, alias="lcPayment")
+    # Seller-supplied move-in date. Format: "YYYY-MM-DD" preferred; raw
+    # seller string accepted when the date can't be parsed.
+    moveInDate:  str | None = Field(default=None, alias="moveInDate")
 
 
 class ExtractedRentRoll(BaseModel):
@@ -2241,10 +2286,13 @@ Per-tenant rows (REQUIRED — one entry per data row in the source rent roll):
     - "tenantName": tenant name as listed (use "" for vacant rows)
     - "unitId": the unit/pad/space identifier (e.g. "A05", "B12", "EL02A"). Use "" when not present.
     - "unitType": the seller's unit-type label for this row VERBATIM (do NOT map to GGC's canonical types here — the methodology stage does that).
+      * If `unitType` is TOH (tenant-owned) but `homeRent` is non-zero, KEEP `unitType=TOH`. A TOH lot can carry legacy seller-owned home rent (the seller sold the unit but kept collecting home rent). Do NOT flip the type to POH on the basis of a non-zero home rent.
     - "status": "Occupied" or "Vacant". When the source uses other words ("Occ", "OCC", "Y", "X") translate to the canonical Occupied/Vacant.
     - "lotRent": the lot/site rent for this row (number; 0 for vacant or for non-MH types)
     - "homeRent": the home/POH rent for this row (number; 0 when not applicable)
     - "marketRent": the market rent for this row when separately listed (null when the seller doesn't break it out)
+    - "lcPayment": If the rent roll has an "LC Payment" / "Land Contract" / "LTO PMT" / "Lease-to-Own" column, capture each row's value verbatim into `lcPayment`. Do NOT fold into lotRent or homeRent. Use null when the seller has no LC column. LC payments are seller-financing receivables tracked separately from lot rent and home rent.
+    - "moveInDate": the tenant's move-in date when the rent roll surfaces it (preferred format "YYYY-MM-DD"; the raw seller string is acceptable when the format is ambiguous). Use null when the rent roll doesn't list move-in dates.
 
 ## OUTPUT SCHEMA (JSON only)
 
@@ -2274,7 +2322,8 @@ Per-tenant rows (REQUIRED — one entry per data row in the source rent roll):
     ],
     "rentRollRows": [
       {"tenantName": "string", "unitId": "string", "unitType": "string", "status": "Occupied|Vacant",
-       "lotRent": number|null, "homeRent": number|null, "marketRent": number|null}
+       "lotRent": number|null, "homeRent": number|null, "marketRent": number|null,
+       "lcPayment": number|null, "moveInDate": "YYYY-MM-DD or null"}
     ]
   },
   "documentsSeen": ["list each document by what it appears to be, e.g. 'T12 operating statement', 'rent roll', 'offering memorandum'"],
@@ -2936,6 +2985,40 @@ def verify_methodology(financials):
                 "check": "Extraction emits rentRollRows[]",
                 "status": "ok",
                 "detail": f"{n_rows} per-tenant rows extracted.",
+            })
+
+    # ── Rent-roll vs stated-unit-count: hard FAIL when undercount
+    # remains after imputation. _ensure_rent_roll_complete appends
+    # "Vacant Lots" placeholder rows to reconcile to property_info.units;
+    # if those rows are missing AND the row count is still below stated
+    # units, the imputation pass never ran (a regression we should
+    # catch). Surface as a hard fail so the workbook ships with the
+    # Extraction Check banner up.
+    rr_for_count = (financials.get("rentRoll") or {})
+    prop_info = (financials.get("propertyInfo") or {})
+    rows_for_count = rr_for_count.get("rentRollRows") or []
+    try:
+        prop_units = int(prop_info.get("totalUnits") or 0)
+    except (TypeError, ValueError):
+        prop_units = 0
+    if (isinstance(rows_for_count, list) and prop_units
+            and len(rows_for_count) < prop_units):
+        _vacant_rx = re.compile(r"(?i)vacant\s*lot")
+        has_imputed = any(
+            isinstance(r, dict) and _vacant_rx.search(r.get("tenantName") or "")
+            for r in rows_for_count
+        )
+        if not has_imputed:
+            checks.append({
+                "item":   "Rent-roll vacant-pad imputation",
+                "check":  "rentRollRows ≥ propertyInfo.totalUnits OR Vacant Lots present",
+                "status": "fail",
+                "detail": (f"Only {len(rows_for_count)} per-tenant rows "
+                           f"for {prop_units} stated units, and no "
+                           f"'Vacant Lot' placeholder row was found. The "
+                           f"_ensure_rent_roll_complete imputation pass "
+                           f"did not run. GPR will be understated by the "
+                           f"missing pads."),
             })
 
     # ── Unit/pad ID uniqueness — if per-row data is present. The rent
@@ -4343,6 +4426,354 @@ def _consolidate_per_tenant_lines(items, target_category, label_hint):
     return len(same_cat)
 
 
+# ── Per-site flat overrides (GGC standards on $/unit/year basis) ─────────
+# These mirror the CorrectOutput Parkwood values. Each line is overridable
+# per deal via the form (`payroll_per_site`, `insurance_per_site`, etc.).
+# Insurance has a separate `insurance_flood` value used when the property
+# is in a flood zone (form `flood_zone=true`). Source of truth:
+# analysis_dumps/parkwood_compare/OUTLINE.md root cause #6.
+GGC_PER_SITE_DEFAULTS = {
+    "payroll":              425,
+    "insurance":            250,   # non-flood
+    "insurance_flood":      300,
+    "ground_maintenance":   200,
+    "ga":                   100,
+    "professional_fees":     50,
+    "advertising":            0,
+    "capex":                 50,   # CorrectOutput Parkwood uses $50; outer
+                                   # CLAUDE.md says $75; CorrectOutput wins
+                                   # per task DEFAULTS ("CorrectOutput is the
+                                   # gold standard").
+}
+
+# Maps GGC canonical category strings to the per-site default key above.
+# Used by _apply_per_site_overrides to know which categories to flat-
+# override.
+_PER_SITE_CATEGORY_KEYS = {
+    "Payroll":             "payroll",
+    "Insurance":           "insurance",
+    "Ground Maintenance":  "ground_maintenance",
+    "G&A":                 "ga",
+    "Professional Fees":   "professional_fees",
+    "Advertising":         "advertising",
+    "Cap-Ex Reserve":      "capex",
+}
+
+
+# Pattern-based category snapping. Applied BEFORE the existing alias/notes
+# loop in apply_ggc_overrides so deterministic regex matches lock in the
+# right category before LLM-driven judgment. Each row is (compiled regex,
+# target ggcCategory, section "income"|"expense"|"any", reason).
+# Source of truth: OUTLINE root cause #7 / cross-cutting #3.
+import re as _ggc_re
+_GGC_PATTERN_ROUTES = [
+    # Expense-side routings
+    (_ggc_re.compile(r"(?i)^Janitor|^Janit"),
+     "Ground Maintenance", "expense",
+     "janitorial routes to ground maintenance, not R&M"),
+    (_ggc_re.compile(r"(?i)Equipment\s*Fuel|^Fuel\b|Gas(?:oline)?\s+(?:expense|cost)?"),
+     "Gas/Fuel", "expense",
+     "fuel-related → Gas/Fuel"),
+    (_ggc_re.compile(r"(?i)Gift.*Resident|Resident\s+Gift"),
+     "Omitt Expense", "expense",
+     "resident gift = one-time, not opex"),
+    (_ggc_re.compile(r"(?i)Tax\s*&?\s*Title.*(?:Mobile|Home)|Sales Tax(?:es)?\s+for\s+LTO"),
+     "Omitt Expense", "expense",
+     "home title-transfer cost → Omitt"),
+    (_ggc_re.compile(r"(?i)^Misc(?:ellaneous)?\b"),
+     "G&A", "expense",
+     "Misc → G&A"),
+    (_ggc_re.compile(r"(?i)Picnic|BBQ|Resident Event"),
+     "Omitt Expense", "expense",
+     "resident event = one-time"),
+    # Income-side routings (Utility Reimbursement vs Other Income confusion)
+    (_ggc_re.compile(r"(?i)Sales Tax.*(?:Electric|Utility|RUBS)"),
+     "Utility Reimbursement", "income",
+     "utility-tax pass-through is a reimbursement, not other income"),
+    # LC / land-contract payments → LTO
+    (_ggc_re.compile(r"(?i)KCA\s+Ventures|^LC\s+Payment|Land\s+Contract"),
+     "LTO", "income",
+     "LC payment routes to LTO"),
+]
+
+
+def _snap_categories_by_pattern(financials):
+    """Apply deterministic regex-based ggcCategory snapping. Runs at the
+    top of apply_ggc_overrides so subsequent passes operate on the
+    corrected categories.
+
+    Notes:
+      * Income-side "Lawn Maintenance" coming through as Income is left
+        with a TODO: we can't trivially move a row from income[] to
+        expense[] (would lose the structural placement) so we tag it on
+        the row notes and leave it for a future cross-section move.
+    """
+    income = financials.get("income") or []
+    expenses = financials.get("expenses") or []
+    overrides = financials.setdefault("_ggcOverrides", [])
+
+    def _apply(items, section):
+        for it in items:
+            sn = (it.get("sellerName") or "")
+            if not sn:
+                continue
+            current = (it.get("ggcCategory") or "").strip()
+            for rx, target, scope, reason in _GGC_PATTERN_ROUTES:
+                if scope not in ("any", section):
+                    continue
+                if rx.search(sn):
+                    if current and current != target:
+                        overrides.append({
+                            "category": f"{sn}: {current} → {target}",
+                            "before": current, "after": target,
+                            "basis":  f"pattern-route: {reason}",
+                        })
+                        it["ggcCategory"] = target
+                    break  # first matching rule wins
+
+    _apply(income, "income")
+    _apply(expenses, "expense")
+
+    # Income-side Lawn Maintenance TODO: we cannot move a row from income
+    # to expense without restructuring the merge contract. Tag it for now.
+    _lawn_rx = _ggc_re.compile(r"(?i)Lawn\s+Maintenance")
+    for it in income:
+        if _lawn_rx.search(it.get("sellerName") or ""):
+            note = (it.get("notes") or "").strip()
+            tag = ("TODO[GGC]: 'Lawn Maintenance' appeared on income side; "
+                   "GGC convention is to move it to expense as 'Employee "
+                   "Allowance'. Cross-section move not yet implemented — "
+                   "reviewer should reclassify manually if needed.")
+            if "TODO[GGC]" not in note:
+                it["notes"] = (note + " || " if note else "") + tag
+
+
+def _consolidate_lto_payments(items):
+    """Detect multiple income rows with sellerName matching the LC/LTO
+    patterns AND positive t12Total, and roll them up into a single
+    "LC Payments aggregate" row with ggcCategory='LTO'.
+
+    Runs BEFORE the generic _consolidate_per_tenant_lines so the LTO
+    grouping happens by name (catches misrouted Omitt Income rows that
+    still carry the original sellerName) rather than category.
+    """
+    rx = _ggc_re.compile(r"(?i)KCA\s+Ventures|LC\s+Payment|Land\s+Contract|Lease[\s\-]?to[\s\-]?Own|\bLTO\b")
+    targets = []
+    keep = []
+    for it in items:
+        sn = it.get("sellerName") or ""
+        t12 = it.get("t12Total") or 0
+        if rx.search(sn) and isinstance(t12, (int, float)) and t12 > 0:
+            targets.append(it)
+        else:
+            keep.append(it)
+    if len(targets) < 2:
+        # Single-row rollup not worth doing — fall through to other passes.
+        return 0
+
+    def _sum_field(field):
+        return sum(float(it.get(field) or 0) for it in targets)
+
+    monthly = [0.0] * 12
+    for it in targets:
+        m = it.get("monthly") or []
+        if isinstance(m, list) and len(m) == 12:
+            for i in range(12):
+                v = m[i]
+                if isinstance(v, (int, float)):
+                    monthly[i] += v
+    consolidated = {
+        "ggcCategory":     "LTO",
+        "sellerName":      f"LC Payments aggregate ({len(targets)} contracts)",
+        "fyPrior":         _sum_field("fyPrior"),
+        "fyCurrent":       _sum_field("fyCurrent"),
+        "brokerProforma":  _sum_field("brokerProforma"),
+        "t12Total":        _sum_field("t12Total"),
+        "monthly":         monthly,
+        "ggcUnderwritten": _sum_field("ggcUnderwritten"),
+        "confidence":      "high",
+        "notes":           (f"Consolidated {len(targets)} LC / land-contract "
+                            f"tenant lines into one LTO row. "
+                            f"Individual contract detail preserved on the "
+                            f"Rent Roll Input tab."),
+    }
+    items.clear()
+    items.extend(keep)
+    items.append(consolidated)
+    return len(targets)
+
+
+def _apply_per_site_overrides(financials, property_info):
+    """Replace ggcUnderwritten on per-site-flat opex lines with the GGC
+    default (or form override) × units. Also handles the bad-debt UW plug
+    (negative bad_debt_uw_pct × UW GPR) and ensures a Bad Debt line is
+    present even when methodology emitted none.
+    """
+    expenses = financials.setdefault("expenses", [])
+    income = financials.setdefault("income", [])
+    rr = financials.get("rentRoll") or {}
+    overrides = financials.setdefault("_ggcOverrides", [])
+
+    try:
+        units = int(rr.get("totalUnits") or 0) or int(
+            str(property_info.get("units", "")).strip() or 0)
+    except (ValueError, TypeError):
+        units = 0
+    if units <= 0:
+        return
+
+    # Flood-zone toggle (string OR bool tolerant)
+    fz_raw = str(property_info.get("floodZone", "")).strip().lower()
+    flood = fz_raw in ("yes", "true", "1", "flood", "y")
+
+    def _get_pp(key, fallback_key=None):
+        """Resolve per-site value from property_info, falling back to
+        GGC_PER_SITE_DEFAULTS. Tolerates string inputs from form values.
+        """
+        raw = property_info.get(key)
+        if raw in (None, "", "None"):
+            raw = property_info.get(fallback_key) if fallback_key else None
+        defaults_key = (key.replace("_per_site", "")
+                            .replace("_per_unit", ""))
+        if raw in (None, "", "None"):
+            raw = GGC_PER_SITE_DEFAULTS.get(defaults_key)
+        try:
+            return float(raw or 0)
+        except (TypeError, ValueError):
+            return float(GGC_PER_SITE_DEFAULTS.get(defaults_key, 0))
+
+    # Resolve all per-site values from form inputs (with defaults).
+    pp = {
+        "payroll":            _get_pp("payroll_per_site"),
+        "ground_maintenance": _get_pp("ground_maintenance_per_site"),
+        "ga":                 _get_pp("ga_per_site"),
+        "professional_fees":  _get_pp("professional_fees_per_site"),
+        "advertising":        _get_pp("advertising_per_site"),
+        "capex":              _get_pp("capex_per_unit"),
+    }
+
+    # Insurance: prefer form override; otherwise GGC default with flood
+    # toggle deciding non-flood vs flood value.
+    insurance_override = property_info.get("insurance_per_site")
+    if insurance_override in (None, "", "None"):
+        ins_value = (GGC_PER_SITE_DEFAULTS["insurance_flood"] if flood
+                     else GGC_PER_SITE_DEFAULTS["insurance"])
+    else:
+        try:
+            ins_value = float(insurance_override)
+        except (TypeError, ValueError):
+            ins_value = (GGC_PER_SITE_DEFAULTS["insurance_flood"] if flood
+                         else GGC_PER_SITE_DEFAULTS["insurance"])
+    pp["insurance"] = ins_value
+
+    def _override_line(item, key, basis):
+        target = round(pp[key] * units, 2)
+        before = item.get("ggcUnderwritten")
+        item["ggcUnderwritten"] = target
+        item["monthly"] = [target / 12] * 12
+        item["confidence"] = "high"
+        note = (item.get("notes") or "").strip()
+        item["notes"] = (note + " || " if note else "") + (
+            f"GGC per-site override: ${pp[key]:.0f} × {units} units = ${target:,.0f}"
+            + (" (flood zone)" if key == "insurance" and flood else ""))
+        overrides.append({
+            "category": item.get("ggcCategory") or key,
+            "before": before, "after": target,
+            "basis": basis,
+        })
+
+    # Walk expenses and apply per-site overrides for matching categories.
+    seen_keys = set()
+    for it in expenses:
+        cat = (it.get("ggcCategory") or "").strip()
+        key = _PER_SITE_CATEGORY_KEYS.get(cat)
+        if not key:
+            continue
+        if key in seen_keys:
+            # Duplicate row — zero out so we don't double-count.
+            it["ggcUnderwritten"] = 0
+            it["monthly"] = [0] * 12
+            continue
+        _override_line(it, key, f"per-site ${pp[key]:.0f} × {units} units")
+        seen_keys.add(key)
+
+    # Insert per-site lines that the methodology never emitted at all.
+    for cat, key in _PER_SITE_CATEGORY_KEYS.items():
+        if key in seen_keys:
+            continue
+        # Skip Advertising when the per-site value is 0 (default GGC value
+        # is $0/site, so injecting a $0 row is just noise).
+        if key == "advertising" and pp[key] == 0:
+            continue
+        target = round(pp[key] * units, 2)
+        expenses.append({
+            "ggcCategory":     cat,
+            "sellerName":      f"{cat} (GGC per-site override)",
+            "fyPrior":         0, "fyCurrent": 0, "brokerProforma": 0,
+            "t12Total":        0,
+            "monthly":         [target / 12] * 12,
+            "ggcUnderwritten": target,
+            "confidence":      "high",
+            "notes": (f"GGC per-site override (no seller line): "
+                      f"${pp[key]:.0f} × {units} units"),
+        })
+        overrides.append({
+            "category": f"{cat} (inserted)",
+            "before": None, "after": target,
+            "basis":  f"per-site ${pp[key]:.0f} × {units} units (inserted)",
+        })
+
+    # ── Bad-debt UW plug ────────────────────────────────────────────────
+    # bad_debt_uw_pct × UW GPR (sum of all "Gross Potential Rent" rows).
+    # Default 2% matches CorrectOutput Parkwood.
+    try:
+        bd_pct = float(property_info.get("bad_debt_uw_pct") or 0.02)
+    except (TypeError, ValueError):
+        bd_pct = 0.02
+
+    uw_gpr = sum(
+        float(it.get("ggcUnderwritten") or 0)
+        for it in income
+        if (it.get("ggcCategory") or "").strip() == "Gross Potential Rent"
+    )
+    if uw_gpr > 0:
+        target = -round(uw_gpr * bd_pct, 2)
+        bd_rows = [it for it in income
+                   if (it.get("ggcCategory") or "").strip() == "Bad Debt"]
+        if bd_rows:
+            primary = bd_rows[0]
+            before = primary.get("ggcUnderwritten")
+            primary["ggcUnderwritten"] = target
+            primary["monthly"] = [target / 12] * 12
+            primary["confidence"] = "high"
+            note = (primary.get("notes") or "").strip()
+            primary["notes"] = (note + " || " if note else "") + (
+                f"GGC override: -{bd_pct:.1%} × UW GPR ${uw_gpr:,.0f} "
+                f"= ${target:,.0f}")
+            overrides.append({
+                "category": "Bad Debt",
+                "before": before, "after": target,
+                "basis": f"-{bd_pct:.1%} × UW GPR ${uw_gpr:,.0f}",
+            })
+        else:
+            income.append({
+                "ggcCategory":     "Bad Debt",
+                "sellerName":      "Bad Debt (GGC synthesized)",
+                "fyPrior":         0, "fyCurrent": 0, "brokerProforma": 0,
+                "t12Total":        0,
+                "monthly":         [target / 12] * 12,
+                "ggcUnderwritten": target,
+                "confidence":      "high",
+                "notes": (f"GGC synthesized: -{bd_pct:.1%} × UW GPR "
+                          f"${uw_gpr:,.0f} = ${target:,.0f}"),
+            })
+            overrides.append({
+                "category": "Bad Debt (inserted)",
+                "before": None, "after": target,
+                "basis":  f"-{bd_pct:.1%} × UW GPR ${uw_gpr:,.0f}",
+            })
+
+
 def apply_ggc_overrides(financials, property_info):
     """Force the GGC methodology rules per CLAUDE.md §5.4 onto the merged
     methodology output. These are rules (not LLM judgment), so applying
@@ -4361,6 +4792,21 @@ def apply_ggc_overrides(financials, property_info):
     `financials["_ggcOverrides"]` so the Extraction Check tab can list
     exactly what changed.
     """
+    # Deterministic pattern-based category snapping runs FIRST so that
+    # downstream rules (Omitt forcing, EGI computation, per-site overrides)
+    # operate on the corrected categories. See _snap_categories_by_pattern
+    # and _GGC_PATTERN_ROUTES above.
+    _snap_categories_by_pattern(financials)
+    # Roll up multiple per-tenant LC/LTO income rows into a single
+    # LTO aggregate. Runs before the GPR consolidation
+    # below so LC payments end up in their own bucket, not mixed into GPR.
+    n_lto = _consolidate_lto_payments(financials.setdefault("income", []))
+    if n_lto:
+        financials.setdefault("_ggcOverrides", []).append({
+            "category": "LC/LTO consolidation",
+            "before": n_lto, "after": 1,
+            "basis": f"{n_lto} LC tenant rows → 1 LTO row",
+        })
     income = financials.setdefault("income", [])
     expenses = financials.setdefault("expenses", [])
     rr = financials.get("rentRoll") or {}
@@ -4898,6 +5344,16 @@ def apply_ggc_overrides(financials, property_info):
             _record("Cap-Ex Reserve (inserted)", None, capex_target,
                     f"${capex_per_unit} × {units} units")
 
+    # ── Per-site flat overrides (Payroll, Insurance $/site, Ground Maint,
+    # G&A, Pro Fees, Advertising, CapEx, Bad Debt UW plug) ───────────────
+    # Replaces or inserts ggcUnderwritten on those lines using the GGC
+    # standard $/unit/year × units, with form overrides taking precedence.
+    # This is the deal-grade $/site convention that lands Underwriting!I35
+    # at $42,500 (425×100) on Parkwood instead of the $60k T12-driven
+    # number. Runs AFTER the §5.4 mgmt/ins/tax/capex overrides above so
+    # the per-site values are the final word.
+    _apply_per_site_overrides(financials, property_info)
+
     # Drop the override log if nothing actually changed — keeps the
     # Extraction Check tab focused on real events.
     if not overrides:
@@ -4937,9 +5393,14 @@ def _ensure_rent_roll_complete(financials, property_info):
     methodology's totalUnits is short of the user-stated unit count, the
     shortfall is added as vacant lots, distributed proportionally across
     existing unit groups (so per-type market rents already on each group
-    carry forward). Adds a high-severity flag and updates the rent-roll
-    aggregates so downstream consumers (Excel write-back, parity checks,
-    KPI tiles) see the corrected totals.
+    carry forward).
+
+    Important: PATCHES BOTH `unitGroups` AND `rentRollRows`. The fill_template
+    per-row write path consumes rentRollRows preferentially and ignores
+    unitGroups when per-row data exists, so imputing only on unitGroups
+    leaves the phantom vacant pads invisible to the workbook (OUTLINE
+    root cause #3). Also imputes a market lot rent on each appended row so
+    the GPR build picks them up.
     """
     try:
         stated_units = int(str(property_info.get("units", "")).strip() or 0)
@@ -4950,6 +5411,9 @@ def _ensure_rent_roll_complete(financials, property_info):
 
     rr = financials.get("rentRoll") or {}
     groups = rr.get("unitGroups") or []
+    per_row = rr.get("rentRollRows")
+    if per_row is None:
+        per_row = []
     if not groups:
         return
 
@@ -4981,6 +5445,89 @@ def _ensure_rent_roll_complete(financials, property_info):
     rr["vacantUnits"] = new_vacant
     if new_total:
         rr["occupancyRate"] = new_occupied / new_total
+
+    # ── Also append synthesized Vacant Lots rows to rentRollRows ─────────
+    # Determine the dominant occupied unit type and its market lot rent so
+    # the imputed vacancies carry forward through GPR. Fallback: largest
+    # unit-group's stated lotRent.
+    occupied_rows = [r for r in per_row
+                     if isinstance(r, dict)
+                     and (r.get("status") or "Occupied").strip().lower() != "vacant"]
+    type_counts = {}
+    type_rents = {}
+    for r in occupied_rows:
+        t = (r.get("unitType") or "").strip()
+        if not t:
+            continue
+        type_counts[t] = type_counts.get(t, 0) + 1
+        lr = r.get("lotRent") or 0
+        if isinstance(lr, (int, float)) and lr > 0:
+            type_rents.setdefault(t, []).append(float(lr))
+
+    if type_counts:
+        dominant_type = max(type_counts.items(), key=lambda kv: kv[1])[0]
+    elif groups:
+        # Largest group wins as the dominant type fallback.
+        biggest = max(groups, key=lambda g: (g.get("occupiedCount") or 0)
+                                           + (g.get("vacantCount") or 0))
+        dominant_type = biggest.get("unitType") or "TOH MH Site"
+    else:
+        dominant_type = "TOH MH Site"
+
+    rents_for_dom = type_rents.get(dominant_type)
+    if rents_for_dom:
+        market_lot_rent = sum(rents_for_dom) / len(rents_for_dom)
+    else:
+        # Pull from matching unit group (the LLM emitted per-type lot rent
+        # there even when per-row data is sparse).
+        match_group = next(
+            (g for g in groups
+             if (g.get("unitType") or "").strip() == dominant_type),
+            None)
+        if match_group and match_group.get("lotRent"):
+            market_lot_rent = float(match_group.get("lotRent") or 0)
+        elif groups:
+            market_lot_rent = float(groups[0].get("lotRent") or 0)
+        else:
+            market_lot_rent = 0.0
+
+    # Collect existing unit IDs so generated IDs don't collide.
+    existing_ids = set()
+    max_numeric_id = 0
+    for r in per_row:
+        if not isinstance(r, dict):
+            continue
+        uid = str(r.get("unitId") or "").strip()
+        if uid:
+            existing_ids.add(uid)
+            try:
+                num = int(''.join(ch for ch in uid if ch.isdigit()) or 0)
+                max_numeric_id = max(max_numeric_id, num)
+            except (TypeError, ValueError):
+                pass
+
+    next_seq = max(max_numeric_id, stated_units - shortfall) + 1
+    imputed_rows = []
+    for _ in range(shortfall):
+        while True:
+            candidate = str(next_seq)
+            next_seq += 1
+            if candidate not in existing_ids:
+                existing_ids.add(candidate)
+                break
+        imputed_rows.append({
+            "tenantName": "Vacant Lots",
+            "unitId":     candidate,
+            "unitType":   dominant_type,
+            "sellerType": dominant_type,
+            "status":     "Vacant",
+            "lotRent":    float(market_lot_rent or 0),
+            "homeRent":   0,
+            "lcPayment":  0,
+            "moveInDate": "CONFIRM",
+        })
+    per_row.extend(imputed_rows)
+    rr["rentRollRows"] = per_row
     financials["rentRoll"] = rr
 
     flags = financials.setdefault("flags", [])
@@ -4995,8 +5542,23 @@ def _ensure_rent_roll_complete(financials, property_info):
             "roll, or is the property actually smaller than stated?"
         ),
     })
+    # Surface on the Extraction Check tab so the reviewer sees the
+    # imputation explicitly. Status is WARN: the workbook still ships, but
+    # the reviewer should validate the broker's intent.
+    financials.setdefault("_extractionChecks", []).append({
+        "item":   "Vacant-pad imputation",
+        "check":  "rentRollRows reconcile to stated unit count",
+        "status": "warn",
+        "detail": (f"Imputed {shortfall} vacant pad(s) to reconcile rent "
+                   f"roll to stated unit count of {stated_units}. Dominant "
+                   f"type '{dominant_type}' @ ${market_lot_rent:,.0f}/mo "
+                   f"market lot rent. Appended rows to BOTH unitGroups and "
+                   f"rentRollRows so the Rent Roll Input tab and "
+                   f"COUNTIFS-driven KPIs both see the phantom pads."),
+    })
     print(f"[Methodology] Imputed {shortfall} vacant lots "
-          f"({current_total} → {new_total}) to match stated unit count.")
+          f"({current_total} → {new_total}) to match stated unit count "
+          f"(appended to rentRollRows at ${market_lot_rent:,.0f}/mo).")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -5466,6 +6028,778 @@ def _normalize_ggc_category(cat):
     return s
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Deal-specific tab writers (Sources & Uses, Loan Scenario, Investor Return,
+# Tax Analysis). Each is keyed off the new form inputs surfaced through
+# property_info; every input is optional with sensible defaults so a deal
+# can ship without any of these set. See analysis_dumps/parkwood_compare
+# /OUTLINE.md root cause #11 for why these exist.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Default per-task spec. Defaults live here (not in form parsing) so backend
+# callers that synthesize property_info dicts inherit the same fallbacks.
+_DEAL_DEFAULTS = {
+    "gp_equity":                  300000,
+    "closing_cost_pct":           0.0225,
+    "bad_debt_uw_pct":            0.02,
+    "home_rent_expense_ratio":    0.10,
+    "lot_cap_rate":               0.05,
+    "home_cap_rate":              0.20,
+    "y1_re_taxes_growth_pct":     0.03,
+    "exit_cap_rate_default_bps":  100,    # +100 bps over ingoing
+    "hold_period_years":          10,
+}
+
+
+def _coerce_float(raw, default=None):
+    """Tolerant float coercion. Empty strings, None, and 'None' fall back."""
+    if raw in (None, "", "None"):
+        return default
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return default
+
+
+def _coerce_int(raw, default=None):
+    """Tolerant int coercion."""
+    v = _coerce_float(raw, None)
+    if v is None:
+        return default
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return default
+
+
+def fill_sources_and_uses(wb, financials, property_info):
+    """Write deal-specific Sources & Uses inputs.
+
+    Writes that exist regardless of analyst-supplied form inputs:
+      - B2 = property name
+      - C8 = GP equity (default 300,000)
+
+    Conditional writes (only when the analyst provides a form value):
+      - C13 = contract price (else stays =GGC Underwriting!P4)
+      - C14 = =C13*<closing_cost_pct> (default 2.25% per CorrectOutput)
+      - Capex breakdown rows 21-26: when capex_line_items is provided,
+        rewrite B/C with analyst-supplied {label, amount} pairs.
+
+    The template sheet is "Sources and Uses" (no (PW) suffix).
+    """
+    sheet_name = "Sources and Uses"
+    if sheet_name not in wb.sheetnames:
+        return
+    ws = wb[sheet_name]
+    _protect_formulas(ws)
+    prop = property_info or {}
+
+    # B2 = property name (label cell, no formula).
+    name = (prop.get("name") or "").strip()
+    if name:
+        _set_addr(ws, "B2", name)
+
+    # C8 = GP equity. The template ships C8=`=C15` (Acq Fee passthrough,
+    # which collapses to ~$116k); the task default is a hardcoded $300k.
+    gp_equity = _coerce_float(prop.get("gp_equity"),
+                              _DEAL_DEFAULTS["gp_equity"])
+    if gp_equity is not None:
+        # _set_addr skips when the cell holds a formula. C8 ships as `=C15`,
+        # so we have to overwrite the formula intentionally — bypass the
+        # guard by setting .value directly.
+        try:
+            ws["C8"].value = gp_equity
+        except Exception:
+            pass
+
+    # C13 = contract price. When set, overwrite the formula =GGC
+    # Underwriting!P4 with a literal so Loan Scenario C19 (which reads
+    # C13) sees the buyer's bid instead of the seller's ask. Fallback to
+    # propertyInfo.askingPrice when contract_price isn't provided.
+    # Accept both snake_case (form input) and camelCase (extraction output).
+    contract_price = _coerce_float(prop.get("contract_price"), None)
+    if contract_price is None:
+        contract_price = _coerce_float(prop.get("contractPrice"), None)
+    if contract_price is None:
+        contract_price = _coerce_float(prop.get("askingPrice"), None)
+    if contract_price is not None and contract_price > 0:
+        try:
+            ws["C13"].value = contract_price
+        except Exception:
+            pass
+
+    # C14 = closing-cost percentage formula =C13*<pct>. Default 2.25%
+    # (CorrectOutput Parkwood); fall back to template's 1.5% when no
+    # form input is supplied. Empty cell preserves template default.
+    closing_pct = _coerce_float(prop.get("closing_cost_pct"), None)
+    if closing_pct is not None:
+        # Accept either decimal (0.0225) or whole percent (2.25).
+        if closing_pct > 1:
+            closing_pct = closing_pct / 100.0
+        try:
+            ws["C14"].value = f"=C13*{closing_pct}"
+        except Exception:
+            pass
+
+    # Capex breakdown rows 21-26. The template ships 3 stale Whaleshead
+    # rows (Private water/septic, Add New Homes, Working Capex). When the
+    # analyst provides explicit capex_line_items, clear those rows and
+    # rewrite with the new entries.
+    capex_items = prop.get("capex_line_items") or []
+    if isinstance(capex_items, list) and capex_items:
+        # Clear the template's existing labels/values in rows 21-26 so
+        # stale lines don't sum into C27. Row 27 holds =SUM(C21:C26) by
+        # default; leave that formula intact.
+        for r in range(21, 27):
+            try:
+                ws.cell(row=r, column=2, value=None)
+                ws.cell(row=r, column=3, value=None)
+                # Some Whaleshead rows ship with D/E multipliers
+                # (=D22*E22). Clear those too so they don't ghost-multiply.
+                ws.cell(row=r, column=4, value=None)
+                ws.cell(row=r, column=5, value=None)
+            except Exception:
+                pass
+        # Write up to 6 line items (rows 21-26).
+        for i, item in enumerate(capex_items[:6]):
+            r = 21 + i
+            if not isinstance(item, dict):
+                continue
+            label = item.get("label") or item.get("name") or ""
+            amount = _coerce_float(item.get("amount"), 0) or 0
+            try:
+                ws.cell(row=r, column=2, value=label)
+                ws.cell(row=r, column=3, value=amount)
+            except Exception:
+                pass
+        # Make sure C27 sums the new range (template default already
+        # does =SUM(C21:C26) — no rewrite needed).
+
+
+def fill_loan_scenario(wb, financials, property_info):
+    """Write deal-specific Loan Scenario inputs.
+
+    Writes:
+      - C6  = lender name (string)
+      - C9  = IO period months (int)
+      - C14 = base rate (decimal)
+      - C15 = spread (decimal)
+      - C19 = purchase price (only when contract_price provided; else
+              template's =Sources and Uses!C13 chain stays)
+      - C20 = amortization months (template ships =30*12; overwrite when
+              analyst supplies)
+      - C21 = term months (NOTE: template's C21 ships as Capital
+              Expenditure linked to S&U C17; on a contract-driven deal
+              the term-month override goes into C8 instead. See logic
+              below.)
+      - C24 = max LTV (decimal)
+      - C25 = min DSCR (decimal)
+
+    Per Parkwood OUTLINE: the template's existing Loan Scenario layout
+    differs from the per-task cell map. Task spec says C20=amort_months,
+    C21=term_months but the live template has C8=term, C10=amort. We
+    write to BOTH the task-spec cells AND the live-template cells so
+    the workbook ends up correct regardless of which layout fix_template
+    has applied.
+    """
+    sheet_name = "Loan Scenario (acquisition)"
+    if sheet_name not in wb.sheetnames:
+        # Tolerate the renamed variant some Parkwood templates ship with.
+        for cand in ("Loan Scenario (PW) ", "Loan Scenario (PW)",
+                     "Loan Scenario"):
+            if cand in wb.sheetnames:
+                sheet_name = cand
+                break
+        else:
+            return
+    ws = wb[sheet_name]
+    _protect_formulas(ws)
+    prop = property_info or {}
+
+    # C6 — lender name. Non-formula cell in the template (just blank).
+    lender = (prop.get("lender_name") or "").strip()
+    if lender:
+        _set_addr(ws, "C6", lender)
+
+    # C9 — IO period months.
+    io_months = _coerce_int(prop.get("io_months"), None)
+    if io_months is not None:
+        _set_addr(ws, "C9", io_months)
+
+    # C14 — base rate (decimal). Accept both decimal and percent form.
+    base_rate = _coerce_float(prop.get("base_rate"), None)
+    if base_rate is not None:
+        if base_rate > 1:
+            base_rate = base_rate / 100.0
+        try:
+            ws["C14"].value = base_rate
+        except Exception:
+            pass
+
+    # C15 — spread (decimal).
+    spread = _coerce_float(prop.get("spread"), None)
+    if spread is not None:
+        if spread > 1:
+            spread = spread / 100.0
+        try:
+            ws["C15"].value = spread
+        except Exception:
+            pass
+
+    # Purchase price: per Parkwood reverse-engineering the live template
+    # has C19 = =Sources and Uses!C13. Sources and Uses C13 cascades from
+    # GGC Underwriting!P4 → P9 (asking price). When the analyst supplies
+    # a separate contract_price, fill_sources_and_uses above will have
+    # overwritten S&U C13 with the literal already, so we leave C19 alone.
+    # Accept both snake_case (form input) and camelCase (extraction).
+    contract_price = _coerce_float(prop.get("contract_price"), None)
+    if contract_price is None:
+        contract_price = _coerce_float(prop.get("contractPrice"), None)
+    if contract_price is not None and contract_price > 0:
+        # Direct write here belt-and-suspenders so the cascade lands even
+        # if Sources and Uses tab is missing.
+        try:
+            ws["C19"].value = contract_price
+        except Exception:
+            pass
+
+    # C20 — amortization months (task spec). Template's actual amort cell
+    # is C10 (=30*12); write to both.
+    amort = _coerce_int(prop.get("amort_months"), None)
+    if amort is not None:
+        try:
+            ws["C20"].value = amort
+        except Exception:
+            pass
+        try:
+            ws["C10"].value = amort
+        except Exception:
+            pass
+
+    # C21 — term months (task spec). Template's actual term cell is C8.
+    term = _coerce_int(prop.get("term_months"), None)
+    if term is not None:
+        try:
+            ws["C21"].value = term
+        except Exception:
+            pass
+        try:
+            ws["C8"].value = term
+        except Exception:
+            pass
+
+    # C24 — max LTV (decimal).
+    max_ltv = _coerce_float(prop.get("max_ltv"), None)
+    if max_ltv is not None:
+        if max_ltv > 1:
+            max_ltv = max_ltv / 100.0
+        try:
+            ws["C24"].value = max_ltv
+        except Exception:
+            pass
+
+    # C25 — min DSCR (decimal, but expressed as a multiple like 1.25).
+    min_dscr = _coerce_float(prop.get("min_dscr"), None)
+    if min_dscr is not None:
+        try:
+            ws["C25"].value = min_dscr
+        except Exception:
+            pass
+
+
+def fill_investor_return(wb, financials, property_info):
+    """Write the C4 hold-period label and pin hold_period_years onto
+    financials so downstream consumers (compute_underwriting_summary,
+    result panel) can read it. Formulas at F6/F7/F8 stay intact — they
+    pull from Waterfall (10-yr) by default.
+
+    The 5-yr block at rows 17-21 stays in the template until a
+    compact_layout toggle is added.
+    """
+    sheet_name = "Investor Return"
+    if sheet_name not in wb.sheetnames:
+        return
+    ws = wb[sheet_name]
+    _protect_formulas(ws)
+    prop = property_info or {}
+
+    hold = _coerce_int(prop.get("hold_period_years"),
+                       _DEAL_DEFAULTS["hold_period_years"])
+    if hold and hold > 0:
+        # Stash for compute_underwriting_summary.
+        financials.setdefault("_dealAssumptions", {})["holdPeriodYears"] = hold
+        try:
+            ws["C4"].value = f"{hold}  Year Return Summary"
+        except Exception:
+            pass
+
+
+def fill_tax_analysis(wb, financials, property_info):
+    """SEV × levy tax override (Michigan-style assessor methodology).
+
+    Only fires when both sev_assessed_value AND levy_rate are provided.
+    Writes to the Tax Analysis Section block at M19:R33 on the GGC
+    Underwriting tab. Leaves the existing tax_per_site / J22 path alone
+    when SEV/levy aren't set, so deals without an assessor-based input
+    fall back to the historical-floor methodology.
+
+    Cell map (per CorrectOutput Parkwood):
+      - P20 = 80% × SEV (the taxable basis after Headlee/Prop A cap)
+      - P21 = levy rate (decimal)
+      - P22 = P20 × P21 (the underwritten annual RE tax)
+      - I22 = P22 (UW RE Taxes line — overrides the per-site formula)
+    """
+    if "GGC Underwriting" not in wb.sheetnames:
+        return
+    prop = property_info or {}
+    sev_raw = prop.get("sev_assessed_value")
+    levy_raw = prop.get("levy_rate")
+    sev = _coerce_float(sev_raw, None)
+    levy = _coerce_float(levy_raw, None)
+    if sev is None or levy is None or sev <= 0 or levy <= 0:
+        return
+    # Accept percent or decimal for levy (e.g. 5.72 or 0.0572).
+    if levy > 1:
+        levy = levy / 100.0
+
+    ws = wb["GGC Underwriting"]
+    _protect_formulas(ws)
+
+    # P20 = 0.80 × SEV (taxable basis after 80% assessment ratio). Write
+    # the literal so the reviewer sees the computed value without needing
+    # to recompute.
+    p20_value = round(0.80 * sev, 2)
+    try:
+        ws["P20"].value = p20_value
+    except Exception:
+        pass
+    # P21 = levy rate (decimal). Use percentage number format.
+    try:
+        ws["P21"].value = levy
+        ws["P21"].number_format = "0.0000%"
+    except Exception:
+        pass
+    # P22 = P20 × P21 (the SUMIF-equivalent). Write as a formula so the
+    # reviewer can edit P20/P21 inputs and watch P22 update.
+    try:
+        ws["P22"].value = "=P20*P21"
+    except Exception:
+        pass
+
+    # I22 = the underwritten RE Taxes line. Replace the per-site formula
+    # (=J22*N7) with =P22 so the SEV × levy result flows through to EGI,
+    # OpEx, NOI, and the cap rate.
+    try:
+        ws["I22"].value = "=P22"
+    except Exception:
+        pass
+
+    # Record the override on the financials dict so the Extraction Check
+    # tab can surface what changed.
+    financials.setdefault("_ggcOverrides", []).append({
+        "category": "RE Taxes (SEV × levy)",
+        "before": "per-site (J22 × N7)",
+        "after":  round(p20_value * levy, 2),
+        "basis":  (f"SEV ${sev:,.0f} × 80% × levy {levy:.4%} = "
+                   f"${p20_value * levy:,.0f}"),
+    })
+
+
+def _project_noi_ladder(base_noi_year0, growth_schedule, years=10):
+    """Project a Year 0 -> Year N NOI ladder.
+
+    base_noi_year0 is the in-place Year-0 NOI (the underwritten T-12).
+    growth_schedule is either:
+      - a single float (e.g. 0.03 for 3% flat), or
+      - a list/tuple of per-year growth rates (Y1, Y2, ...). When shorter
+        than `years` the last value carries forward; when longer it is
+        truncated.
+
+    Returns a list of length (years + 1) of float NOI values, where index
+    0 is Year 0 and index N is Year N. Returns an empty list when the
+    base NOI is missing or non-numeric.
+    """
+    try:
+        base = float(base_noi_year0)
+    except (TypeError, ValueError):
+        return []
+    if base is None:
+        return []
+
+    if isinstance(growth_schedule, (int, float)):
+        rates = [float(growth_schedule)] * int(years)
+    elif growth_schedule:
+        try:
+            rates = [float(r) for r in growth_schedule]
+        except (TypeError, ValueError):
+            rates = [0.03] * int(years)
+        if not rates:
+            rates = [0.03] * int(years)
+        # Carry the last rate forward when the schedule is short.
+        while len(rates) < int(years):
+            rates.append(rates[-1])
+        rates = rates[: int(years)]
+    else:
+        rates = [0.03] * int(years)
+
+    ladder = [base]
+    for r in rates:
+        try:
+            r = float(r)
+        except (TypeError, ValueError):
+            r = 0.0
+        ladder.append(ladder[-1] * (1.0 + r))
+    return ladder
+
+
+def _compute_irr(cashflows, guess=0.10, tol=1e-7, max_iter=200):
+    """Solve IRR via Newton's method with a bisection fallback.
+
+    `cashflows` is a list where index 0 is the Year 0 outflow (negative)
+    and subsequent entries are annual cashflows to equity. Pure Python so
+    we don't take a numpy_financial dependency. Returns the IRR as a
+    decimal (e.g. 0.18 for 18%) or None when the input is degenerate
+    (no positive cashflows, no negative cashflows, or no real root found).
+    """
+    if not cashflows or len(cashflows) < 2:
+        return None
+    cfs = []
+    for v in cashflows:
+        try:
+            cfs.append(float(v))
+        except (TypeError, ValueError):
+            return None
+    # Need at least one positive AND one negative cashflow for IRR to
+    # be defined.
+    if not any(c > 0 for c in cfs) or not any(c < 0 for c in cfs):
+        return None
+
+    def _npv(rate):
+        try:
+            return sum(c / ((1.0 + rate) ** t) for t, c in enumerate(cfs))
+        except (OverflowError, ZeroDivisionError):
+            return float("inf")
+
+    def _dnpv(rate):
+        try:
+            return sum(-t * c / ((1.0 + rate) ** (t + 1))
+                       for t, c in enumerate(cfs) if t > 0)
+        except (OverflowError, ZeroDivisionError):
+            return float("inf")
+
+    # Newton's method.
+    rate = guess
+    for _ in range(max_iter):
+        npv = _npv(rate)
+        if abs(npv) < tol:
+            return rate
+        d = _dnpv(rate)
+        if d == 0 or not _isfinite(d):
+            break
+        new_rate = rate - npv / d
+        if not _isfinite(new_rate) or new_rate <= -0.9999:
+            break
+        if abs(new_rate - rate) < tol:
+            return new_rate
+        rate = new_rate
+
+    # Bisection fallback over a wide range.
+    lo, hi = -0.9999, 10.0
+    f_lo, f_hi = _npv(lo), _npv(hi)
+    if not (_isfinite(f_lo) and _isfinite(f_hi)) or f_lo * f_hi > 0:
+        return None
+    for _ in range(max_iter):
+        mid = (lo + hi) / 2.0
+        f_mid = _npv(mid)
+        if abs(f_mid) < tol or (hi - lo) < tol:
+            return mid
+        if f_lo * f_mid < 0:
+            hi, f_hi = mid, f_mid
+        else:
+            lo, f_lo = mid, f_mid
+    return (lo + hi) / 2.0
+
+
+def _isfinite(x):
+    """Cheap finite check that tolerates non-floats."""
+    try:
+        return x == x and x not in (float("inf"), float("-inf"))
+    except Exception:
+        return False
+
+
+def _compute_equity_multiple(cashflows):
+    """Equity multiple = sum(positive cashflows) / abs(sum(negative)).
+
+    Mirrors the analyst's D27/D28 formula on the waterfall tab
+    (total LP distributions / total LP contributions). Returns None when
+    there are no contributions to divide by.
+    """
+    if not cashflows:
+        return None
+    pos = 0.0
+    neg = 0.0
+    for v in cashflows:
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            continue
+        if f > 0:
+            pos += f
+        elif f < 0:
+            neg += f
+    if neg == 0:
+        return None
+    return pos / abs(neg)
+
+
+def _compute_cash_on_cash(cashflows_after_debt, equity_contributed):
+    """Average annual cash-on-cash yield.
+
+    Takes the post-debt cashflows for Years 1..N (the Year 0 equity
+    outflow is passed separately as `equity_contributed` so the caller
+    can choose whether to include the exit-year refinance proceeds or
+    just operating BTCF). Returns the average annual yield as a decimal,
+    or None when the equity base is missing/zero or there are no years
+    of cashflow to average.
+    """
+    if not cashflows_after_debt:
+        return None
+    try:
+        eq = float(equity_contributed)
+    except (TypeError, ValueError):
+        return None
+    if not eq or eq == 0:
+        return None
+    eq = abs(eq)
+    yields = []
+    for v in cashflows_after_debt:
+        try:
+            yields.append(float(v) / eq)
+        except (TypeError, ValueError):
+            continue
+    if not yields:
+        return None
+    return sum(yields) / len(yields)
+
+
+def compute_underwriting_summary(financials, property_info):
+    """Python-side mirror of the key underwriting outputs so the result
+    JSON can surface numerics without an Excel round-trip (cached formula
+    values are never written by openpyxl — see OUTLINE root cause #13).
+
+    Returns a dict with totalNOI, lotRentOnlyNOI, stabilizedNOI, capRate,
+    irr, equityMultiple, cashOnCash. Missing inputs return None values
+    rather than zero so the result panel can render "—" instead of a
+    misleading $0.
+
+    Calculations are intentionally simple arithmetic. The Excel workbook
+    is still the source of truth; this is just so the result panel has
+    a numeric banner.
+    """
+    out = {
+        "totalNOI":       None,
+        "lotRentOnlyNOI": None,
+        "stabilizedNOI":  None,
+        "capRate":        None,
+        "irr":            None,
+        "equityMultiple": None,
+        "cashOnCash":     None,
+    }
+    prop = property_info or {}
+    income = financials.get("income") or []
+    expenses = financials.get("expenses") or []
+
+    def _uw(item):
+        v = item.get("ggcUnderwritten")
+        try:
+            return float(v) if v is not None else 0.0
+        except (TypeError, ValueError):
+            return 0.0
+
+    # EGI = sum of all income lines whose ggcCategory is not an Omitt
+    # bucket. Bad Debt is stored negative so it nets into EGI naturally.
+    excluded_inc = {"Omitt Income"}
+    excluded_exp = {"Omitt Expense"}
+    egi = sum(_uw(it) for it in income
+              if (it.get("ggcCategory") or "") not in excluded_inc)
+    opex = sum(_uw(it) for it in expenses
+               if (it.get("ggcCategory") or "") not in excluded_exp)
+    total_noi = egi - opex
+    out["totalNOI"] = round(total_noi, 2)
+
+    # Lot-Rent-Only NOI: strip home-rent income and home-rent expense.
+    home_rent_income_cats = {"Home Rent Income", "LTO"}
+    home_rent_expense_cats = {"Home Rent Expense (MH)"}
+    home_rent_income = sum(_uw(it) for it in income
+                           if (it.get("ggcCategory") or "")
+                           in home_rent_income_cats)
+    home_rent_expense = sum(_uw(it) for it in expenses
+                            if (it.get("ggcCategory") or "")
+                            in home_rent_expense_cats)
+    home_rent_noi = home_rent_income - home_rent_expense
+    out["lotRentOnlyNOI"] = round(total_noi - home_rent_noi, 2)
+
+    # Stabilized NOI: simple approximation = Total NOI × (1 + small
+    # market-rent lift). A more rigorous version reads the rent roll
+    # market lift from Unit Mix Summary; this is a placeholder.
+    # When the methodology already computed a stabilized line, use that.
+    stabilized_total = None
+    for it in income:
+        if (it.get("ggcCategory") or "") == "Gross Potential Rent":
+            stab = it.get("stabilized") or it.get("ggcStabilized")
+            if stab:
+                try:
+                    stabilized_total = float(stab)
+                    break
+                except (TypeError, ValueError):
+                    pass
+    if stabilized_total is None:
+        # Approximate: assume stabilized GPR is 5% above UW GPR (a coarse
+        # default the analyst can override in Excel).
+        stabilized_total = total_noi * 1.05 if total_noi else None
+    out["stabilizedNOI"] = (round(stabilized_total, 2)
+                            if stabilized_total is not None else None)
+
+    # Cap rate = Total NOI / Purchase Price.
+    # Accept both snake_case (form input) and camelCase (extraction output).
+    contract_price = _coerce_float(prop.get("contract_price"), None)
+    if contract_price is None:
+        contract_price = _coerce_float(prop.get("contractPrice"), None)
+    if contract_price is None:
+        contract_price = _coerce_float(prop.get("askingPrice"), None)
+    if contract_price and contract_price > 0 and total_noi:
+        out["capRate"] = round(total_noi / contract_price, 4)
+
+    # IRR / EM / CoC: build a 10-year NOI ladder + a debt-service
+    # schedule and run them through the pure-Python IRR/EM/CoC helpers.
+    # The Excel waterfall is still the source of truth (waterfall tiers,
+    # GP catch-up, promote splits) — this mirror exists so the result
+    # JSON carries numerics even when openpyxl can't read cached formula
+    # values (OUTLINE root cause #13).
+    hold = _coerce_int(prop.get("hold_period_years"),
+                       _DEAL_DEFAULTS["hold_period_years"]) or 0
+    exit_cap = _coerce_float(prop.get("exit_cap_rate"), None)
+    if exit_cap is not None and exit_cap > 1:
+        exit_cap = exit_cap / 100.0
+
+    gp_equity = _coerce_float(prop.get("gp_equity"),
+                              _DEAL_DEFAULTS["gp_equity"]) or 0.0
+
+    if (contract_price and exit_cap and exit_cap > 0
+            and total_noi and hold and gp_equity > 0):
+        try:
+            # Year-0 NOI ladder. Pull a per-year growth schedule when the
+            # form provided one (list of decimals like [0.03, 0.03, ...]);
+            # otherwise default to flat 3% — matches the Pro Forma tab's
+            # T16:AC16 Expense Growth and T10:AC10 Other Income Growth
+            # defaults. CME / acquisition-tax bumps in Y1 are modeled in
+            # Excel; the Python mirror keeps the geometry simple.
+            growth = (prop.get("rent_growth_schedule")
+                      or prop.get("rentGrowthSchedule")
+                      or 0.03)
+            ladder = _project_noi_ladder(total_noi, growth, years=hold)
+
+            # Debt-service schedule. Pull loan terms from property_info,
+            # fall back to a 75% LTV / 6% all-in / 30-yr amort / 5-yr IO
+            # default (a placeholder calibrated to the Parkwood loan
+            # scenario tab's typical defaults). Loan amount, when not
+            # provided directly, comes from max_ltv × contract_price.
+            loan_amount = _coerce_float(prop.get("loan_amount"), None)
+            if loan_amount is None:
+                max_ltv = _coerce_float(prop.get("max_ltv"), 0.75)
+                if max_ltv is not None and max_ltv > 1:
+                    max_ltv = max_ltv / 100.0
+                loan_amount = (contract_price * (max_ltv or 0.75))
+            base_rate = _coerce_float(prop.get("base_rate"), None) or 0.0
+            spread    = _coerce_float(prop.get("spread"),    None) or 0.0
+            if base_rate > 1: base_rate = base_rate / 100.0
+            if spread    > 1: spread    = spread    / 100.0
+            all_in = (base_rate + spread) if (base_rate or spread) else 0.06
+            amort_months = _coerce_int(prop.get("amort_months"), 360) or 360
+            amort_years  = max(1, amort_months // 12)
+            io_months = _coerce_int(prop.get("io_months"), 60) or 0
+            io_years  = io_months // 12
+
+            # Annual mortgage constant for the amortizing portion.
+            # ADS = L × i / (1 − (1+i)^(−n)) where i and n are annual.
+            i = all_in
+            n = amort_years
+            try:
+                ads = (loan_amount * i) / (1.0 - (1.0 + i) ** (-n)) \
+                      if i > 0 else loan_amount / n
+            except (ZeroDivisionError, OverflowError):
+                ads = 0.0
+            io_payment = loan_amount * all_in
+
+            # Per-year debt service: IO years carry interest-only, amort
+            # years carry the constant. Also track loan balance at exit
+            # so we can compute the exit equity proceeds.
+            debt_service = []
+            balance = loan_amount
+            for yr in range(1, hold + 1):
+                if yr <= io_years:
+                    debt_service.append(io_payment)
+                    # Balance unchanged during IO.
+                else:
+                    debt_service.append(ads)
+                    # Reduce balance by the principal portion.
+                    interest = balance * all_in
+                    principal = max(0.0, ads - interest)
+                    balance = max(0.0, balance - principal)
+            loan_balance_at_exit = balance
+
+            # Exit value = Year(hold) NOI / exit cap, less selling costs.
+            # Default selling cost = 2% (typical broker + closing).
+            sell_cost_pct = _coerce_float(prop.get("selling_cost_pct"),
+                                          0.02) or 0.02
+            if sell_cost_pct > 1:
+                sell_cost_pct = sell_cost_pct / 100.0
+            exit_noi = ladder[hold] if len(ladder) > hold else total_noi
+            gross_exit = exit_noi / exit_cap if exit_cap > 0 else 0.0
+            net_exit_proceeds = (gross_exit
+                                 - (gross_exit * sell_cost_pct)
+                                 - loan_balance_at_exit)
+
+            # Build equity cashflows. Y0 = -(equity contributed). Years
+            # 1..hold-1 = operating CF (NOI − debt service). Year hold =
+            # operating CF + net exit proceeds.
+            equity_contributed = max(0.0, contract_price - loan_amount)
+            # Honor the explicit GP equity override if it is larger than
+            # the implied contribution (e.g. analyst pinned $300k cash-in).
+            if gp_equity and gp_equity > equity_contributed:
+                equity_contributed = gp_equity
+
+            equity_cfs = [-equity_contributed]
+            for yr in range(1, hold + 1):
+                op_cf = (ladder[yr] if yr < len(ladder) else exit_noi) \
+                        - debt_service[yr - 1]
+                if yr == hold:
+                    op_cf += net_exit_proceeds
+                equity_cfs.append(op_cf)
+
+            # Operating-only post-debt cashflows for CoC (exclude the
+            # exit proceeds from the average so CoC isn't dominated by
+            # a single large terminal year).
+            op_only = []
+            for yr in range(1, hold + 1):
+                cf = (ladder[yr] if yr < len(ladder) else exit_noi) \
+                     - debt_service[yr - 1]
+                op_only.append(cf)
+
+            irr = _compute_irr(equity_cfs)
+            em  = _compute_equity_multiple(equity_cfs)
+            coc = _compute_cash_on_cash(op_only, equity_contributed)
+
+            if irr is not None: out["irr"]            = round(irr, 4)
+            if em  is not None: out["equityMultiple"] = round(em, 2)
+            if coc is not None: out["cashOnCash"]     = round(coc, 4)
+        except Exception as exc:
+            print(f"[Summary] IRR/EM/CoC mirror failed: {exc!r}")
+
+    return out
+
+
 def fill_template(financials, market, output_path):
     if not TEMPLATE_PATH.exists():
         raise FileNotFoundError(
@@ -5574,6 +6908,15 @@ def fill_template(financials, market, output_path):
                        f"are available. Dropped: {dropped}"),
         })
 
+    # Track lines where the methodology returned an annual t12Total but no
+    # 12-element monthly array. We used to silently flat-spread annual/12
+    # across J:U, which defeated Collections T3/T6/T12 trend detection and
+    # the bad-debt goal-seek (Parkwood symptom — see OUTLINE root cause
+    # #4). Now we leave the monthly cells BLANK and emit a single WARN per
+    # affected line so the reviewer knows the underlying source was
+    # annual-only.
+    annual_only_lines = []
+
     def _write_item(r, item):
         ws.cell(row=r, column=1, value=item.get("ggcCategory", ""))
         ws.cell(row=r, column=2, value=item.get("sellerName", ""))
@@ -5586,9 +6929,12 @@ def fill_template(financials, market, output_path):
             for m_i, val in enumerate(monthly):
                 ws.cell(row=r, column=10 + m_i, value=val)
         elif item.get("t12Total"):
-            even = (item["t12Total"] or 0) / 12
-            for m_i in range(12):
-                ws.cell(row=r, column=10 + m_i, value=even)
+            # Annual-only P&L: do NOT fan out annual/12. Leave the J:U
+            # cells blank and record the line so we can surface a single
+            # Extraction Check WARN below. Silent fan-out used to lie
+            # about trend (every month identical) and corrupt Collections.
+            annual_only_lines.append(item.get("sellerName") or
+                                     item.get("ggcCategory") or "?")
 
     written_income_rows = set()
     for item, r in zip(income_items, income_slots):
@@ -5598,6 +6944,49 @@ def fill_template(financials, market, output_path):
     for item, r in zip(expense_items, expense_slots):
         _write_item(r, item)
         written_expense_rows.add(r)
+
+    # Surface annual-only P&L coverage as a single WARN. Without monthly
+    # detail Collections (T3/T6/T12 trend bands) and the bad-debt goal-
+    # seek become meaningless — the reviewer needs to know to request the
+    # monthly source before underwriting forward.
+    if annual_only_lines:
+        sample = ", ".join(annual_only_lines[:5])
+        more = (f" (+{len(annual_only_lines) - 5} more)"
+                if len(annual_only_lines) > 5 else "")
+        financials.setdefault("_extractionChecks", []).append({
+            "item":   "Annual-only P&L coverage",
+            "check":  "monthly columns populated for every line",
+            "status": "warn",
+            "detail": (f"{len(annual_only_lines)} line(s) had an annual "
+                       f"t12Total but no 12-month series. Data Consolidation "
+                       f"J:U cells left BLANK for those rows (no annual/12 "
+                       f"fan-out) so Collections T3/T6/T12 averages stay "
+                       f"honest. Request the seller's monthly source before "
+                       f"underwriting forward. Lines: {sample}{more}"),
+        })
+
+    # ── Reporting-period column headers (DC row 2) ───────────────────────
+    # The Underwriting tab D3:G3 forwarders read F2/G2/H2/I2 for period
+    # labels. Without these the labels resolve to "None" (Parkwood
+    # symptom). Pull from the extracted reportingPeriod and the candidate
+    # periods seen so multi-period docs (T3 + T10 + T12) get distinct
+    # column headers.
+    period_labels = []
+    extr = financials.get("_extraction") or {}
+    rp = (extr.get("reportingPeriod") or {}) if isinstance(extr, dict) else {}
+    cands = rp.get("candidatePeriodsSeen") or []
+    if isinstance(cands, list):
+        period_labels.extend([str(c) for c in cands if c])
+    primary = rp.get("periodUsed") or rp.get("dateRange") or ""
+    if primary and primary not in period_labels:
+        period_labels.insert(0, primary)
+    # Cap at 4 labels (F2/G2/H2/I2). These cells are non-formula in the
+    # template, so we can write them without tripping the formula guard.
+    for col_idx, label in zip((6, 7, 8, 9), period_labels[:4]):
+        try:
+            ws.cell(row=2, column=col_idx, value=label)
+        except Exception:
+            pass
 
     # Clear any trailing slots the template ships with default text
     # ("Choose Expense Category", "Input Source Data", etc.) so the
@@ -5657,6 +7046,22 @@ def fill_template(financials, market, output_path):
         if not s:
             return "TOH MH Site"
 
+        # ── Regex-based routing for the new canonicals ───────────────────
+        # LTO and Flourish are economically distinct from plain TOH (see
+        # OUTLINE root cause #1). Check these BEFORE the generic TOH
+        # fallthrough so "TOH - LC" routes to LTO MH Site rather than
+        # collapsing into TOH.
+        import re as _re
+        # LTO / Land Contract / Lease-to-own. The \b on "LC" prevents
+        # accidental matches on "calculator" / "block". `LTO` matches on
+        # its own.
+        if _re.search(r"\blc\b|land[\s\-]?contract|\blto\b|lease[\s\-]?to[\s\-]?own",
+                      s):
+            return "LTO MH Site"
+        # Flourish / Bennetts / trustee sub-brand financing.
+        if _re.search(r"flourish|bennett|trustee", s):
+            return "Flourish MH Site"
+
         # Order matters — check POH first because "POH *Title Issue" would
         # otherwise hit "rv" / "retail" never, but a TOH variant containing
         # "rv" (e.g. "TOH - RV trailer") shouldn't be RV.
@@ -5673,14 +7078,12 @@ def fill_template(financials, market, output_path):
                 return "TOH MH Site"
             return "POH-Infilled units"
 
-        # TOH variants (LC = Land Contract, Flourish = Flourish Investments
-        # LLC's LC portfolio, Bennetts = trustee arrangement, etc.). All
-        # are tenant-owned manufactured homes paying lot rent.
+        # TOH variants — pure TOH, tenant-owned, plain MH lots.
+        # NOTE: LC / Flourish / Bennetts / trustee variants were routed
+        # to LTO / Flourish above, so they don't reach this branch.
         if any(p in s for p in ("toh", "tenant owned", "tenant-owned",
                                  "tenant own", "mh lot", "mh site",
-                                 "lot rent", "site rent", "pad",
-                                 " lc ", "-lc", "land contract",
-                                 "flourish", "bennett", "trustee")):
+                                 "lot rent", "site rent", "pad")):
             return "TOH MH Site"
 
         # RV variants
@@ -5700,23 +7103,71 @@ def fill_template(financials, market, output_path):
         # labels by default, so this is the safest fallback.
         return "TOH MH Site"
 
+    # ── Build per-canonical-type market-rent lookup for vacant imputation ──
+    # When a vacant row arrives with lotRent==0, substitute the average
+    # occupied lot rent of the same canonical unit type. This matches
+    # CLAUDE.md §2.3 ("impute vacant pads at market") and avoids the
+    # symptom where vacant rows write $0 to Rent Roll Input column I and
+    # silently drag GPR down (OUTLINE root cause #8). Source preferentially
+    # from unitGroups.lotRent, falling back to averaged occupied rows.
+    market_lot_rent_by_type = {}
+    if isinstance(unit_groups, list):
+        for grp in unit_groups:
+            ut = _canonicalize_unit_type(grp.get("unitType"))
+            lr = grp.get("lotRent") or 0
+            if isinstance(lr, (int, float)) and lr > 0:
+                market_lot_rent_by_type.setdefault(ut, lr)
+    # Fallback: compute averages from occupied per-row data.
+    occ_rents = {}
+    for row in per_row or []:
+        if not isinstance(row, dict):
+            continue
+        if (row.get("status") or "Occupied").strip().lower() == "vacant":
+            continue
+        ut = _canonicalize_unit_type(row.get("unitType", "") or "")
+        lr = row.get("lotRent") or 0
+        if isinstance(lr, (int, float)) and lr > 0:
+            occ_rents.setdefault(ut, []).append(float(lr))
+    for ut, vals in occ_rents.items():
+        if ut not in market_lot_rent_by_type:
+            market_lot_rent_by_type[ut] = sum(vals) / len(vals)
+
     individual_units = []
     if per_row:
         for row in per_row:
             raw_type = row.get("unitType", "") or ""
+            canon = _canonicalize_unit_type(raw_type)
+            status = row.get("status", "Occupied") or "Occupied"
+            raw_lot_rent = row.get("lotRent", 0) or 0
+            try:
+                lot_rent_value = float(raw_lot_rent) if raw_lot_rent else 0.0
+            except (TypeError, ValueError):
+                lot_rent_value = 0.0
+            # Vacant-lot market-rent substitution. Per CLAUDE.md §2.3 we
+            # impute vacant pads at the per-type market rent so GPR stays
+            # honest. Only fires when the row is vacant AND lotRent is 0.
+            if (status.strip().lower() == "vacant" and lot_rent_value <= 0):
+                imputed = market_lot_rent_by_type.get(canon, 0)
+                if imputed and imputed > 0:
+                    lot_rent_value = float(imputed)
             individual_units.append({
                 "unitId":    row.get("unitId", "") or "",
-                "unitType":  _canonicalize_unit_type(raw_type),
+                "unitType":  canon,
                 # Preserve the seller's original lot-type label (e.g.
                 # "TOH - LC", "TOH - Flourish", "POH *Title Issue") so the
                 # analyst can see the sub-type breakdown on the Rent Roll
                 # Input tab even though Unit Mix Summary rolls everything
                 # up to 4 canonical types.
                 "sellerType": raw_type,
-                "status":    row.get("status", "Occupied") or "Occupied",
+                "status":    status,
                 "tenantName": row.get("tenantName", "") or "",
-                "lotRent":   row.get("lotRent", 0) or 0,
+                "lotRent":   lot_rent_value,
                 "homeRent":  row.get("homeRent", 0) or 0,
+                # LC payment captured by the extended extraction schema.
+                # Written to a separate column on the Rent Roll Input tab
+                # so the LTO revenue stream is visible to the analyst.
+                "lcPayment": row.get("lcPayment", 0) or 0,
+                "moveInDate": row.get("moveInDate", "") or "",
             })
     else:
         for grp in unit_groups:
@@ -5759,24 +7210,86 @@ def fill_template(financials, market, output_path):
             ),
         })
 
+    # Map canonical unit-type → SHORT lot code (TOH / POH / LTO / Flourish)
+    # so the C column matches what fix_template.py's D-column derivation
+    # formula tests for: `=IF(C="TOH","Type 1", IF(C="POH","Type 2", ...))`.
+    # Writing the canonical name "TOH MH Site" makes the IF cascade fall
+    # through to the "Type 1" default for EVERY row, which then makes the
+    # Unit Mix Summary COUNTIFS report all rows as Type 1 with $0 lot rent
+    # (since status is also misrouted — see below). Compounding bug, single
+    # root cause: the column conventions in the new Parkwood layout are:
+    #   B = Lot #            (unitId)
+    #   C = Lot Type SHORT   ("TOH", "POH", "LTO", "Flourish")
+    #   D = Unit Type        (Type 1..4, FORMULA — do not overwrite)
+    #   E = Occupied/Vacant  (status)
+    #   F = Tenants & lot#   (tenantName)
+    #   G = Move in          (moveInDate)
+    #   H = Lot Rent
+    #   I = POH Home Rents
+    #   J = LTO PMT
+    #   K = Combined         (FORMULA)
+    _SHORT_CODE_BY_CANONICAL = {
+        "TOH MH Site":        "TOH",
+        "POH-Infilled units": "POH",
+        "LTO MH Site":        "LTO",
+        "Flourish MH Site":   "Flourish",
+        "Long term RV Site":  "RV",
+        "Retail/Commercial":  "Retail",
+    }
+    _SHORT_CODE_BY_SELLER_PATTERN = [
+        (re.compile(r"(?i)flourish|bennett"),                  "Flourish"),
+        (re.compile(r"(?i)\bLC\b|land[- ]?contract|^LTO\b|"
+                    r"lease[- ]?to[- ]?own"),                  "LTO"),
+        (re.compile(r"(?i)^POH\b"),                            "POH"),
+        (re.compile(r"(?i)^TOH\b"),                            "TOH"),
+        (re.compile(r"(?i)retail|commercial"),                 "Retail"),
+        (re.compile(r"(?i)^RV\b|recreational vehicle"),        "RV"),
+    ]
+
+    def _short_lot_code(unit):
+        """Derive the seller's short lot-type label (TOH/POH/LTO/Flourish/
+        RV/Retail) from the unit dict. Prefer the seller's RAW label
+        (which carries the LC/Flourish nuance) over the canonical name
+        (which collapses those distinctions for downstream wiring).
+        """
+        seller = (unit.get("sellerType") or "").strip()
+        for pat, code in _SHORT_CODE_BY_SELLER_PATTERN:
+            if pat.search(seller):
+                return code
+        canon = (unit.get("unitType") or "").strip()
+        return _SHORT_CODE_BY_CANONICAL.get(canon, "TOH")
+
     for i, unit in enumerate(individual_units[:RENT_ROLL_CAPACITY]):
         r = 3 + i
-        ws.cell(row=r, column=2,  value=unit.get("unitId", ""))      # B
-        ws.cell(row=r, column=3,  value=unit.get("unitType", ""))    # C (canonical)
-        ws.cell(row=r, column=4,  value=unit.get("status", ""))      # D
-        ws.cell(row=r, column=6,  value=unit.get("tenantName", ""))  # F
-        # Column G holds the seller's ORIGINAL lot-type label (e.g.
-        # "TOH - LC", "TOH - Flourish", "POH *Title Issue"). Column C
-        # has the canonical type for the COUNTIFS to find; column G
-        # preserves the sub-type detail so analysts can spot LC vs
-        # Flourish vs trustee arrangements without re-reading the rent
-        # roll PDF. Only writes when different from canonical to avoid
-        # noise on Whaleshead-style sellers whose label already matches.
-        seller_type = unit.get("sellerType", "") or ""
-        if seller_type and seller_type.strip() != unit.get("unitType", "").strip():
-            ws.cell(row=r, column=7, value=seller_type)              # G
-        ws.cell(row=r, column=9,  value=unit.get("lotRent", 0))      # I
-        ws.cell(row=r, column=10, value=unit.get("homeRent", 0))     # J
+        ws.cell(row=r, column=2,  value=unit.get("unitId", ""))      # B Lot #
+        ws.cell(row=r, column=3,  value=_short_lot_code(unit))       # C Lot Type
+        # D = Unit Type Type 1..4 — formula seeded by fix_template, do not write.
+        ws.cell(row=r, column=5,  value=unit.get("status", ""))      # E Occupied/Vacant
+        ws.cell(row=r, column=6,  value=unit.get("tenantName", ""))  # F Tenants
+        # G = Move in. Preserve the seller's raw label when it has detail
+        # beyond the short code (e.g. "TOH - LC *Probate*"); otherwise
+        # store the move-in date if extraction captured it.
+        seller_type = (unit.get("sellerType") or "").strip()
+        move_in = (unit.get("moveInDate") or "").strip()
+        if move_in:
+            ws.cell(row=r, column=7, value=move_in)                  # G Move in
+        elif seller_type and "*" in seller_type:
+            # Surface annotations like "POH *Title Issue", "TOH - LC *Probate*"
+            # so the analyst can flag them without re-reading the PDF.
+            ws.cell(row=r, column=7, value=seller_type)              # G fallback
+
+        # Rent Roll Input new layout (per fix_template.py section 3):
+        #   H = Lot Rent
+        #   I = POH Home Rents   (was where lotRent landed in the legacy layout)
+        #   J = LTO PMT          (was where homeRent landed in the legacy layout)
+        # The backend was writing to the LEGACY columns (I/J for lotRent/homeRent)
+        # which silently zeroed Parkwood's $45,000/mo lot rent total. Pin to the
+        # canonical layout — H = lotRent, I = homeRent, J = lcPayment.
+        ws.cell(row=r, column=8,  value=unit.get("lotRent", 0))      # H
+        ws.cell(row=r, column=9,  value=unit.get("homeRent", 0))     # I
+        lc_val = unit.get("lcPayment", 0)
+        if lc_val:
+            ws.cell(row=r, column=10, value=lc_val)                  # J — LTO PMT
         # A (Count) and K (Combined) are formulas seeded by fix_template.py
 
     # ── Add Miscellaneous tab ──────────────────────────────────────────────
@@ -5950,6 +7463,72 @@ def fill_template(financials, market, output_path):
                 _set_addr(underw, f"P{r}", parcel.get("taxes"))
             if parcel.get("acres") is not None:
                 _set_addr(underw, f"R{r}", parcel.get("acres"))
+
+    # ── Deal-specific tab writers ─────────────────────────────────────────
+    # Sources & Uses (gp_equity, contract_price, closing_cost_pct, capex
+    # breakdown), Loan Scenario (lender name, rate stack, IO, term/amort,
+    # LTV/DSCR), Investor Return (hold-period label), and the SEV × levy
+    # Tax Analysis override. Each is keyed off optional form inputs on
+    # property_info and silently no-ops when no inputs are provided, so
+    # legacy deals without these inputs render exactly as before. Wrapped
+    # in try/except so a failure in any one writer doesn't sink the save.
+    try:
+        fill_sources_and_uses(wb, financials, prop)
+    except Exception as exc:
+        print(f"[Template] fill_sources_and_uses failed: {exc!r}")
+        financials.setdefault("_extractionChecks", []).append({
+            "item":   "Sources & Uses writer",
+            "check":  "Tab populated without exception",
+            "status": "warn",
+            "detail": f"fill_sources_and_uses raised {exc!r}",
+        })
+    try:
+        fill_loan_scenario(wb, financials, prop)
+    except Exception as exc:
+        print(f"[Template] fill_loan_scenario failed: {exc!r}")
+        financials.setdefault("_extractionChecks", []).append({
+            "item":   "Loan Scenario writer",
+            "check":  "Tab populated without exception",
+            "status": "warn",
+            "detail": f"fill_loan_scenario raised {exc!r}",
+        })
+    try:
+        fill_investor_return(wb, financials, prop)
+    except Exception as exc:
+        print(f"[Template] fill_investor_return failed: {exc!r}")
+        financials.setdefault("_extractionChecks", []).append({
+            "item":   "Investor Return writer",
+            "check":  "Tab populated without exception",
+            "status": "warn",
+            "detail": f"fill_investor_return raised {exc!r}",
+        })
+    try:
+        fill_tax_analysis(wb, financials, prop)
+    except Exception as exc:
+        print(f"[Template] fill_tax_analysis failed: {exc!r}")
+        financials.setdefault("_extractionChecks", []).append({
+            "item":   "Tax Analysis writer",
+            "check":  "SEV × levy override applied without exception",
+            "status": "warn",
+            "detail": f"fill_tax_analysis raised {exc!r}",
+        })
+
+    # ── Python-side mirror calculation ────────────────────────────────────
+    # openpyxl never writes cached formula values, so the result JSON
+    # would otherwise read None on every formula cell (cap rate, NOI,
+    # IRR, EM, CoC). Compute a simple Python mirror so the result panel
+    # can render numeric banners. Excel is still the source of truth.
+    try:
+        summary = compute_underwriting_summary(financials, prop)
+        financials["computedSummary"] = summary
+    except Exception as exc:
+        print(f"[Template] compute_underwriting_summary failed: {exc!r}")
+        financials.setdefault("_extractionChecks", []).append({
+            "item":   "Computed summary mirror",
+            "check":  "Python NOI/cap/IRR/EM mirror produced",
+            "status": "warn",
+            "detail": f"compute_underwriting_summary raised {exc!r}",
+        })
 
     # Tally formula-protection blocks across the worksheets we wrapped.
     # When a write was deferred to a pre-wired template formula, surface
@@ -7007,6 +8586,36 @@ def analyze():
         n_runs_override = 0
     skip_market = (request.form.get("skip_market", "0") or "0") in ("1", "true", "on")
 
+    # ── Optional capex_line_items: JSON list of {label, amount} for
+    # Sources & Uses capex breakdown. Parsed defensively — bad JSON falls
+    # back to an empty list rather than failing the entire request.
+    _capex_raw = request.form.get("capex_line_items", "") or ""
+    capex_line_items = []
+    if _capex_raw.strip():
+        try:
+            parsed = json.loads(_capex_raw)
+            if isinstance(parsed, list):
+                capex_line_items = parsed
+        except (ValueError, TypeError):
+            capex_line_items = []
+
+    # ── Optional per_site_overrides: JSON object mapping category → $/site.
+    _pso_raw = request.form.get("per_site_overrides", "") or ""
+    per_site_overrides = {}
+    if _pso_raw.strip():
+        try:
+            parsed = json.loads(_pso_raw)
+            if isinstance(parsed, dict):
+                per_site_overrides = parsed
+        except (ValueError, TypeError):
+            per_site_overrides = {}
+
+    def _ff(name, default=""):
+        """Form-field passthrough — returns the raw string (or default).
+        Downstream consumers convert to numeric via _get_pp /
+        _apply_per_site_overrides, which tolerate empty strings."""
+        return request.form.get(name, default)
+
     property_info = {
         "name":        request.form.get("property_name", ""),
         "address":     request.form.get("address", ""),
@@ -7023,6 +8632,48 @@ def analyze():
         "askingPrice": request.form.get("asking_price", ""),
         "floodZone":   request.form.get("flood_zone", "unknown"),
         "deepSearch":  request.form.get("deep_search", "off"),
+        # ── Sources & Uses inputs ─────────────────────────────────────
+        "contract_price":      _ff("contract_price"),
+        "gp_equity":           _ff("gp_equity"),
+        "closing_cost_pct":    _ff("closing_cost_pct"),
+        "capex_line_items":    capex_line_items,
+        # ── Loan Scenario inputs ──────────────────────────────────────
+        "lender_name":   _ff("lender_name"),
+        "base_rate":     _ff("base_rate"),
+        "spread":        _ff("spread"),
+        "io_months":     _ff("io_months"),
+        "amort_months":  _ff("amort_months"),
+        "term_months":   _ff("term_months"),
+        "min_dscr":      _ff("min_dscr"),
+        "max_ltv":       _ff("max_ltv"),
+        # ── Investor Return / Pro Forma inputs ────────────────────────
+        "exit_cap_rate":      _ff("exit_cap_rate"),
+        "hold_period_years":  _ff("hold_period_years"),
+        # ── Tax Analysis inputs ───────────────────────────────────────
+        "sev_assessed_value": _ff("sev_assessed_value"),
+        "levy_rate":          _ff("levy_rate"),
+        # ── GGC Underwriting methodology overrides ────────────────────
+        "bad_debt_uw_pct":         _ff("bad_debt_uw_pct"),
+        "home_rent_expense_ratio": _ff("home_rent_expense_ratio"),
+        # ── Per-site flat overrides (each is $/unit/year). Empty string
+        # passes through to GGC_PER_SITE_DEFAULTS in
+        # _apply_per_site_overrides. ──────────────────────────────────
+        "insurance_per_site":          _ff("insurance_per_site"),
+        "payroll_per_site":            _ff("payroll_per_site"),
+        "ground_maintenance_per_site": _ff("ground_maintenance_per_site"),
+        "ga_per_site":                 _ff("ga_per_site"),
+        "professional_fees_per_site":  _ff("professional_fees_per_site"),
+        "advertising_per_site":        _ff("advertising_per_site"),
+        "capex_per_unit":              _ff("capex_per_unit"),
+        # Cap rates for the bifurcated valuation block. Empty falls
+        # through to template defaults / lot 5% / home 20% per task DEFAULTS.
+        "lot_cap_rate":   _ff("lot_cap_rate"),
+        "home_cap_rate":  _ff("home_cap_rate"),
+        # Optional dict of category → $/site for arbitrary additional
+        # overrides not covered by the named flags above. Reserved for
+        # future expansion; consumed only if the writers reference it.
+        "per_site_overrides": per_site_overrides,
+        # ── Internal cost-mode controls (unchanged) ───────────────────
         "_costMode":   cost_mode,
         "_nRunsOverride": n_runs_override,
         "_skipMarket": skip_market,
