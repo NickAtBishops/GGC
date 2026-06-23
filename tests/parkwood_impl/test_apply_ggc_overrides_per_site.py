@@ -164,9 +164,12 @@ def test_payroll_per_site_default_425_times_100_units():
 
     row = _find_by_category(financials["expenses"], "Payroll")
     assert row["ggcUnderwritten"] == pytest.approx(42_500.0), row
-    # Monthly fan-out should be the annual / 12 (consistent with the
-    # override's own monthly assignment in _override_line).
-    assert row["monthly"] == pytest.approx([42_500.0 / 12] * 12), row
+    # Monthly history is now PRESERVED — the override only changes the
+    # underwritten total. Previously the override clobbered seller
+    # monthly history with a flat [target/12]*12 that destroyed
+    # T3/T6/T12 trend bands. The fixture seeds monthly = [100]*12
+    # (from `_expense_row`'s t12=1200), so we expect that to survive.
+    assert row["monthly"] == pytest.approx([1_200.0 / 12] * 12), row
 
 
 def test_insurance_per_site_non_flood_250_times_100_units():

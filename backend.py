@@ -4224,10 +4224,14 @@ def _merge_methodology(runs):
                     [m[i] for m in monthly_runs
                      if isinstance(m[i], (int, float))])
                     for i in range(12)]
-            elif t12_total:
-                monthly = [t12_total / 12] * 12
             else:
-                monthly = [0] * 12
+                # NEVER fabricate `[t12_total/12] * 12`. A flat fan-out
+                # passes the len()==12 gate downstream and floods DC
+                # J:U with annual/12 in every month — killing Collections
+                # T3/T6/T12 trend bands and the bad-debt goal-seek.
+                # Leave monthly as None so the DC writer routes through
+                # the annual-only WARN path (backend.py:5584-5591).
+                monthly = None
 
             # Confidence: mode across runs (high beats medium beats low only
             # if more than half of runs say so).
@@ -4670,7 +4674,11 @@ def _apply_per_site_overrides(financials, property_info):
         target = round(pp[key] * units, 2)
         before = item.get("ggcUnderwritten")
         item["ggcUnderwritten"] = target
-        item["monthly"] = [target / 12] * 12
+        # PRESERVE seller monthly history. Overwriting with a flat
+        # [target/12]*12 destroys the seasonality the analyst needs for
+        # T3/T6/T12 trend bands and lets DC flag false-positive trends.
+        # The override only changes the UW total; the monthly history is
+        # for the seller P&L side (DC column J:U). Leave it alone.
         item["confidence"] = "high"
         note = (item.get("notes") or "").strip()
         item["notes"] = (note + " || " if note else "") + (
@@ -4711,7 +4719,12 @@ def _apply_per_site_overrides(financials, property_info):
             "sellerName":      f"{cat} (GGC per-site override)",
             "fyPrior":         0, "fyCurrent": 0, "brokerProforma": 0,
             "t12Total":        0,
-            "monthly":         [target / 12] * 12,
+            # `None` (not a flat fan-out) so the DC writer routes through
+            # the annual-only WARN path. The UW value (column I via
+            # ggcUnderwritten) still lands; the monthly history (column
+            # J:U) stays blank because there isn't one for an inserted
+            # line.
+            "monthly":         None,
             "ggcUnderwritten": target,
             "confidence":      "high",
             "notes": (f"GGC per-site override (no seller line): "
@@ -5419,22 +5432,40 @@ def _ensure_rent_roll_complete(financials, property_info):
 
     sizes = [(g.get("occupiedCount") or 0) + (g.get("vacantCount") or 0)
              for g in groups]
-    current_total = sum(sizes)
-    if current_total >= stated_units:
+    groups_total = sum(sizes)
+    rows_total = sum(1 for r in per_row if isinstance(r, dict))
+
+    # Per OUTLINE root cause #3: imputation must fire when EITHER the
+    # unitGroups totals OR the per-row count falls below stated_units.
+    # The LLM sometimes emits a unitGroup tallying to stated_units while
+    # only writing a fraction of the rows — silently dropping vacant
+    # pads from GPR. Compute both shortfalls and only return when BOTH
+    # caught up.
+    groups_shortfall = max(stated_units - groups_total, 0)
+    rows_shortfall   = max(stated_units - rows_total,   0)
+    if groups_shortfall == 0 and rows_shortfall == 0:
         return
 
-    shortfall = stated_units - current_total
-    sized = sorted(enumerate(sizes), key=lambda x: -x[1])
-    remaining = shortfall
-    for idx, sz in sized[:-1]:
-        share = int(round(shortfall * sz / current_total)) if current_total else 0
-        share = min(share, remaining)
-        groups[idx]["vacantCount"] = (groups[idx].get("vacantCount") or 0) + share
-        remaining -= share
-    if remaining > 0:
-        biggest_idx = sized[0][0]
-        groups[biggest_idx]["vacantCount"] = (
-            groups[biggest_idx].get("vacantCount") or 0) + remaining
+    # The legacy unitGroups proportional-distribution block below assumes
+    # a single `shortfall`. Use the groups shortfall there; the per-row
+    # block uses `rows_shortfall`.
+    shortfall = groups_shortfall
+    current_total = groups_total
+    # Only adjust unitGroups when groups_shortfall > 0; otherwise the
+    # groups already total correctly and only the per-row container needs
+    # padding.
+    if shortfall > 0:
+        sized = sorted(enumerate(sizes), key=lambda x: -x[1])
+        remaining = shortfall
+        for idx, sz in sized[:-1]:
+            share = int(round(shortfall * sz / current_total)) if current_total else 0
+            share = min(share, remaining)
+            groups[idx]["vacantCount"] = (groups[idx].get("vacantCount") or 0) + share
+            remaining -= share
+        if remaining > 0:
+            biggest_idx = sized[0][0]
+            groups[biggest_idx]["vacantCount"] = (
+                groups[biggest_idx].get("vacantCount") or 0) + remaining
 
     new_occupied = sum(g.get("occupiedCount") or 0 for g in groups)
     new_vacant = sum(g.get("vacantCount") or 0 for g in groups)
@@ -5506,9 +5537,15 @@ def _ensure_rent_roll_complete(financials, property_info):
             except (TypeError, ValueError):
                 pass
 
-    next_seq = max(max_numeric_id, stated_units - shortfall) + 1
+    # Use the rows-side shortfall here, NOT the groups-side one. They can
+    # differ — the bug we're fixing is when groups_shortfall=0 but
+    # rows_shortfall>0 (LLM reported the right unitGroup totals while
+    # silently dropping rows). The legacy code used `shortfall` (groups),
+    # which is why ModelOutput shipped at 97 rows with the user-stated
+    # 100 in the form.
+    next_seq = max(max_numeric_id, stated_units - rows_shortfall) + 1
     imputed_rows = []
-    for _ in range(shortfall):
+    for _ in range(rows_shortfall):
         while True:
             candidate = str(next_seq)
             next_seq += 1
@@ -6808,6 +6845,58 @@ def fill_template(financials, market, output_path):
         )
 
     wb = load_workbook(TEMPLATE_PATH)
+
+    # ── Stale-template guard ──────────────────────────────────────────────
+    # Refuse to run if the on-disk template is missing the Parkwood-layout
+    # sentinels. A stale Whaleshead-shape template (legacy I=Lot Rent,
+    # J=Home Rent, no D-derived Type column) silently produces wrong
+    # output that LOOKS correct cell-by-cell — exactly how ModelOutput.xlsx
+    # shipped with 97/2-bucket Unit Mix Summary, flat Collections, and
+    # a broken Pro Forma.
+    try:
+        rr_h2 = (wb["Rent Roll Input"]["H2"].value or "").strip().lower()
+        rr_i2 = (wb["Rent Roll Input"]["I2"].value or "").strip().lower()
+        rr_j2 = (wb["Rent Roll Input"]["J2"].value or "").strip().lower()
+        ums_b4 = (wb["Unit Mix Summary"]["B4"].value or "").strip()
+        ums_b6 = (wb["Unit Mix Summary"]["B6"].value or "").strip()
+        uw_a14 = (wb["GGC Underwriting"]["A14"].value or "").strip()
+    except KeyError as exc:
+        raise RuntimeError(
+            f"Stale template detected: missing tab {exc}. "
+            f"Re-run `python3 build_template_from_parkwood.py` to regenerate "
+            f"{TEMPLATE_PATH.name} from ParkwoodCorrect.xlsx."
+        )
+
+    sentinel_failures = []
+    if "lot rent" not in rr_h2:
+        sentinel_failures.append(f"Rent Roll Input H2={rr_h2!r} (expected 'Lot Rent')")
+    if "poh home rents" not in rr_i2:
+        sentinel_failures.append(f"Rent Roll Input I2={rr_i2!r} (expected 'POH Home Rents')")
+    if "lto pmt" not in rr_j2:
+        sentinel_failures.append(f"Rent Roll Input J2={rr_j2!r} (expected 'LTO PMT')")
+    if not ums_b4.lower().startswith("toh"):
+        sentinel_failures.append(f"Unit Mix Summary B4={ums_b4!r} (expected to start with 'TOH')")
+    if not ums_b6.lower().startswith("lto"):
+        sentinel_failures.append(f"Unit Mix Summary B6={ums_b6!r} (expected to start with 'LTO')")
+    if uw_a14.lower() != "lto":
+        sentinel_failures.append(f"GGC Underwriting A14={uw_a14!r} (expected 'LTO')")
+    if sentinel_failures:
+        raise RuntimeError(
+            "Stale template detected — refusing to run. Re-run "
+            "`python3 build_template_from_parkwood.py` to regenerate "
+            f"{TEMPLATE_PATH.name} from ParkwoodCorrect.xlsx. "
+            f"Failed sentinels: {'; '.join(sentinel_failures)}"
+        )
+    financials.setdefault("_extractionChecks", []).append({
+        "item":   "Template provenance",
+        "check":  "Parkwood-layout sentinels present (H2/I2/J2 headers, UMS rows, UW A14)",
+        "status": "ok",
+        "detail": (f"Template at {TEMPLATE_PATH.name} passes all 6 sentinels. "
+                   f"H2={rr_h2!r}, I2={rr_i2!r}, J2={rr_j2!r}, "
+                   f"UMS B4 starts with TOH, UMS B6 starts with LTO, "
+                   f"UW A14='LTO'."),
+    })
+
     # Per-worksheet counters of writes blocked because a formula already
     # lived in the target cell. Summed and surfaced at the end of fill.
     formula_blocks_total = [0]
@@ -7444,6 +7533,80 @@ def fill_template(financials, market, output_path):
     # Assessed Value / Levy Rate / Estimated Tax cells automatically.
     if prop.get("taxAssessorUrl"):
         _set_addr(underw, "N19", prop.get("taxAssessorUrl"))
+    # ── Per-deal Pro Forma + UMRG overrides ──────────────────────────────
+    # Form inputs (exit_cap_rate, bad_debt_uw_pct, home_rent_expense_ratio,
+    # rent_growth_schedule) were being consumed only by the in-Python NOI
+    # ladder (compute_underwriting_summary) but never written to the
+    # workbook. Result: every deal got the fix_template bake-time defaults
+    # regardless of what the form sent. Land them on the workbook so the
+    # Pro Forma + UMRG tabs reflect deal-level overrides.
+    try:
+        proforma = wb["GGC Pro Forma"]
+    except KeyError:
+        proforma = None
+    try:
+        umrg = wb["Unit Mix Rent Growth"]
+    except KeyError:
+        umrg = None
+
+    def _pp_float(*keys):
+        """First non-None / parseable float across snake_case +
+        camelCase aliases."""
+        for k in keys:
+            v = prop.get(k)
+            if v is None or v == "" or v == "None":
+                continue
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                continue
+        return None
+
+    if proforma is not None:
+        ecap = _pp_float("exit_cap_rate", "exitCapRate")
+        if ecap is not None:
+            # Accept either 0.06 or 6.0 (whole-percent form).
+            if ecap > 1:
+                ecap = ecap / 100.0
+            _set_addr(proforma, "X20", ecap)
+        hrer = _pp_float("home_rent_expense_ratio", "homeRentExpenseRatio")
+        if hrer is not None:
+            if hrer > 1:
+                hrer = hrer / 100.0
+            _set_addr(proforma, "B47", hrer)
+
+    bd = _pp_float("bad_debt_uw_pct", "badDebtUwPct")
+    if bd is not None:
+        if bd > 1:
+            bd = bd / 100.0
+        # UW templates use L7 in the K-column three-NOI layout; older
+        # legacy layouts use J7. _set_addr's formula-protection guard
+        # handles whichever is the input cell.
+        _set_addr(underw, "L7", bd)
+        _set_addr(underw, "J7", bd)
+
+    if umrg is not None:
+        schedule = prop.get("rent_growth_schedule") or prop.get("rentGrowthSchedule")
+        if isinstance(schedule, dict):
+            # Rows: 5=TOH, 6=POH, 7=LTO, 8=Flourish (matches
+            # fix_template.py section 4). Columns B-K = years 1-10.
+            for row, key in [(5, "toh"), (6, "poh"),
+                             (7, "lto"), (8, "flourish")]:
+                values = schedule.get(key)
+                if isinstance(values, list) and len(values) >= 1:
+                    for i, v in enumerate(values[:10]):
+                        try:
+                            v_float = float(v)
+                            if v_float > 1:
+                                v_float = v_float / 100.0
+                        except (TypeError, ValueError):
+                            continue
+                        col = chr(ord("B") + i)  # B,C,D...K
+                        _set_addr(umrg, f"{col}{row}", v_float)
+        vsc = prop.get("vacantStabilizationCount")
+        if vsc is not None:
+            _set_addr(umrg, "C15", vsc)
+
     parcels = prop.get("taxParcels") or []
     if isinstance(parcels, list):
         # Write up to 7 parcels into rows 26-32. Excess parcels are
