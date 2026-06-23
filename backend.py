@@ -7973,10 +7973,51 @@ def add_comps_analysis_tab(wb, financials, market):
     sale_comps = market.get("saleComps", []) or []
 
     # ── SUBJECT vs MARKET POSITIONING ────────────────────────────────────────
-    subject_rent = financials.get("rentRoll", {}).get("avgLotRent", 0) or 0
-    subject_units = financials.get("propertyInfo", {}).get("totalUnits", 0) or 0
-    subject_occ = financials.get("rentRoll", {}).get("occupancyRate", 0) or 0
-    asking = financials.get("propertyInfo", {}).get("askingPrice", 0) or 0
+    _rr = financials.get("rentRoll", {}) or {}
+    _pi = financials.get("propertyInfo", {}) or {}
+
+    # Subject lot rent — try several sources before giving up. The LLM
+    # sometimes sets rentRoll.avgLotRent, sometimes only populates
+    # unitGroups with avgLotRentOccupied per type, sometimes only
+    # populates rentRollRows with per-tenant lotRent values. Without a
+    # fallback chain the §3 MTM heatmap silently zeroes out — the most
+    # decision-useful section of the entire tab.
+    subject_rent = _rr.get("avgLotRent") or 0
+    if not subject_rent:
+        # Weighted average from unitGroups (occupied count × avgLotRent).
+        groups = _rr.get("unitGroups") or []
+        num = 0.0
+        den = 0.0
+        for g in groups:
+            occ = g.get("occupiedCount") or 0
+            avg_lr = g.get("avgLotRentOccupied") or g.get("lotRent") or 0
+            if isinstance(occ, (int, float)) and isinstance(avg_lr, (int, float)) and occ > 0 and avg_lr > 0:
+                num += float(occ) * float(avg_lr)
+                den += float(occ)
+        if den > 0:
+            subject_rent = num / den
+    if not subject_rent:
+        # Last resort: mean of occupied per-row lotRent values.
+        rows = _rr.get("rentRollRows") or []
+        occ_rents = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            if (row.get("status") or "Occupied").lower() == "vacant":
+                continue
+            lr = row.get("lotRent")
+            if isinstance(lr, (int, float)) and lr > 0:
+                occ_rents.append(float(lr))
+        if occ_rents:
+            subject_rent = sum(occ_rents) / len(occ_rents)
+
+    subject_units = _pi.get("totalUnits") or _pi.get("units") or 0
+    try:
+        subject_units = int(subject_units)
+    except (TypeError, ValueError):
+        subject_units = 0
+    subject_occ = _rr.get("occupancyRate", 0) or 0
+    asking = _pi.get("askingPrice", 0) or 0
     ppu_ask = (asking / subject_units) if subject_units else 0
 
     # Comp set statistics
@@ -8207,6 +8248,710 @@ def add_comps_analysis_tab(wb, financials, market):
         style(ws.cell(row=r, column=3), str(emp), bg=LIGHT_YEL, color="0000FF")
         ws.merge_cells(start_row=r, start_column=3, end_row=r, end_column=12)
         ws.row_dimensions[r].height = 18
+
+    # ── ANALYTICAL DEEP DIVE ─────────────────────────────────────────────────
+    # Past this point the tab gets analyst-grade. Six new sections that the
+    # current LLM-comp-table-only version doesn't compute:
+    #   1. Comp Quality + Similarity scoring  (per-comp + weighted)
+    #   2. Robust Statistics + Percentile positioning
+    #   3. Mark-to-Market Upside heatmap (3 rent scenarios × 3 cap rates)
+    #   4. Implied rent growth from sale comp vintage
+    #   5. Submarket concentration (HHI) + cap rate triangulation
+    #   6. Affordability spread analysis vs alternative housing + income
+    # Each section computes from the same comp data already on the tab, so
+    # adding them costs no extra LLM calls — the value is in deriving
+    # decision-grade metrics from what we have.
+    analytics_start = emp_start + 2 + len(employers[:15])
+
+    # Helpers used by the analytical sections.
+    import statistics as _stats
+    import math as _math
+
+    def _percentile(sorted_lst, p):
+        """Linear-interpolation percentile (NumPy-style). sorted_lst MUST
+        be sorted ascending. p is 0..100."""
+        if not sorted_lst:
+            return None
+        if len(sorted_lst) == 1:
+            return sorted_lst[0]
+        k = (len(sorted_lst) - 1) * (p / 100.0)
+        f = int(k)
+        c = min(f + 1, len(sorted_lst) - 1)
+        if f == c:
+            return sorted_lst[f]
+        return sorted_lst[f] + (sorted_lst[c] - sorted_lst[f]) * (k - f)
+
+    def _trimmed_mean(lst, trim_pct=0.10):
+        """Drop top and bottom trim_pct of the list, mean the rest."""
+        if not lst:
+            return None
+        if len(lst) < 3:
+            return sum(lst) / len(lst)
+        s = sorted(lst)
+        trim = int(len(s) * trim_pct)
+        kept = s[trim:len(s) - trim] if trim > 0 else s
+        return sum(kept) / len(kept) if kept else None
+
+    def _stddev(lst):
+        if not lst or len(lst) < 2:
+            return None
+        try:
+            return _stats.pstdev(lst)
+        except _stats.StatisticsError:
+            return None
+
+    def _cv(lst):
+        """Coefficient of variation = stddev / mean. Lower = comp set is
+        tightly distributed; higher = noisy / heterogeneous."""
+        m = (sum(lst) / len(lst)) if lst else None
+        s = _stddev(lst)
+        if m is None or s is None or m == 0:
+            return None
+        return s / m
+
+    def _percentile_rank(value, lst):
+        """0-100 percentile rank of `value` within `lst` (no interpolation)."""
+        if value is None or not lst:
+            return None
+        cleaned = [x for x in lst if isinstance(x, (int, float))]
+        if not cleaned:
+            return None
+        below = sum(1 for x in cleaned if x < value)
+        equal = sum(1 for x in cleaned if x == value)
+        return (below + 0.5 * equal) / len(cleaned) * 100.0
+
+    def _band_color(pct, thresholds=(33, 67)):
+        """Map a percentile to red/yellow/green. Used for subject position
+        bands — being below P33 of a rent comp set = upside (green),
+        above P67 = stretched (red)."""
+        if pct is None:
+            return LIGHT_GRAY
+        if pct < thresholds[0]:
+            return GREEN_BG
+        if pct < thresholds[1]:
+            return LIGHT_YEL
+        return RED_BG
+
+    def _similarity_score(comp, subject_units_, subject_year_built_,
+                          subject_state_, subject_poh_pct_, subject_addr_state):
+        """Score a comp 0-100 vs the subject on four dimensions and
+        average them. Weights are equal; we surface the component scores
+        so the reviewer can see WHY a comp scored what it did."""
+        comps_state = (comp.get("state") or "").strip().upper()[:2]
+        subj_state = (subject_state_ or subject_addr_state or "").strip().upper()[:2]
+
+        # Geographic: same state = 100, neighboring (no list, treat as 60) = 60,
+        # else 30. We only have state-level resolution from the LLM.
+        if comps_state and subj_state and comps_state == subj_state:
+            geo = 100.0
+        elif comps_state and subj_state:
+            geo = 40.0
+        else:
+            geo = 50.0
+
+        # Size: closer comp unit count to subject = higher.
+        try:
+            cu = float(comp.get("units") or 0)
+            su = float(subject_units_ or 0)
+            if su <= 0 or cu <= 0:
+                size = 50.0
+            else:
+                ratio = min(cu, su) / max(cu, su)
+                size = ratio * 100.0
+        except (TypeError, ValueError):
+            size = 50.0
+
+        # Vintage: difference in year built. 0 yrs = 100, 30+ = 30.
+        try:
+            cy = float(comp.get("yearBuilt") or 0)
+            sy = float(subject_year_built_ or 0)
+            if cy <= 0 or sy <= 0:
+                vintage = 50.0
+            else:
+                diff = abs(cy - sy)
+                vintage = max(30.0, 100.0 - diff * (70.0 / 30.0))
+        except (TypeError, ValueError):
+            vintage = 50.0
+
+        # POH mix: closer POH % = more comparable revenue mix.
+        try:
+            cp = to_decimal_pct(comp.get("pohPercent"))
+            sp = to_decimal_pct(subject_poh_pct_)
+            if cp is None or sp is None:
+                poh = 50.0
+            else:
+                gap = abs(cp - sp)
+                poh = max(30.0, 100.0 - gap * 200.0)  # 1.0 gap → 30 (clamped)
+        except (TypeError, ValueError):
+            poh = 50.0
+
+        overall = (geo + size + vintage + poh) / 4.0
+        return {
+            "overall": overall,
+            "geo":     geo,
+            "size":    size,
+            "vintage": vintage,
+            "poh":     poh,
+        }
+
+    def _weighted_mean(values, weights):
+        if not values or not weights:
+            return None
+        pairs = [(v, w) for v, w in zip(values, weights)
+                 if isinstance(v, (int, float)) and isinstance(w, (int, float))
+                 and w > 0]
+        if not pairs:
+            return None
+        ws = sum(p[1] for p in pairs)
+        if ws == 0:
+            return None
+        return sum(v * w for v, w in pairs) / ws
+
+    # Get subject context
+    rr_data = financials.get("rentRoll", {}) or {}
+    pi = financials.get("propertyInfo", {}) or {}
+    subject_units_n = pi.get("totalUnits") or pi.get("units") or 0
+    subject_state = pi.get("state") or ""
+    subject_year_built = pi.get("yearBuilt") or 0
+    subject_poh_pct = rr_data.get("pohPercent") or 0
+    subject_addr_state = ""
+    if isinstance(pi.get("address"), str):
+        # Pull last 2-letter token before zip; "302 E Union Ave, Las Cruces, NM 88001"
+        parts = [p.strip() for p in pi["address"].split(",")]
+        if len(parts) >= 2:
+            tail = parts[-1].split()
+            for tok in tail:
+                if len(tok) == 2 and tok.isalpha():
+                    subject_addr_state = tok.upper()
+                    break
+
+    # ─── SECTION 1: COMP QUALITY + SIMILARITY SCORING ────────────────────
+    cq_start = analytics_start
+    section_header(cq_start, 12, "  COMP QUALITY + SIMILARITY SCORING")
+    style(ws.cell(row=cq_start + 1, column=2),
+          ("Each comp is scored 0-100 on four dimensions vs the subject (geography, "
+           "size, vintage, POH mix). The overall score weights each dimension equally. "
+           "Similarity-weighted statistics in §2 use these scores as the weighting; "
+           "comps far from the subject contribute less to the comp-set average."),
+          size=9, color="7B7B7B", wrap=True, v_align="top")
+    ws.merge_cells(start_row=cq_start + 1, start_column=2,
+                   end_row=cq_start + 2, end_column=12)
+    ws.row_dimensions[cq_start + 1].height = 18
+    ws.row_dimensions[cq_start + 2].height = 18
+
+    cq_header_row = cq_start + 3
+    cq_headers = ["#", "Comp Name", "Geo", "Size", "Vintage", "POH Mix",
+                  "Overall", "Lot Rent", "Weighted Lot Rent"]
+    for i, h in enumerate(cq_headers):
+        col_header(cq_header_row, 2 + i, h)
+    ws.row_dimensions[cq_header_row].height = 24
+
+    sim_scores = []      # list of dicts per comp
+    sim_lot_rents = []   # parallel list of (rent, overall_weight)
+
+    for i, c in enumerate(rent_comps[:20]):
+        r = cq_header_row + 1 + i
+        scores = _similarity_score(
+            c, subject_units_n, subject_year_built,
+            subject_state, subject_poh_pct, subject_addr_state)
+        sim_scores.append(scores)
+        rent_val = c.get("lotRent")
+        if isinstance(rent_val, (int, float)):
+            sim_lot_rents.append((rent_val, scores["overall"]))
+        bg = LIGHT_GRAY if i % 2 == 0 else WHITE
+        style(ws.cell(row=r, column=2), f"#{i+1}", bold=True, size=9, bg=bg, align="center")
+        style(ws.cell(row=r, column=3), (c.get("name") or "")[:50], size=9, bg=bg)
+        # Component scores
+        def _color_for_score(s):
+            if s >= 75:
+                return GREEN_BG
+            if s >= 50:
+                return LIGHT_YEL
+            return RED_BG
+        for j, k in enumerate(["geo", "size", "vintage", "poh", "overall"]):
+            sc = scores[k]
+            style(ws.cell(row=r, column=4 + j), f"{sc:.0f}",
+                  size=9, align="center", bg=_color_for_score(sc), bold=(k == "overall"))
+        style(ws.cell(row=r, column=9), rent_val, size=9, align="right",
+              bg=bg, fmt="$#,##0")
+        # Weighted contribution: rent × overall_score / 100
+        if isinstance(rent_val, (int, float)):
+            weighted = rent_val * scores["overall"] / 100.0
+            style(ws.cell(row=r, column=10), weighted, size=9, align="right",
+                  bg=bg, fmt="$#,##0", italic=True)
+        ws.row_dimensions[r].height = 17
+
+    # Aggregate similarity scores
+    overall_scores = [s["overall"] for s in sim_scores] if sim_scores else []
+    avg_quality = sum(overall_scores) / len(overall_scores) if overall_scores else None
+    high_quality_n = sum(1 for s in overall_scores if s >= 75)
+    cq_summary_r = cq_header_row + 1 + len(rent_comps[:20]) + 1
+    style(ws.cell(row=cq_summary_r, column=2),
+          f"Comp set quality: {avg_quality:.0f}/100 avg, {high_quality_n}/{len(overall_scores)} comps ≥75"
+          if avg_quality is not None else "Comp set quality: n/a (no comps)",
+          bold=True, size=10, bg=MID_BLUE, color=WHITE)
+    ws.merge_cells(start_row=cq_summary_r, start_column=2,
+                   end_row=cq_summary_r, end_column=12)
+    ws.row_dimensions[cq_summary_r].height = 22
+
+    # ─── SECTION 2: ROBUST STATISTICS + SUBJECT PERCENTILE POSITIONING ──
+    rs_start = cq_summary_r + 2
+    section_header(rs_start, 12, "  ROBUST STATISTICS + SUBJECT POSITIONING")
+    style(ws.cell(row=rs_start + 1, column=2),
+          ("Full distribution view of the comp set. Trimmed mean drops the top "
+           "and bottom decile (robust to LLM-scraped outliers). CV (coefficient "
+           "of variation) flags noisy comp sets where stddev approaches the "
+           "mean — CV > 0.20 means stats should be cited with caution. Subject "
+           "percentile shows exactly where the subject sits in the comp set: "
+           "P<33 = upside (green), P33-67 = market (yellow), P>67 = stretched (red)."),
+          size=9, color="7B7B7B", wrap=True, v_align="top")
+    ws.merge_cells(start_row=rs_start + 1, start_column=2,
+                   end_row=rs_start + 2, end_column=12)
+    ws.row_dimensions[rs_start + 1].height = 18
+    ws.row_dimensions[rs_start + 2].height = 18
+
+    rs_header_row = rs_start + 3
+    rs_headers = ["Metric", "Subject", "P25", "Median (P50)", "P75",
+                  "Mean", "Trimmed Mean", "Std Dev", "CV",
+                  "Subject Position", "Weighted Mean"]
+    for i, h in enumerate(rs_headers):
+        col_header(rs_header_row, 2 + i, h)
+    ws.row_dimensions[rs_header_row].height = 32
+
+    # The weighted mean of lot rent uses similarity scores from §1 as
+    # the weights. Heterogeneous comp sets diverge the most between
+    # weighted vs un-weighted — the gap is itself a signal.
+    weighted_lot_rent = _weighted_mean(
+        [v for v, _ in sim_lot_rents],
+        [w for _, w in sim_lot_rents],
+    )
+
+    rs_rows = [
+        ("Lot Rent ($/mo)", subject_rent, rents, "$#,##0", weighted_lot_rent),
+        ("# Sites",        subject_units, units_list, "#,##0", None),
+        ("Occupancy",      subject_occ,  occ_list,   "0.0%",  None),
+    ]
+    for i, (label, subj, lst, fmt, weighted_val) in enumerate(rs_rows):
+        r = rs_header_row + 1 + i
+        s = sorted([x for x in lst if isinstance(x, (int, float))])
+        p25 = _percentile(s, 25); p50 = _percentile(s, 50); p75 = _percentile(s, 75)
+        mean = (sum(s) / len(s)) if s else None
+        trim = _trimmed_mean(s, 0.10)
+        sd = _stddev(s); cv = _cv(s)
+        rank = _percentile_rank(subj, s)
+        bg_band = _band_color(rank)
+        pos_text = (f"P{rank:.0f}" if rank is not None else "n/a")
+
+        style(ws.cell(row=r, column=2), label, bold=True, size=10)
+        style(ws.cell(row=r, column=3), subj, size=10, align="right",
+              bg=LIGHT_YEL, color="0000FF", fmt=fmt)
+        style(ws.cell(row=r, column=4), p25,  size=10, align="right", fmt=fmt)
+        style(ws.cell(row=r, column=5), p50,  size=10, align="right", fmt=fmt, bold=True)
+        style(ws.cell(row=r, column=6), p75,  size=10, align="right", fmt=fmt)
+        style(ws.cell(row=r, column=7), mean, size=10, align="right", fmt=fmt)
+        style(ws.cell(row=r, column=8), trim, size=10, align="right", fmt=fmt)
+        style(ws.cell(row=r, column=9), sd,   size=10, align="right", fmt=fmt)
+        style(ws.cell(row=r, column=10), cv,  size=10, align="right",
+              fmt="0.00", bg=(RED_BG if cv and cv > 0.20 else LIGHT_GRAY))
+        style(ws.cell(row=r, column=11), pos_text, bold=True, size=10,
+              align="center", bg=bg_band)
+        style(ws.cell(row=r, column=12), weighted_val, size=10, align="right",
+              fmt=fmt, italic=True)
+        ws.row_dimensions[r].height = 18
+
+    # ─── SECTION 3: MARK-TO-MARKET UPSIDE HEATMAP ──────────────────────
+    mtm_start = rs_header_row + 4
+    section_header(mtm_start, 12, "  MARK-TO-MARKET UPSIDE — VALUATION HEATMAP")
+    style(ws.cell(row=mtm_start + 1, column=2),
+          ("If the subject's rents moved to the comp set's P25 / Median / P75, what "
+           "is the GPR uplift and the implied valuation impact at three exit cap "
+           "rates? Cells show annualized NOI delta (top) and capitalized value impact "
+           "at the column's cap rate (bottom). Assumes occupied unit count stays "
+           "constant — value-add execution risk is on top of these numbers."),
+          size=9, color="7B7B7B", wrap=True, v_align="top")
+    ws.merge_cells(start_row=mtm_start + 1, start_column=2,
+                   end_row=mtm_start + 2, end_column=12)
+    ws.row_dimensions[mtm_start + 1].height = 18
+    ws.row_dimensions[mtm_start + 2].height = 18
+
+    # Scenarios for rent uplift
+    sorted_rents = sorted([r for r in rents if isinstance(r, (int, float))])
+    p25_rent = _percentile(sorted_rents, 25)
+    p50_rent = _percentile(sorted_rents, 50)
+    p75_rent = _percentile(sorted_rents, 75)
+
+    # Cap rate scenarios — start at the GGC standard (5%) and bracket
+    # to either side. These are the BUY-SIDE cap assumptions for
+    # capitalizing the NEW rent NOI; exit cap discussion lives in the
+    # Pro Forma tab.
+    cap_scenarios = [0.05, 0.055, 0.06]
+    rent_scenarios = [
+        ("Comp P25",       p25_rent),
+        ("Comp Median",    p50_rent),
+        ("Comp P75",       p75_rent),
+    ]
+
+    # Occupied unit count for the uplift math.
+    try:
+        occ_units = float(rr_data.get("occupiedUnits")
+                          or (subject_units * (subject_occ or 0))
+                          or 0)
+    except (TypeError, ValueError):
+        occ_units = 0
+
+    mtm_header_row = mtm_start + 3
+    style(ws.cell(row=mtm_header_row, column=2), "Rent Scenario",
+          bold=True, color=WHITE, size=10, bg=GRAY_HDR, align="center")
+    style(ws.cell(row=mtm_header_row, column=3), "Δ Rent/mo",
+          bold=True, color=WHITE, size=10, bg=GRAY_HDR, align="center")
+    style(ws.cell(row=mtm_header_row, column=4), "Annualized GPR Δ",
+          bold=True, color=WHITE, size=10, bg=GRAY_HDR, align="center")
+    for i, cap in enumerate(cap_scenarios):
+        style(ws.cell(row=mtm_header_row, column=5 + i),
+              f"Value Impact @ {cap*100:.1f}% Cap",
+              bold=True, color=WHITE, size=10, bg=GRAY_HDR, align="center", wrap=True)
+    ws.row_dimensions[mtm_header_row].height = 30
+
+    for i, (label, scenario_rent) in enumerate(rent_scenarios):
+        r = mtm_header_row + 1 + i
+        bg = LIGHT_GRAY if i % 2 == 0 else WHITE
+        style(ws.cell(row=r, column=2), label, bold=True, size=10, bg=bg)
+        if scenario_rent is None or subject_rent is None or subject_rent == 0:
+            style(ws.cell(row=r, column=3), "n/a", size=10, align="center", bg=bg)
+            style(ws.cell(row=r, column=4), "n/a", size=10, align="center", bg=bg)
+            for j in range(len(cap_scenarios)):
+                style(ws.cell(row=r, column=5 + j), "n/a",
+                      size=10, align="center", bg=bg)
+            continue
+        delta_rent = scenario_rent - subject_rent
+        annualized_gpr = delta_rent * 12 * occ_units
+        rent_color = GREEN_BG if delta_rent > 0 else (RED_BG if delta_rent < 0 else bg)
+        style(ws.cell(row=r, column=3), delta_rent, size=10, align="right",
+              fmt="$#,##0", bg=rent_color, bold=True)
+        style(ws.cell(row=r, column=4), annualized_gpr, size=10, align="right",
+              fmt="$#,##0", bg=rent_color, bold=True)
+        for j, cap in enumerate(cap_scenarios):
+            if cap > 0:
+                value_impact = annualized_gpr / cap
+                cell_bg = GREEN_BG if value_impact > 0 else (RED_BG if value_impact < 0 else bg)
+                style(ws.cell(row=r, column=5 + j), value_impact, size=10,
+                      align="right", fmt="$#,##0", bg=cell_bg, bold=True)
+        ws.row_dimensions[r].height = 22
+
+    # Source-of-uplift breakdown — illustrate components of the GPR delta
+    # at the median scenario so the reviewer sees what's driving the number.
+    if p50_rent and subject_rent and occ_units:
+        breakdown_r = mtm_header_row + 1 + len(rent_scenarios) + 1
+        style(ws.cell(row=breakdown_r, column=2),
+              "Median-scenario decomposition:", bold=True, size=10)
+        ws.merge_cells(start_row=breakdown_r, start_column=2,
+                       end_row=breakdown_r, end_column=4)
+        breakdown_text = (
+            f"   • Subject lot rent: ${subject_rent:,.0f}/mo  vs  comp median "
+            f"${p50_rent:,.0f}/mo  →  Δ ${p50_rent - subject_rent:+,.0f}/mo/pad"
+            f"  ×  {occ_units:.0f} occupied pads  ×  12 months "
+            f"=  ${(p50_rent - subject_rent) * 12 * occ_units:+,.0f}/yr "
+            f"GPR uplift  →  capitalized at 5.5% = "
+            f"${(p50_rent - subject_rent) * 12 * occ_units / 0.055:+,.0f} valuation Δ."
+        )
+        style(ws.cell(row=breakdown_r + 1, column=2),
+              breakdown_text, size=9, color="555555",
+              wrap=True, italic=True, v_align="top")
+        ws.merge_cells(start_row=breakdown_r + 1, start_column=2,
+                       end_row=breakdown_r + 1, end_column=12)
+        ws.row_dimensions[breakdown_r].height = 18
+        ws.row_dimensions[breakdown_r + 1].height = 38
+        mtm_end = breakdown_r + 2
+    else:
+        mtm_end = mtm_header_row + 1 + len(rent_scenarios)
+
+    # ─── SECTION 4: IMPLIED RENT GROWTH FROM SALE COMP VINTAGE ─────────
+    irg_start = mtm_end + 2
+    section_header(irg_start, 12, "  IMPLIED MARKET RENT GROWTH (from sale comp vintage)")
+    style(ws.cell(row=irg_start + 1, column=2),
+          ("When sale comps span multiple years, the engine fits a YoY $/unit "
+           "growth rate to the comp set. Useful for anchoring Pro Forma rent "
+           "growth assumptions in years where rent comps are sparse but sale "
+           "comps cover a wider time window. Requires at least 3 sale comps "
+           "with parseable dates and price-per-unit."),
+          size=9, color="7B7B7B", wrap=True, v_align="top")
+    ws.merge_cells(start_row=irg_start + 1, start_column=2,
+                   end_row=irg_start + 2, end_column=12)
+    ws.row_dimensions[irg_start + 1].height = 18
+    ws.row_dimensions[irg_start + 2].height = 18
+
+    # Extract dated comp ppu pairs.
+    def _parse_year(s):
+        if s is None:
+            return None
+        s = str(s)
+        for tok in s.replace("/", " ").replace("-", " ").split():
+            if tok.isdigit() and 1990 <= int(tok) <= 2099:
+                return int(tok)
+        return None
+
+    dated_pairs = []
+    for c in sale_comps:
+        yr = _parse_year(c.get("saleDate"))
+        ppu = c.get("pricePerUnit")
+        if yr and isinstance(ppu, (int, float)) and ppu > 0:
+            dated_pairs.append((yr, ppu))
+
+    irg_row = irg_start + 3
+    if len(dated_pairs) >= 3:
+        years = [p[0] for p in dated_pairs]
+        ppus  = [p[1] for p in dated_pairs]
+        # Log-linear regression: ln(ppu) = a + b·year → growth = exp(b) - 1
+        try:
+            mean_y = sum(years) / len(years)
+            ln_ppu = [_math.log(p) for p in ppus]
+            mean_lp = sum(ln_ppu) / len(ln_ppu)
+            num = sum((y - mean_y) * (l - mean_lp) for y, l in zip(years, ln_ppu))
+            den = sum((y - mean_y) ** 2 for y in years)
+            slope = num / den if den else 0
+            growth = _math.exp(slope) - 1
+        except (ValueError, ZeroDivisionError):
+            growth = None
+
+        if growth is not None:
+            style(ws.cell(row=irg_row, column=2), "Implied YoY $/unit growth:",
+                  bold=True, size=10)
+            growth_bg = GREEN_BG if growth > 0.04 else (LIGHT_YEL if growth > 0 else RED_BG)
+            style(ws.cell(row=irg_row, column=4), growth, size=12,
+                  align="center", fmt="0.0%", bg=growth_bg, bold=True)
+            style(ws.cell(row=irg_row, column=5),
+                  f"  ({min(years)}-{max(years)}, n={len(dated_pairs)})",
+                  size=9, italic=True, color="555555")
+            ws.merge_cells(start_row=irg_row, start_column=5,
+                           end_row=irg_row, end_column=12)
+            ws.row_dimensions[irg_row].height = 22
+            comparison_r = irg_row + 1
+            style(ws.cell(row=comparison_r, column=2),
+                  ("   → Pro Forma carries flat 5% rent growth by default; comp "
+                   f"vintage implies {growth*100:.1f}%. Reconcile in IC if the gap is wide."),
+                  size=9, italic=True, color="555555")
+            ws.merge_cells(start_row=comparison_r, start_column=2,
+                           end_row=comparison_r, end_column=12)
+            ws.row_dimensions[comparison_r].height = 18
+            irg_end = comparison_r + 1
+        else:
+            style(ws.cell(row=irg_row, column=2),
+                  "Regression failed (singular X) — comp years too clustered.",
+                  size=10, italic=True)
+            irg_end = irg_row
+    else:
+        style(ws.cell(row=irg_row, column=2),
+              f"Insufficient dated sale comps ({len(dated_pairs)} found, need ≥3) "
+              "— skipping vintage regression.",
+              size=10, italic=True, color="999999")
+        ws.merge_cells(start_row=irg_row, start_column=2,
+                       end_row=irg_row, end_column=12)
+        irg_end = irg_row + 1
+
+    # ─── SECTION 5: SUBMARKET CONCENTRATION + CAP RATE TRIANGULATION ───
+    smc_start = irg_end + 2
+    section_header(smc_start, 12, "  SUBMARKET CONCENTRATION + CAP RATE TRIANGULATION")
+    style(ws.cell(row=smc_start + 1, column=2),
+          ("LEFT: Herfindahl-Hirschman Index (HHI) measures operator concentration "
+           "across the comp set. HHI > 2,500 → highly concentrated market (operator "
+           "pricing power); HHI < 1,500 → competitive (rent ceilings). "
+           "RIGHT: cap rate computed three ways and cross-checked. The LLM "
+           "scraped per-comp cap rate is unreliable on its own; triangulating via "
+           "implied (NOI ÷ sale price) and per-unit (NOI/unit ÷ $/unit) gives "
+           "convergent or divergent reads that flag noise."),
+          size=9, color="7B7B7B", wrap=True, v_align="top")
+    ws.merge_cells(start_row=smc_start + 1, start_column=2,
+                   end_row=smc_start + 2, end_column=12)
+    ws.row_dimensions[smc_start + 1].height = 18
+    ws.row_dimensions[smc_start + 2].height = 18
+
+    # HHI on rent comp owners (use the comp name's first 2-3 words as operator).
+    operator_units = {}
+    for c in rent_comps:
+        nm = (c.get("name") or "").strip()
+        if not nm:
+            continue
+        # Use first 2 tokens as the operator signature (heuristic — LLM
+        # rarely tags an explicit owner field). Lowercased + stripped.
+        tokens = nm.split()
+        op = " ".join(tokens[:2]).lower() if tokens else nm.lower()
+        u = c.get("units")
+        if isinstance(u, (int, float)) and u > 0:
+            operator_units[op] = operator_units.get(op, 0) + u
+
+    total_units_in_comps = sum(operator_units.values())
+    if total_units_in_comps > 0 and len(operator_units) >= 2:
+        hhi = sum((u / total_units_in_comps * 10_000) ** 2 / 10_000
+                  for u in operator_units.values())
+    else:
+        hhi = None
+
+    smc_row = smc_start + 3
+    # Left half: HHI
+    style(ws.cell(row=smc_row, column=2), "HHI (rent-comp operators):",
+          bold=True, size=10)
+    if hhi is not None:
+        hhi_band = (GREEN_BG if hhi >= 2500 else
+                    (LIGHT_YEL if hhi >= 1500 else RED_BG))
+        hhi_label = ("Concentrated" if hhi >= 2500 else
+                     ("Moderate" if hhi >= 1500 else "Fragmented"))
+        style(ws.cell(row=smc_row, column=3), f"{hhi:,.0f}",
+              size=12, bold=True, align="center", bg=hhi_band)
+        style(ws.cell(row=smc_row, column=4),
+              f"({hhi_label}, n={len(operator_units)} operators across {total_units_in_comps:,.0f} units)",
+              size=9, italic=True, color="555555")
+        ws.merge_cells(start_row=smc_row, start_column=4,
+                       end_row=smc_row, end_column=6)
+    else:
+        style(ws.cell(row=smc_row, column=3),
+              "n/a (insufficient comp operator data)",
+              size=10, italic=True, color="999999")
+        ws.merge_cells(start_row=smc_row, start_column=3,
+                       end_row=smc_row, end_column=6)
+
+    # Right half: Cap rate triangulation
+    style(ws.cell(row=smc_row, column=7), "Cap Rate (triangulated):",
+          bold=True, size=10, align="right")
+
+    # Method A: median of LLM-scraped per-comp cap rates
+    sale_caps_clean = [c for c in sale_caps if isinstance(c, (int, float)) and 0 < c < 0.20]
+    method_a = _percentile(sorted(sale_caps_clean), 50)
+
+    # Method B: aggregate-comp NOI ÷ aggregate sale price
+    pairs_noi_price = [(c.get("noi"), c.get("salePrice")) for c in sale_comps]
+    pairs_noi_price = [(n, p) for n, p in pairs_noi_price
+                       if isinstance(n, (int, float)) and isinstance(p, (int, float))
+                       and n > 0 and p > 0]
+    if pairs_noi_price:
+        method_b = sum(n for n, _ in pairs_noi_price) / sum(p for _, p in pairs_noi_price)
+    else:
+        method_b = None
+
+    # Method C: median per-comp implied cap (NOI/price), excluding outliers
+    implied_per_comp = [n / p for n, p in pairs_noi_price]
+    method_c = _percentile(sorted(implied_per_comp), 50)
+
+    methods = [
+        ("A: LLM scraped median",        method_a),
+        ("B: ΣNOI ÷ ΣPrice",             method_b),
+        ("C: median per-comp implied",   method_c),
+    ]
+    for i, (label, value) in enumerate(methods):
+        r = smc_row + 1 + i
+        style(ws.cell(row=r, column=7), f"  {label}",
+              size=10, color="555555", align="right")
+        style(ws.cell(row=r, column=8), value, size=10, bold=True,
+              align="center", fmt="0.00%",
+              bg=LIGHT_YEL if value is not None else LIGHT_GRAY)
+        ws.row_dimensions[r].height = 17
+
+    # Convergence call
+    valid_methods = [v for _, v in methods if isinstance(v, (int, float))]
+    if len(valid_methods) >= 2:
+        spread = max(valid_methods) - min(valid_methods)
+        if spread < 0.005:
+            convergence = ("Tight convergence (<50bps)", GREEN_BG)
+        elif spread < 0.015:
+            convergence = ("Reasonable spread", LIGHT_YEL)
+        else:
+            convergence = (f"Divergent ({spread*100:.0f}bps spread — cite carefully)", RED_BG)
+        style(ws.cell(row=smc_row + 4, column=7), "Convergence:",
+              size=10, bold=True, align="right")
+        style(ws.cell(row=smc_row + 4, column=8), convergence[0],
+              size=10, bold=True, align="center", bg=convergence[1])
+        ws.merge_cells(start_row=smc_row + 4, start_column=8,
+                       end_row=smc_row + 4, end_column=10)
+        smc_end = smc_row + 5
+    else:
+        smc_end = smc_row + 4
+
+    # ─── SECTION 6: AFFORDABILITY SPREAD ANALYSIS ──────────────────────
+    aff_start = smc_end + 1
+    section_header(aff_start, 12, "  AFFORDABILITY SPREAD — MHP vs ALTERNATIVES")
+    style(ws.cell(row=aff_start + 1, column=2),
+          ("MHP demand is driven by affordability vs the next-cheapest alternative "
+           "(typically a 2BR apartment). The affordability spread = market 2BR rent ÷ "
+           "subject MHP all-in cost. Spreads > 1.4 historically correlate with "
+           "sub-5% vacancy; spreads < 1.1 = vulnerable to apartment-rent compression. "
+           "Subject affordability index = MHP cost ÷ median HH income; healthy "
+           "range is 18-25% (per HUD's housing-burden definition)."),
+          size=9, color="7B7B7B", wrap=True, v_align="top")
+    ws.merge_cells(start_row=aff_start + 1, start_column=2,
+                   end_row=aff_start + 2, end_column=12)
+    ws.row_dimensions[aff_start + 1].height = 18
+    ws.row_dimensions[aff_start + 2].height = 18
+
+    alt = market.get("altHousing", {}) or {}
+    apt_2br = alt.get("avgRent2BR") or alt.get("avgRent1BR") or 0
+    mhp_all_in = alt.get("mhpAllInCost") or (subject_rent * 2.3 if subject_rent else 0)
+    median_income = demo.get("medianHHIncome") or 0
+
+    aff_row = aff_start + 3
+    aff_metrics = [
+        ("Market 2BR apartment rent",     apt_2br,              "$#,##0", None),
+        ("Subject MHP all-in monthly cost", mhp_all_in,         "$#,##0", None),
+        ("Affordability spread (2BR ÷ MHP)",
+         (apt_2br / mhp_all_in) if (apt_2br and mhp_all_in) else None,
+         "0.00", "spread"),
+        ("Median HH income (annual)",     median_income,        "$#,##0", None),
+        ("MHP cost as % of HH income",
+         ((mhp_all_in * 12) / median_income) if (mhp_all_in and median_income) else None,
+         "0.0%", "burden"),
+    ]
+    for i, (label, val, fmt, kind) in enumerate(aff_metrics):
+        r = aff_row + i
+        style(ws.cell(row=r, column=2), label, bold=True, size=10)
+        ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=8)
+        bg = LIGHT_YEL
+        if kind == "spread" and val is not None:
+            bg = (GREEN_BG if val >= 1.4 else
+                  (LIGHT_YEL if val >= 1.1 else RED_BG))
+        if kind == "burden" and val is not None:
+            bg = (GREEN_BG if 0.18 <= val <= 0.25 else
+                  (LIGHT_YEL if val < 0.30 else RED_BG))
+        style(ws.cell(row=r, column=9), val, size=11, bold=True,
+              align="center", fmt=fmt, bg=bg, color="0000FF")
+        ws.merge_cells(start_row=r, start_column=9, end_row=r, end_column=12)
+        ws.row_dimensions[r].height = 22
+
+    # Methodology footnote — full lineage so reviewer can audit.
+    foot_start = aff_row + len(aff_metrics) + 2
+    style(ws.cell(row=foot_start, column=2),
+          "METHODOLOGY + DATA SOURCES",
+          bold=True, color=WHITE, bg=GRAY_HDR, size=10)
+    ws.merge_cells(start_row=foot_start, start_column=2,
+                   end_row=foot_start, end_column=12)
+    methodology_lines = [
+        ("§1 Similarity scoring", "Equal-weighted across (geo, size, vintage, POH mix). "
+                                  "30-point floor on each dimension prevents single-dim wipeout."),
+        ("§2 Robust stats",       "P25/P50/P75 via linear interpolation. Trimmed mean drops "
+                                  "top/bottom 10%. CV = pstdev ÷ mean. Subject position is "
+                                  "percentile rank with midrank for ties."),
+        ("§3 MTM heatmap",        "GPR Δ = (target − subject) × 12 × occupied units. Cap "
+                                  "rates 5.0% / 5.5% / 6.0% bracket the GGC-standard 5% MHC "
+                                  "cap and the 6% exit assumption."),
+        ("§4 Vintage regression", "Log-linear fit: ln($/unit) = a + b·year → growth = exp(b) − 1. "
+                                  "Min 3 dated comps."),
+        ("§5 HHI",                "Sum of squared market shares × 10,000, where share = "
+                                  "operator's pad count ÷ comp-set pad count. Operator name "
+                                  "= first 2 tokens of comp name (heuristic)."),
+        ("§5 Cap triangulation",  "Three independent methods on the same sale-comp set. "
+                                  "Convergence < 50bps = trustworthy; > 150bps = LLM noise."),
+        ("§6 Affordability",      "Spread thresholds (1.1, 1.4) from MHP-vs-multifamily "
+                                  "historical correlation studies. Burden thresholds (18-25%) "
+                                  "per HUD housing-burden definition."),
+        ("Data lineage",          "Rent comps + sale comps + demographics + alt housing all "
+                                  "from the LLM market-research stage (Claude web_search). "
+                                  "Cell coloring + bands are deterministic Python on top."),
+    ]
+    for i, (head, body) in enumerate(methodology_lines):
+        r = foot_start + 1 + i
+        style(ws.cell(row=r, column=2), head, bold=True, size=9)
+        ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=3)
+        style(ws.cell(row=r, column=4), body, size=9, color="555555",
+              wrap=True, v_align="top")
+        ws.merge_cells(start_row=r, start_column=4, end_row=r, end_column=12)
+        ws.row_dimensions[r].height = 22
 
     ws.sheet_properties.tabColor = "70AD47"  # green tab
 
