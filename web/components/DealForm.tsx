@@ -78,10 +78,12 @@ function estimateCostUsd(mode: string, nRuns: number, skipMarket: boolean): numb
 interface DealFormProps {
   /** True while a job is uploading or running — disables submission. */
   busy: boolean;
+  /** True once an Anthropic key is available (the visitor's own, or the server's default). */
+  apiKeyReady: boolean;
   onSubmit: (fields: DealFormFields, files: File[]) => void;
 }
 
-export default function DealForm({ busy, onSubmit }: DealFormProps) {
+export default function DealForm({ busy, apiKeyReady, onSubmit }: DealFormProps) {
   const [fields, setFields] = useState<DealFormFields>(EMPTY_FIELDS);
   const [files, setFiles] = useState<File[]>([]);
   const [fileErrors, setFileErrors] = useState<string[]>([]);
@@ -168,7 +170,7 @@ export default function DealForm({ busy, onSubmit }: DealFormProps) {
   }
 
   const allRequiredFilled = REQUIRED_FIELDS.every((key) => fields[key].trim().length > 0);
-  const canSubmit = allRequiredFilled && files.length > 0 && !busy;
+  const canSubmit = allRequiredFilled && files.length > 0 && !busy && apiKeyReady;
 
   function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();

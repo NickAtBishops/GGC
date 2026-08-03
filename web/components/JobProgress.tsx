@@ -29,6 +29,11 @@ interface JobProgressProps {
   startedAt: number | null;
   /** True while the job is uploading or queued/running. */
   running: boolean;
+  /** True while a status check just failed but polling is retrying — the
+   * job is presumed still alive server-side (see MAX_CONSECUTIVE_POLL_FAILURES
+   * in app/page.tsx). Surfaced so a transient blip doesn't look like a
+   * silent hang. */
+  reconnecting?: boolean;
   /** Optional cancel handler — when present, a Cancel button renders. */
   onCancel?: () => void;
 }
@@ -49,7 +54,14 @@ function StepIcon({ state }: { state: StepState }) {
   return <div className="w-5 h-5 rounded-full border-2 border-slate-600 shrink-0" />;
 }
 
-export default function JobProgress({ steps, progress, startedAt, running, onCancel }: JobProgressProps) {
+export default function JobProgress({
+  steps,
+  progress,
+  startedAt,
+  running,
+  reconnecting,
+  onCancel,
+}: JobProgressProps) {
   const [now, setNow] = useState<number>(() => Date.now());
 
   useEffect(() => {
@@ -98,6 +110,11 @@ export default function JobProgress({ steps, progress, startedAt, running, onCan
         })}
       </div>
       {progress ? <div className="mt-4 text-xs text-slate-500 font-mono">{progress}</div> : null}
+      {reconnecting ? (
+        <div className="mt-2 text-xs text-amber-400">
+          Lost contact with the engine — retrying…
+        </div>
+      ) : null}
       {running && onCancel ? (
         <button
           type="button"

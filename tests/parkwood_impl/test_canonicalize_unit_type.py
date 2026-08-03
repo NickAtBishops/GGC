@@ -52,7 +52,7 @@ def _load_canonicalize_unit_type():
     """
     src = inspect.getsource(backend.fill_template)
 
-    marker = "def _canonicalize_unit_type(raw):"
+    marker = "def _canonicalize_unit_type(raw, home_rent=0):"
     lines = src.splitlines(keepends=True)
     start_idx = next(
         (i for i, line in enumerate(lines) if marker in line), None
@@ -132,4 +132,46 @@ def test_canonicalize_unit_type(raw: str, expected: str) -> None:
         f"_canonicalize_unit_type({raw!r}) returned {actual!r}, "
         f"expected {expected!r}. A drift here silently mis-routes GPR "
         f"between TOH / LTO / Flourish / POH / RV / Retail buckets."
+    )
+
+
+# --------------------------------------------------------------------------- #
+# home_rent fallback — opaque/coded unit-type labels (e.g. Blue Island's      #
+# bare "Type 1"/"Type 2"/"Type 4") that match no keyword above must NOT       #
+# silently collapse into the TOH catch-all when the row is actually charging  #
+# home rent. This is a seller-agnostic signal, not a hardcoded mapping for    #
+# any one deal's coding convention (CLAUDE.md forbids hardcoding one         #
+# seller's layout into core logic) — it only fires when nothing else does.   #
+# --------------------------------------------------------------------------- #
+HOME_RENT_FALLBACK_CASES = [
+    # Opaque numeric code, no home rent charged -> default TOH, unchanged.
+    ("Type 1", 0, "TOH MH Site"),
+    # Same opaque code, but this row DOES charge home rent -> POH signal
+    # wins even though "Type 2" itself matches no keyword.
+    ("Type 2", 225, "POH-Infilled units"),
+    # A keyword match (RV) must still win over the home_rent signal even
+    # if home_rent is nonzero for some other reason (data noise) — the
+    # fallback only applies when NO keyword matched.
+    ("RV", 100, "Long term RV Site"),
+    # Blank/missing type string, no home rent -> default TOH.
+    ("", 0, "TOH MH Site"),
+    # Blank/missing type string, WITH home rent -> POH.
+    ("", 500, "POH-Infilled units"),
+]
+
+
+@pytest.mark.parametrize(
+    "raw,home_rent,expected",
+    HOME_RENT_FALLBACK_CASES,
+    ids=[f"{c[0] or '<blank>'}-homeRent{c[1]}" for c in HOME_RENT_FALLBACK_CASES],
+)
+def test_canonicalize_unit_type_home_rent_fallback(
+    raw: str, home_rent: float, expected: str
+) -> None:
+    actual = _canonicalize_unit_type(raw, home_rent)
+    assert actual == expected, (
+        f"_canonicalize_unit_type({raw!r}, home_rent={home_rent!r}) "
+        f"returned {actual!r}, expected {expected!r}. An opaque unit-type "
+        f"code with a real home-rent charge must route to POH, not "
+        f"silently collapse to TOH (the Blue Island failure mode)."
     )

@@ -31,11 +31,13 @@ from io import BytesIO
 from urllib.parse import quote_plus
 from google.cloud import documentai
 from google.api_core.client_options import ClientOptions
+from google.oauth2 import service_account as google_service_account
 
 import requests
 from flask import Flask, request, jsonify, send_file, send_from_directory
 from flask_cors import CORS
 from openpyxl import load_workbook
+from openpyxl.cell.cell import MergedCell
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
 from openpyxl.drawing.image import Image as XLImage
@@ -195,6 +197,52 @@ def _check_cancelled():
     if job_id and job_id in CANCELLED_JOBS:
         raise CancelledError(f"Job {job_id} cancelled by user")
 
+def _run_tagged(job_id, fn, *args, **kwargs):
+    """Run fn on the CURRENT thread after tagging it with job_id first.
+    threading.local() namespaces are per-thread and are not inherited by
+    ThreadPoolExecutor workers, so every executor.submit() in the pipeline
+    (financial/market top-level pool, plus the nested self-consistency
+    pools inside call_*_merged) must route through this so _check_cancelled
+    can see job_id on the thread that's actually calling Claude."""
+    if job_id:
+        _set_job_thread(job_id)
+    return fn(*args, **kwargs)
+
+
+# Self-consistency (N parallel runs per stage) previously submitted all N
+# ThreadPoolExecutor tasks in one tight loop with zero delay between them.
+# Anthropic's prompt cache only becomes readable once the FIRST response
+# begins streaming — concurrent requests with an identical system-prompt
+# prefix (extraction's ~1-2K token prompt, methodology's ~9K token prompt,
+# both wrapped in cache_control) that all fire within milliseconds of each
+# other all race to write the same cache entry, so none of them read a
+# hit. Every one of the N runs was paying full input-token price on the
+# entire cached system prompt — a pure cost tax with zero effect on
+# accuracy, since the runs are independent voters, not sequential turns.
+# Fix: submit the first run, give it a short head start to begin
+# streaming (and therefore start the cache write), then submit the rest —
+# they can still run fully in parallel with each other, they just need
+# run 0's cache entry to exist first. This changes wall-clock ordering
+# only; it does not change n_runs, thinking effort, or any prompt text.
+CACHE_WARMUP_DELAY_SEC = float(os.environ.get("CACHE_WARMUP_DELAY_SEC", "2.5"))
+
+
+def _submit_staggered(executor, job_id, fn, n_runs, *args, **kwargs):
+    """Submit n_runs copies of fn(*args, **kwargs) to executor, with the
+    first submitted alone and the remainder held back by
+    CACHE_WARMUP_DELAY_SEC so they can read the first run's freshly-written
+    prompt cache entry instead of each writing (and paying for) their own."""
+    futures = [executor.submit(_run_tagged, job_id, fn, *args, **kwargs)]
+    if n_runs > 1:
+        if CACHE_WARMUP_DELAY_SEC > 0:
+            time.sleep(CACHE_WARMUP_DELAY_SEC)
+        futures.extend(
+            executor.submit(_run_tagged, job_id, fn, *args, **kwargs)
+            for _ in range(n_runs - 1)
+        )
+    return futures
+
+
 def _pricing_for(model_id):
     for prefix, prices in MODEL_PRICING.items():
         if model_id and model_id.startswith(prefix):
@@ -312,6 +360,19 @@ GGC_INCOME_CATEGORIES = [
     "Other Income",               # 4304/4905/4908-4915 fees, rev-share
     # Adjustments
     "Bad Debt",                   # 6120 (CorrectOutput uses "Bad Debt", NOT "Less: Bad Debt")
+    # Rare: only emitted when the seller's P&L has an explicit dedicated
+    # line for these (the prompt's own DECISION RULES section already
+    # describes this — "the bare string 'Concessions' is acceptable when
+    # the seller's P&L has an explicit concessions line", and vacancy the
+    # same way). Both GGC Underwriting (rows 5/6, "Less: Vacancy" /
+    # "Less: Concessions" display labels, bare "Vacancy"/"Concessions"
+    # SUMIFS criteria) and Collections (D5:D16/E5:E16) already key off
+    # these exact bare strings — they were missing from the enum, so the
+    # hard-enum structured-outputs schema made it impossible for the LLM
+    # to ever actually emit them, silently breaking a feature two
+    # different tabs were already built to support.
+    "Vacancy",
+    "Concessions",
     "Omitt Income",               # Non-recurring / Discontinued / Seller-Specific exclusions
     # POH-related (when present)
     "Home Rent Income",           # POH home-rent component
@@ -793,14 +854,21 @@ def _stable_pdf_hash(pdf_bytes):
     return hashlib.sha256(pdf_bytes).hexdigest()[:16]
 
 
-def parse_pdf(pdf_bytes, filename):
+def parse_pdf(pdf_bytes, filename, gcp_config=None):
     """
     Parse a PDF using whichever backend PARSER_BACKEND names. Returns the
     markdown string on success, None on failure (caller falls back to
-    Anthropic's native PDF handling).
+    Anthropic's native PDF handling). `gcp_config` is an optional per-request
+    override of the docai backend's project/processor/credentials — see
+    `_parse_via_docai`.
     """
     backend = PARSER_BACKEND
-    cache_key  = f"{backend}_{PARSER_VERSION}_{_stable_pdf_hash(pdf_bytes)}"
+    # A visitor's own GCP project can parse the same bytes differently than
+    # the server's default project (different processor version/region), so
+    # the cache key includes which project did the parsing. Falls back to
+    # "server" when no override is given, matching prior cache behavior.
+    cache_scope = (gcp_config or {}).get("project_id") or "server"
+    cache_key  = f"{backend}_{PARSER_VERSION}_{cache_scope}_{_stable_pdf_hash(pdf_bytes)}"
     cache_path = IMG_CACHE_DIR / f"{cache_key}.md"
     if cache_path.exists():
         print(f"[Parser:{backend}] Cache hit for {filename}")
@@ -808,7 +876,7 @@ def parse_pdf(pdf_bytes, filename):
 
     try:
         if backend == "docai":
-            markdown = _parse_via_docai(pdf_bytes, filename)
+            markdown = _parse_via_docai(pdf_bytes, filename, gcp_config=gcp_config)
         elif backend == "azure":
             markdown = _parse_via_azure(pdf_bytes, filename)
         elif backend == "tensorlake":
@@ -840,18 +908,40 @@ def parse_pdf(pdf_bytes, filename):
 parse_pdf_with_document_ai = parse_pdf
 
 
-def _parse_via_docai(pdf_bytes, filename):
-    """Google Document AI Layout Parser — markdown with tables/headers."""
-    if not DOC_AI_ENABLED:
-        print("[Parser:docai] GCP_PROJECT_ID / GCP_LAYOUT_PROCESSOR_ID not "
-              "set — skipping Doc AI")
+def _parse_via_docai(pdf_bytes, filename, gcp_config=None):
+    """Google Document AI Layout Parser — markdown with tables/headers.
+
+    `gcp_config`, when given, is a per-request override (a visitor's own
+    GCP project + processor + service-account key, from `/api/analyze`)
+    that takes priority over the server's env-configured default. This
+    mirrors how `api_key` overrides `DEFAULT_ANTHROPIC_KEY` — a visitor's
+    Document AI usage bills to their own GCP project, not the server's.
+    """
+    gcp_config = gcp_config or {}
+    project_id    = gcp_config.get("project_id") or GCP_PROJECT_ID
+    location      = gcp_config.get("location") or GCP_LOCATION
+    processor_id  = gcp_config.get("processor_id") or GCP_LAYOUT_PROCESSOR_ID
+    credentials_json = gcp_config.get("credentials_json")
+
+    if not (project_id and processor_id):
+        print("[Parser:docai] no project/processor configured (server default "
+              "or request override) — skipping Doc AI")
         return None
 
-    opts = ClientOptions(api_endpoint=f"{GCP_LOCATION}-documentai.googleapis.com")
-    client = documentai.DocumentProcessorServiceClient(client_options=opts)
+    client_kwargs = {}
+    if credentials_json:
+        try:
+            info = json.loads(credentials_json)
+            client_kwargs["credentials"] = google_service_account.Credentials.from_service_account_info(info)
+        except (ValueError, TypeError) as e:
+            print(f"[Parser:docai] invalid service-account JSON in request — "
+                  f"falling back to server credentials: {e}")
+
+    opts = ClientOptions(api_endpoint=f"{location}-documentai.googleapis.com")
+    client = documentai.DocumentProcessorServiceClient(client_options=opts, **client_kwargs)
     processor_name = (
-        f"projects/{GCP_PROJECT_ID}/locations/{GCP_LOCATION}"
-        f"/processors/{GCP_LAYOUT_PROCESSOR_ID}"
+        f"projects/{project_id}/locations/{location}"
+        f"/processors/{processor_id}"
     )
     raw_document = documentai.RawDocument(content=pdf_bytes, mime_type="application/pdf")
     process_options = documentai.ProcessOptions(
@@ -1612,7 +1702,7 @@ def extract_json(response):
 # ═══════════════════════════════════════════════════════════════════════════
 # FILE ENCODING
 # ═══════════════════════════════════════════════════════════════════════════
-def encode_file_for_claude(file_storage):
+def encode_file_for_claude(file_storage, gcp_config=None):
     filename = file_storage.filename
     ext = Path(filename).suffix.lower()
     data = file_storage.read()
@@ -1622,7 +1712,7 @@ def encode_file_for_claude(file_storage):
         # Try the configured PARSER_BACKEND first for deterministic,
         # high-accuracy table extraction. Falls back to Anthropic's native
         # PDF handling if the parser is disabled, misconfigured, or fails.
-        markdown = parse_pdf(data, filename)
+        markdown = parse_pdf(data, filename, gcp_config=gcp_config)
         if markdown:
             return {"type": "text",
                     "text": f"[PDF parsed by {PARSER_BACKEND}: {filename}]\n\n{markdown[:200000]}"}
@@ -1944,6 +2034,9 @@ METHODOLOGY_OUTPUT_SCHEMA = {
                     "type": ["array", "null"],
                     "items": {
                         "type": "object",
+                        "additionalProperties": False,
+                        "required": ["parcelId", "marketValue", "taxableValue",
+                                     "taxes", "acres"],
                         "properties": {
                             "parcelId":     {"type": ["string", "null"]},
                             "marketValue":  {"type": ["number", "null"]},
@@ -1960,12 +2053,17 @@ METHODOLOGY_OUTPUT_SCHEMA = {
         "rentRoll": {
             # Simplified schema: dropped rentRollRows + unitMixSummary
             # (both optional and redundant with unitGroups), dropped enum
-            # constraint on unitGroups.unitType (we map post-hoc in Python),
-            # dropped additionalProperties:false on nested objects. The
-            # methodology schema otherwise compiled into a grammar too
-            # large for Anthropic's structured outputs to accept, which
-            # silently downgraded every call to prompt-only enforcement.
+            # constraint on unitGroups.unitType (we map post-hoc in Python).
+            # additionalProperties:false is REQUIRED on every object node —
+            # Anthropic's structured-outputs validator 400s
+            # ("additionalProperties must be explicitly set") on any object
+            # missing it, which was silently downgrading every methodology
+            # call to prompt-only enforcement (verified empirically: every
+            # call logged the fallback WARN). Do not drop it again as a fix
+            # for schema-size errors — that trades one guaranteed fallback
+            # for another the moment the API tightens validation further.
             "type": "object",
+            "additionalProperties": False,
             "required": ["totalUnits", "occupiedUnits", "vacantUnits",
                          "occupancyRate", "avgLotRent", "parkOwnedHomes",
                          "pohPercent", "unitGroups"],
@@ -1981,8 +2079,10 @@ METHODOLOGY_OUTPUT_SCHEMA = {
                     "type": "array",
                     "items": {
                         "type": "object",
+                        "additionalProperties": False,
                         "required": ["unitType", "occupiedCount", "vacantCount",
-                                     "lotRent", "pohRent"],
+                                     "lotRent", "pohRent", "tenantNamePattern",
+                                     "sellerUnitLabel"],
                         "properties": {
                             "unitType":      {"type": "string"},
                             "occupiedCount": {"type": "integer"},
@@ -2262,6 +2362,7 @@ Rules:
 - If monthly values exist, they should sum to (or very close to) the annualTotal. If they don't, still transcribe both faithfully — the verification step will flag the discrepancy.
 - Include EVERY line, even ones that look like subtotals or totals. Mark subtotals/totals with "isSubtotal": true so they can be excluded from sums later. Common subtotal labels: "Total", "non-posting", "Total Personnel", "Total Income", "TOTAL EXPENSE".
 - Preserve the seller's account numbers in the label if present.
+- HARD RULE — DO NOT emit a combined Net Operating Income / Net Income / NOI row in EITHER the "income" or "expenses" array. A row like "NET OPERATING INCOME", "NOI", or "Net Income" nets the whole income section against the whole expense section — it is not a subtotal of income alone or expense alone, and including it under "expenses" (or "income") with isSubtotal:true will make that section's line items fail to sum to it. If the source P&L has such a row (often the very last row of the statement, sometimes visually inside the expense block), leave it out of both arrays entirely. The methodology stage computes NOI itself from EGI − OpEx.
 
 ## STEP 3 — EXTRACT THE RENT ROLL
 
@@ -2440,6 +2541,74 @@ Extract the income statement, rent roll, and reporting period into the structure
     return last_extracted
 
 
+_PERIOD_MONTH_MAP = {"jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+                      "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12}
+# "T-12 Ended M/YY", "T12 Ended M/YY", "TTM Ended M/YY", "Trailing 12 Ended M/YY".
+_PERIOD_T12_RE = re.compile(
+    r"(?:t-?12|ttm|trailing.?12)\s*ended?\s*(\d{1,2})[/\-](\d{2,4})", re.IGNORECASE)
+# "Mon YYYY - Mon YYYY" / "Mon YYYY-Mon YYYY" date-range headers.
+_PERIOD_RANGE_RE = re.compile(
+    r"([A-Za-z]{3,9})\.?\s*(\d{4})\s*[-–]\s*([A-Za-z]{3,9})\.?\s*(\d{4})")
+
+
+def _infer_operative_period(candidates, period_used):
+    """Deterministic (no-AI), best-effort cross-check for period selection.
+    Parses candidatePeriodsSeen (the LLM's own self-reported list of every
+    period-column header it saw) for "T-12 Ended <date>"/date-range labels
+    and picks the most-recent FULL 12-month one as an independent second
+    opinion — per CLAUDE.md §2.2/§7, this is the "dedicated period-
+    identification heuristic (regex on column headers + 12-month count)"
+    that was documented as existing but wasn't actually implemented
+    (confirmed missing when auditing the Las Brisas deal's real T-12 file,
+    whose exact headers — "T-12 Ended 9/22", "Oct 2022- May 2023", "T-12
+    Ended 5/23" — are the worked example this regex is built against).
+
+    This NEVER overrides the LLM's choice — callers should only use it to
+    raise a WARN when it confidently disagrees, never to silently change
+    `periodUsed`. Returns (best_label, reason) or (None, reason) when no
+    candidate can be confidently parsed — None means "no opinion," not
+    "disagreement," since many real documents use header formats this
+    regex doesn't recognize and that's not itself a problem.
+    """
+    full_t12 = []      # (year, month, label) — confidently a full T-12
+    for c in candidates or []:
+        if not isinstance(c, str) or not c.strip():
+            continue
+        m = _PERIOD_T12_RE.search(c)
+        if m:
+            mon, yr = int(m.group(1)), int(m.group(2))
+            if yr < 100:
+                yr += 2000 if yr < 70 else 1900
+            full_t12.append((yr, mon, c))
+            continue
+        m2 = _PERIOD_RANGE_RE.search(c)
+        if m2:
+            start_mon = _PERIOD_MONTH_MAP.get(m2.group(1).lower()[:3])
+            start_yr = int(m2.group(2))
+            end_mon = _PERIOD_MONTH_MAP.get(m2.group(3).lower()[:3])
+            end_yr = int(m2.group(4))
+            if start_mon and end_mon:
+                span = (end_yr - start_yr) * 12 + (end_mon - start_mon) + 1
+                if span == 12:
+                    full_t12.append((end_yr, end_mon, c))
+                # span != 12 -> a confirmed partial period, not a candidate
+                # for "operative T12" — correctly excluded, no further
+                # action needed (verify_extraction's own months-covered
+                # check already flags a chosen partial period separately).
+
+    if not full_t12:
+        return None, "no candidate header matched a recognized T-12/date-range format"
+
+    full_t12.sort()
+    best_year, best_month, best_label = full_t12[-1]
+    if period_used and best_label.strip().lower() == str(period_used).strip().lower():
+        return best_label, "matches periodUsed"
+    return best_label, (
+        f"most recent full-12-month candidate by header date-parsing is "
+        f"{best_label!r}, model chose {period_used!r}"
+    )
+
+
 def verify_extraction(extracted, property_info):
     """
     Pure-Python verification of the extracted data — NO AI involved, so this is
@@ -2474,6 +2643,19 @@ def verify_extraction(extracted, property_info):
         checks.append({"item": "Multiple periods in doc", "check": "Picked most recent T12",
                        "status": "warn",
                        "detail": f"Document had {len(candidates)} period columns: {', '.join(str(c) for c in candidates[:6])}. Confirm the right one was used."})
+        # Deterministic second opinion — parses the header strings the LLM
+        # itself reported and independently identifies the most-recent
+        # full-12-month candidate. Only ever WARNs on a confident
+        # disagreement; never overrides periodUsed. See
+        # _infer_operative_period's docstring for why this exists.
+        best_guess, reason = _infer_operative_period(candidates, rp.get("periodUsed"))
+        if best_guess is not None and "matches periodUsed" not in reason:
+            checks.append({
+                "item": "Period selection cross-check",
+                "check": "Deterministic header-parsing agrees with chosen period",
+                "status": "warn",
+                "detail": f"{reason}. Verify the correct trailing-12 column was used.",
+            })
 
     # ── Monthly vs annual reconciliation for each line ───────────────────
     def _check_lines(lines, label):
@@ -3150,13 +3332,12 @@ def _check_template_wiring(financials):
 # Gated by deep_search so the cost (≈N× extraction tokens) is opt-in.
 # ═══════════════════════════════════════════════════════════════════════════
 
-def call_extract_financials_merged(api_key, file_blocks, property_info, n_runs=3):
+def call_extract_financials_merged(api_key, file_blocks, property_info, n_runs=3, job_id=None):
     print(f"[Claude] Starting {n_runs}× extraction merge...")
     t0 = time.time()
     with ThreadPoolExecutor(max_workers=n_runs) as executor:
-        futures = [executor.submit(call_extract_financials, api_key,
-                                   file_blocks, property_info)
-                   for _ in range(n_runs)]
+        futures = _submit_staggered(executor, job_id, call_extract_financials, n_runs,
+                                     api_key, file_blocks, property_info)
         results = []
         for i, f in enumerate(as_completed(futures)):
             try:
@@ -3495,7 +3676,7 @@ EXPENSE BUCKETING:
 | 5406 Gas / Propane | "Gas/Fuel" |
 | 5401 Vehicle Fuel | "Omitt Expense" (vehicle costs are not opex) |
 | 5102 Tree / 5104 Grounds / 5103 Pest | "Ground Maintenance" |
-| 5107 Septic / 5108 Plumbing / 5109 Misc / 5110 Equipment / 5111 Electrical / 5200 Supplies | "Repair and Maintenance" |
+| 5107 Septic / 5108 Plumbing / 5109 Misc / 5110 Equipment / 5111 Electrical & Gas Repairs / 5200 Supplies | "Repair and Maintenance" |
 | 5409 Rentals - Coin Laundry (laundry equipment lease) | "Repair and Maintenance" |
 | 5000 Management Fees | "Management Fee" (OVERRIDDEN by GGC's % of EGI in a later pass) |
 | 5700 series leaf GLs (5701 Wages, 5702 Health Ins, 5703 Casual Labour, 5704 UI, 5705 Payroll Svc, 5706 FUTA, 5708 SS Tax, 5710 Mgr Salary Allocation, 5713 OR WBF, 5716 Workers Comp) | "Payroll" — emit ONE ROW PER GL, NEVER the "5700 Total Personnel" subtotal |
@@ -3507,6 +3688,7 @@ EXPENSE BUCKETING:
 | 5300 Cap-Ex | "Cap-Ex Reserve" (OVERRIDDEN to $75/site/year) |
 
 DECISION RULES (expense):
+- HARD RULE — "Gas/Fuel" is ONLY for actual gas/propane utility billing (GL 5406) or vehicle/equipment fuel purchases. GL prefix decides the category, not keyword matching on the label text: a line whose GL is 5107-5111/5200 is "Repair and Maintenance" EVEN IF the label contains the word "Gas" or "Electrical" (e.g. "5111 Electrical & Gas Repairs" is a maintenance/repair line for gas-system equipment, not a gas utility bill — it stays "Repair and Maintenance"). Do not let a utility-sounding word in the label override the GL-prefix routing.
 - HARD RULE: any expense line whose sellerNotes contains "Discontinued", "Non-recurring", "Seller Specific", "Seller-Specific", "One-time", or "Non-operating" → "Omitt Expense". Same logic as the income side; the Omitt bucket is the gold-standard exclusion path.
 - HARD RULE: vehicle-related lines (Car Insurance, Vehicle Fuel, Vehicle Maintenance) → "Omitt Expense" regardless of GL prefix. Vehicles are seller-owned, not property opex.
 - HARD RULE: NEVER emit a subtotal row. Lines whose sellerLabel contains "Total", "non-posting", or "Subtotal" are display artifacts. Emit only the leaf GLs beneath them, each with its own row, each with its own t12Total preserved exactly from the source.
@@ -3685,6 +3867,13 @@ Compare the user-entered "Park-Owned Home Count" against the number of rent roll
 - If USER SAYS MORE POH than rent roll shows home rent for: the seller is likely hiding home rent income (or comping the home for the on-site manager). Flag as "medium" severity: "User stated [X] POH but only [Y] rent roll entries show home rent. Possible employee allowance (comped lot for manager) or hidden home rent income. Verify with seller."
 - If USER SAYS FEWER POH than rent roll shows home rent for: the user count is probably wrong, or some rent roll "home rent" entries are actually other charges miscategorized. Flag as "medium" severity and use the rent roll count as the authoritative POH number.
 - If USER STATED 0 POH but rent roll has home rent entries: flag as "high" severity. The user either didn't know or input wrong. Use rent roll count.
+
+HARD RULE — CONNECTING CHECK 1 AND CHECK 2 (imputed-vacant unit typing): when CHECK 1 imputes missing rows to backfill a short rent roll AND the user-stated POH count exceeds the POH found occupied in the rent roll, some of those imputed vacant rows almost always ARE the "missing" POH units — a park-owned home currently sitting vacant (between tenants, being renovated) produces neither a rent-roll row nor a home-rent entry, which is exactly why it's both "missing" from the row count and invisible to the home-rent count. Do NOT default every imputed vacant row to the TOH bucket. Instead:
+  1. Let occupiedPOH = POH count actually found occupied in the rent roll (home rent > 0).
+  2. Let missingPOH = max(0, finalPohCount − occupiedPOH), capped at the number of imputed/missing rows from CHECK 1.
+  3. Of the imputed vacant rows, route `missingPOH` of them to unitType "POH-Infilled units" (vacant, homeRent 0, lotRent at the POH-type market average if any POH comparable exists, else the property-wide vacant-lot market rent). Route the remainder of the imputed vacant rows to "TOH MH Site".
+  4. Note in the flags array how many imputed rows were typed as vacant POH vs. vacant TOH, and why.
+  - WORKED EXAMPLE: Total Units=148, rent roll has 127 rows (all occupied, 0 with home rent), user states POH count=11. CHECK 1 imputes 21 missing rows. CHECK 2: occupiedPOH=0, finalPohCount=11, so missingPOH=min(11, 21)=11. Emit unitGroups with "POH-Infilled units": occupiedCount=0, vacantCount=11 (NOT folded into TOH), and "TOH MH Site": occupiedCount=<rent-roll TOH occupied count>, vacantCount=21−11=10. This is not hypothetical — it is the exact reconciliation gold-standard analysts perform, and getting it wrong collapses the Lot-Rent-Only NOI bifurcation (§ PARK-OWNED HOME (POH) BIFURCATION below) because the home-rent business silently vanishes from the unit mix.
 
 POH PERCENTAGE CALCULATION:
 After reconciliation, compute POH % = (POH Count / Total Units) × 100. Use this number throughout the rest of the analysis (affects expense ratio benchmarks, NOI bifurcation, and risk flags).
@@ -4109,7 +4298,7 @@ def _carry_extraction_through(parsed, extracted):
     _attach(parsed.get("expenses"), extracted.get("expenses"))
 
 
-def call_parse_financials_merged(api_key, extracted, property_info, n_runs=3):
+def call_parse_financials_merged(api_key, extracted, property_info, n_runs=3, job_id=None):
     """Self-consistency wrapper around call_parse_financials. Runs N
     methodology calls in parallel against the SAME extracted data and
     merges them: ggcCategory by confidence-weighted mode (the actual fix
@@ -4124,9 +4313,8 @@ def call_parse_financials_merged(api_key, extracted, property_info, n_runs=3):
     print(f"[Claude] Starting {n_runs}× methodology merge...")
     t0 = time.time()
     with ThreadPoolExecutor(max_workers=n_runs) as executor:
-        futures = [executor.submit(call_parse_financials, api_key,
-                                   extracted, property_info)
-                   for _ in range(n_runs)]
+        futures = _submit_staggered(executor, job_id, call_parse_financials, n_runs,
+                                     api_key, extracted, property_info)
         results = []
         for i, f in enumerate(as_completed(futures)):
             try:
@@ -4312,6 +4500,39 @@ def _merge_methodology(runs):
             "sellerUnitLabel":   _mode_of(
                 [g.get("sellerUnitLabel") for g in gs]),
         })
+
+    # Phantom-unit guard: per-type median merging is only sound when every
+    # run reports the SAME set of unitType buckets. When runs disagree on
+    # bucket EXISTENCE — e.g. one run carves out a "POH-Infilled units"
+    # group while the others fold those same lots into "TOH MH Site" —
+    # merging bucket-by-bucket adds the minority run's group on top of a
+    # majority TOH count that already implicitly contains those units,
+    # inflating the total (confirmed empirically on Whaleshead: 3 runs each
+    # individually summed to 148 units, but the naive per-type merge
+    # produced 159 — the exact 11-unit size of a POH group only 1 of 3
+    # runs returned). Guard: the merged total must fall within the range of
+    # what individual runs actually reported. If it doesn't, the per-type
+    # merge isn't trustworthy — fall back to the single run whose own
+    # total is closest to the median run total, so the shipped unit mix is
+    # at least internally consistent (no double-counted units) even though
+    # picking one run forgoes cross-run smoothing on that run's numbers.
+    run_totals = []
+    for rr in rr_runs:
+        groups = rr.get("unitGroups") or []
+        total = sum((g.get("occupiedCount") or 0) + (g.get("vacantCount") or 0)
+                    for g in groups if isinstance(g, dict))
+        if total > 0:
+            run_totals.append(total)
+    merged_total = sum(g["occupiedCount"] + g["vacantCount"] for g in merged_groups)
+    if run_totals and not (min(run_totals) <= merged_total <= max(run_totals)):
+        target = statistics.median(run_totals)
+        best_run = min(
+            (rr for rr in rr_runs if rr.get("unitGroups")),
+            key=lambda rr: abs(sum((g.get("occupiedCount") or 0) +
+                                    (g.get("vacantCount") or 0)
+                                    for g in rr["unitGroups"] if isinstance(g, dict))
+                                - target))
+        merged_groups = best_run["unitGroups"]
     merged_rr["unitGroups"] = merged_groups
     merged["rentRoll"] = merged_rr
 
@@ -4470,12 +4691,49 @@ _PER_SITE_CATEGORY_KEYS = {
 # target ggcCategory, section "income"|"expense"|"any", reason).
 # Source of truth: OUTLINE root cause #7 / cross-cutting #3.
 import re as _ggc_re
+
+
+class _ExcludingPattern:
+    """Wraps an include/exclude regex pair behind a .search() method so it
+    drops into _GGC_PATTERN_ROUTES exactly like a plain compiled pattern.
+    Needed because a single-regex negative lookahead like
+    (?!.*exclude_word) only scans text AFTER the include match's position —
+    it can't reject a match where the excluded word appears BEFORE it. This
+    checks the exclusion against the whole string first, so match order
+    doesn't matter."""
+    def __init__(self, include_rx, exclude_rx):
+        self.include_rx = include_rx
+        self.exclude_rx = exclude_rx
+
+    def search(self, s):
+        if self.exclude_rx.search(s):
+            return None
+        return self.include_rx.search(s)
+
+
 _GGC_PATTERN_ROUTES = [
     # Expense-side routings
     (_ggc_re.compile(r"(?i)^Janitor|^Janit"),
      "Ground Maintenance", "expense",
      "janitorial routes to ground maintenance, not R&M"),
-    (_ggc_re.compile(r"(?i)Equipment\s*Fuel|^Fuel\b|Gas(?:oline)?\s+(?:expense|cost)?"),
+    # NOTE: the trailing (?:expense|cost) group used to be optional
+    # ("...)?"), which made the alternative match bare "Gas " followed by
+    # ANY word — including "5111 Electrical & Gas Repairs", a maintenance
+    # line that GL-prefix 5111 correctly routes to Repair and Maintenance.
+    # This Python override then silently clobbered the correct category
+    # (LLM or otherwise) back to Gas/Fuel on every run. Confirmed via
+    # direct extraction test against Whaleshead's CorrectOutput.xlsx gold
+    # standard — the negative lookahead + required keyword close the gap.
+    #
+    # A trailing (?!.*(?:repair|maintenance)) lookahead only scans text
+    # AFTER the match position, so "Repair Equipment Fuel" / "Maintenance
+    # Gas Expense" / "Repairs - Gas Cost" (repair/maintenance word BEFORE
+    # the fuel keyword) still matched and got force-routed to Gas/Fuel.
+    # _ExcludingPattern checks the exclusion against the WHOLE string
+    # first, independent of where the fuel keyword sits.
+    (_ExcludingPattern(
+        _ggc_re.compile(r"(?i)Equipment\s*Fuel|^Fuel\b|Gas(?:oline)?\s+(?:expense|cost)\b"),
+        _ggc_re.compile(r"(?i)repair|maintenance")),
      "Gas/Fuel", "expense",
      "fuel-related → Gas/Fuel"),
     (_ggc_re.compile(r"(?i)Gift.*Resident|Resident\s+Gift"),
@@ -4739,6 +4997,15 @@ def _apply_per_site_overrides(financials, property_info):
     # ── Bad-debt UW plug ────────────────────────────────────────────────
     # bad_debt_uw_pct × UW GPR (sum of all "Gross Potential Rent" rows).
     # Default 2% matches CorrectOutput Parkwood.
+    #
+    # SKIP when Tier C (apply_ggc_overrides, above) already zeroed Bad
+    # Debt because realized credit losses (Parkwood-style negative LC
+    # contract adjustments) are already netted into the consolidated GPR
+    # row. Re-plugging here would double-count those losses: once
+    # implicitly via the lower net GPR, again via this synthesized
+    # Bad Debt line. financials["_implicitCreditLoss"] is the same signal
+    # Tier C used (see the ≥$10K threshold there).
+    implicit_credit_loss = float(financials.get("_implicitCreditLoss") or 0)
     try:
         bd_pct = float(property_info.get("bad_debt_uw_pct") or 0.02)
     except (TypeError, ValueError):
@@ -4749,7 +5016,9 @@ def _apply_per_site_overrides(financials, property_info):
         for it in income
         if (it.get("ggcCategory") or "").strip() == "Gross Potential Rent"
     )
-    if uw_gpr > 0:
+    if implicit_credit_loss >= 10_000:
+        pass  # Tier C already zeroed Bad Debt — don't re-plug and double-count.
+    elif uw_gpr > 0:
         target = -round(uw_gpr * bd_pct, 2)
         bd_rows = [it for it in income
                    if (it.get("ggcCategory") or "").strip() == "Bad Debt"]
@@ -4915,7 +5184,7 @@ def apply_ggc_overrides(financials, property_info):
     OMITT_MARKERS = (
         "non-recurring", "non recurring", "nonrecurring",
         "discontinued", "seller specific", "seller-specific",
-        "one-time", "one time", "non-operating",
+        "one-time", "one time", "non-operating", "nonoperating",
     )
     def _force_omitt(items, target_category):
         for it in items:
@@ -4945,6 +5214,10 @@ def apply_ggc_overrides(financials, property_info):
     LTO_TENANT_PATTERNS = ("lc payment", "land contract", "lease-to-own",
                             "lease to own", " lto ", "installment sale",
                             "home sale", "home rent")
+    # " lto " requires spaces on BOTH sides, so real labels like "LTO -
+    # Smith #12" (leading) or a bare "LTO" line (neither side) miss it.
+    # Word-boundary regex fallback alongside the phrase list.
+    LTO_TENANT_WORD_RE = re.compile(r"\blto\b")
     def _has_explicit_omitt_notes(it):
         notes = (it.get("_sellerNotes") or "").lower()
         return any(m in notes for m in OMITT_MARKERS)
@@ -4957,7 +5230,7 @@ def apply_ggc_overrides(financials, property_info):
             continue
         sn = (it.get("sellerName") or "").lower()
         # LTO patterns take priority (more specific) over generic lot-rent
-        if any(m in sn for m in LTO_TENANT_PATTERNS):
+        if any(m in sn for m in LTO_TENANT_PATTERNS) or LTO_TENANT_WORD_RE.search(sn):
             _record(
                 f"{it.get('sellerName', '?')}: Omitt Income → Home Rent Income",
                 "Omitt Income", "Home Rent Income",
@@ -5008,12 +5281,21 @@ def apply_ggc_overrides(financials, property_info):
     # Vehicle-related expenses → Omitt Expense regardless of GL prefix.
     # Catches Car Insurance (5051), Vehicle Fuel (5401), and similar lines
     # the LLM sometimes lands in Insurance or Gas/Fuel.
+    # Substring markers for longer, unambiguous phrases, plus a word-boundary
+    # regex for the bare nouns ("Vehicles", "Vehicle Expense", "Auto Expense",
+    # "AUTO") that real seller P&Ls use standalone — found on live documents
+    # for Lakeland (GL 64009 "Vehicles"), Las Brisas (GL 6100 "AUTO"), and
+    # Timber Ridge ("Vehicle Expense"/"Auto Expense"), none of which matched
+    # the phrase-only list below. Word-boundary (not bare substring) so
+    # "Automatic Gate," "Automation," etc. don't false-positive.
     VEHICLE_MARKERS = ("car insurance", "vehicle insurance", "vehicle fuel",
                        "fuel for vehicle", "auto insurance", "truck",
-                       "vehicle maintenance", "automobile")
+                       "vehicle maintenance", "automobile",
+                       "vehicle expense", "auto expense")
+    VEHICLE_WORD_RE = re.compile(r"\b(vehicles?|autos?)\b")
     for it in expenses:
         sn = (it.get("sellerName") or "").lower()
-        if any(m in sn for m in VEHICLE_MARKERS):
+        if any(m in sn for m in VEHICLE_MARKERS) or VEHICLE_WORD_RE.search(sn):
             current = (it.get("ggcCategory") or "").strip()
             if current and current != "Omitt Expense":
                 _record(
@@ -5058,9 +5340,20 @@ def apply_ggc_overrides(financials, property_info):
         (("sales tax - electric", "sales tax electric",
           "sales tax on electric"),
          "Utility Reimbursement", "electric utility tax pass-through"),
-        # Uncategorized → Omitt
-        (("uncategorized income", "uncategorized revenue"),
+        # Uncategorized → Omitt. QuickBooks's literal default GL name is
+        # "Uncategorized Income", but sellers sometimes abbreviate to a
+        # bare "Uncategorized" line (QB auto-creates this as a catch-all
+        # when nothing else fits) — word-boundary regex fallback alongside
+        # the phrase match.
+        (("uncategorized income", "uncategorized revenue",
+          re.compile(r"\buncategorized\b")),
          "Omitt Income", "literal uncategorized → cannot underwrite forward"),
+        # Non-operating one-off financial events not already covered by the
+        # "gain on installment/sale" phrases above — real GL variants like
+        # "Gain on Disposal" or "Gain on Debt Forgiveness" don't contain
+        # those specific phrases but are the same non-operating concept.
+        ((re.compile(r"\bgain\s+on\b"),),
+         "Omitt Income", "non-operating one-off gain, not lot rent"),
     ]
 
     _EXPENSE_NAME_PATTERNS = [
@@ -5069,35 +5362,57 @@ def apply_ggc_overrides(financials, property_info):
           "resident appreciation", "tenant party",
           "holiday gifts", "christmas party"),
          "Omitt Expense", "one-time event, not recurring opex"),
-        # Uncategorized → Omitt
-        (("uncategorized expense", "uncategorized exp"),
+        # Uncategorized → Omitt. Same bare-abbreviation reasoning as the
+        # income-side rule above.
+        (("uncategorized expense", "uncategorized exp",
+          re.compile(r"\buncategorized\b")),
          "Omitt Expense", "literal uncategorized → cannot underwrite forward"),
         # Inventory transfer costs from selling LC homes
         (("tax & title for mobile home", "tax and title for mobile home",
           "tax title mobile home", "tax title for mh",
           "title transfer", "inventory transfer"),
          "Omitt Expense", "home inventory transfer cost, non-recurring"),
-        # Depreciation — not a cash expense
+        # Depreciation / amortization — not a cash expense. Bare
+        # "amortization" added: real GL label "Amortization-Ref Costs"
+        # (Las Brisas GL 6080) doesn't contain "amortization expense".
         (("depreciation expense", "depreciation",
-          "amortization expense"),
+          "amortization expense", "amortization"),
          "Omitt Expense", "non-cash, GGC underwrites cash flow"),
-        # Interest expense — not opex (handled in debt service)
-        (("interest expense", "loan interest", "mortgage interest"),
+        # Interest expense — not opex (handled in debt service). Dash-
+        # qualified bare "Interest -" fallback: real GL label
+        # "Interest - Nondeductible..." (Las Brisas GL 9510) and common
+        # QuickBooks variants ("Interest - Line of Credit", "Interest -
+        # SBA Loan") use a bare "Interest" prefix that doesn't contain
+        # "interest expense"/"loan interest"/"mortgage interest". The dash
+        # requirement (not a fully bare \binterest\b) keeps this narrowly
+        # scoped to the confirmed real pattern.
+        (("interest expense", "loan interest", "mortgage interest",
+          re.compile(r"\binterest\s*[-–—]")),
          "Omitt Expense", "debt service, not operating expense"),
-        # Charitable donations / meals / travel → Omitt
+        # Charitable donations / meals / travel → Omitt. Bare word-boundary
+        # fallbacks for standalone QuickBooks account names that lack the
+        # usual "Expense" suffix ("Donations", "Travel" with no qualifier);
+        # "Airfare" added as its own term since only "airline" was covered.
         (("charitable donation", "charitable contribution",
           "donation", "meals and entertainment",
           "meals & entertainment", "travel expense", "lodging",
-          "airline"),
+          "airline", re.compile(r"\bdonations?\b"),
+          re.compile(r"\btravel\b"), re.compile(r"\bairfare\b")),
          "Omitt Expense", "non-operating discretionary spend"),
     ]
 
     def _route_by_name(items, rules, section_label):
+        # patterns entries may be plain strings (substring match, the
+        # original behavior) or compiled regexes (word-boundary match) —
+        # the latter for bare/shortened real-world GL variants a substring
+        # check alone would false-positive or miss on (mirrors the
+        # VEHICLE_WORD_RE style fix above).
         for it in items:
             sn = (it.get("sellerName") or "").lower()
             current = (it.get("ggcCategory") or "").strip()
             for patterns, target, reason in rules:
-                if any(p in sn for p in patterns):
+                if any((p.search(sn) if hasattr(p, "search") else p in sn)
+                       for p in patterns):
                     if current and current != target:
                         _record(
                             f"{it.get('sellerName', '?')}: {current} → {target}",
@@ -5567,12 +5882,29 @@ def _ensure_rent_roll_complete(financials, property_info):
     rr["rentRollRows"] = per_row
     financials["rentRoll"] = rr
 
+    # Report BOTH shortfalls whenever they diverge — groups_shortfall and
+    # rows_shortfall are independent counts (see the comment above the
+    # imputation loop) and rentRollRows is padded by rows_shortfall, not
+    # `shortfall` (== groups_shortfall). Using the wrong count here made
+    # the audit trail claim "0 imputed" while rows were actually appended,
+    # or vice versa.
+    if groups_shortfall == rows_shortfall:
+        imputed_desc = f"{rows_shortfall} additional vacant lots"
+        appended_desc = "Appended rows to BOTH unitGroups and rentRollRows"
+    else:
+        imputed_desc = (f"{rows_shortfall} additional vacant lot row(s) "
+                         f"(unitGroups delta: {groups_shortfall})")
+        appended_desc = (
+            "Appended rows to rentRollRows only" if groups_shortfall == 0
+            else "Appended rows to unitGroups only" if rows_shortfall == 0
+            else "Appended rows to unitGroups and rentRollRows (different counts)")
+
     flags = financials.setdefault("flags", [])
     flags.append({
         "item": "Rent roll vs unit count",
         "issue": (f"Rent roll showed {current_total} units but property is "
-                  f"{stated_units} units — assumed {shortfall} additional "
-                  f"vacant lots at per-type market rent."),
+                  f"{stated_units} units — assumed {imputed_desc} "
+                  f"at per-type market rent."),
         "severity": "high",
         "recommendation": (
             "Confirm with broker: are vacant sites excluded from the rent "
@@ -5586,14 +5918,14 @@ def _ensure_rent_roll_complete(financials, property_info):
         "item":   "Vacant-pad imputation",
         "check":  "rentRollRows reconcile to stated unit count",
         "status": "warn",
-        "detail": (f"Imputed {shortfall} vacant pad(s) to reconcile rent "
+        "detail": (f"Imputed {imputed_desc} to reconcile rent "
                    f"roll to stated unit count of {stated_units}. Dominant "
                    f"type '{dominant_type}' @ ${market_lot_rent:,.0f}/mo "
-                   f"market lot rent. Appended rows to BOTH unitGroups and "
-                   f"rentRollRows so the Rent Roll Input tab and "
-                   f"COUNTIFS-driven KPIs both see the phantom pads."),
+                   f"market lot rent. {appended_desc} so the Rent Roll "
+                   f"Input tab and COUNTIFS-driven KPIs both see the "
+                   f"phantom pads."),
     })
-    print(f"[Methodology] Imputed {shortfall} vacant lots "
+    print(f"[Methodology] Imputed {imputed_desc} "
           f"({current_total} → {new_total}) to match stated unit count "
           f"(appended to rentRollRows at ${market_lot_rent:,.0f}/mo).")
 
@@ -5739,7 +6071,7 @@ Pull comps, demographics, alt housing, landmarks, and visual URLs."""
           f"(stop_reason: {response.get('stop_reason', '?')})")
     return extract_json(response)
 
-def call_market_research_merged(api_key, property_info, n_runs=3):
+def call_market_research_merged(api_key, property_info, n_runs=3, job_id=None):
     """
     Run market research multiple times in parallel and merge the results.
     Dedupes rent comps by name, sale comps by name+date, takes the union of
@@ -5751,11 +6083,12 @@ def call_market_research_merged(api_key, property_info, n_runs=3):
     print(f"[Claude] Starting {n_runs}× market research merge...")
     t0 = time.time()
 
-    # Fire all runs in parallel — they're independent and the bottleneck is
-    # network/web-search latency, not local CPU
+    # First run gets a head start so the rest can read its prompt-cache
+    # entry instead of each paying full price on the system prompt (see
+    # _submit_staggered) — they still finish in parallel with each other.
     with ThreadPoolExecutor(max_workers=n_runs) as executor:
-        futures = [executor.submit(call_market_research, api_key, property_info)
-                   for _ in range(n_runs)]
+        futures = _submit_staggered(executor, job_id, call_market_research, n_runs,
+                                     api_key, property_info)
         results = []
         for i, f in enumerate(as_completed(futures)):
             try:
@@ -5956,30 +6289,68 @@ def _protect_formulas(ws):
     depth per CLAUDE.md §10.2: the template has ~1,651 pre-wired formulas
     (SUM, SUMIFS, IFERROR-based pricing chains, etc.) and a write-back that
     clobbers one of them yields a workbook whose final NOI doesn't trace.
+
+    Also guards against writing into a non-anchor cell of a merged range.
+    openpyxl raises AttributeError ('MergedCell' object attribute 'value'
+    is read-only) on such a write — that used to crash the whole analysis
+    job with no workbook produced at all, violating the CLAUDE.md §0/§7
+    hard rule that the workbook is ALWAYS produced. `_structural_rows`
+    (below) is the primary defense — it excludes merged rows from the
+    Data Consolidation income/expense slot ranges before any row is ever
+    assigned a line item — this is the backstop for anywhere else a merge
+    could be hit.
+
     Returns a mutable counter [int] so the caller can read how many writes
     were blocked. Only `ws.cell()` is patched — the ws["P4"] = v style uses
     `_set_addr()` below.
     """
     blocked = [0]
+    merged_blocked = [0]
     orig_cell = ws.cell
 
     def safe_cell(row, column, value=None):
         c = orig_cell(row=row, column=column)
         if value is not None:
+            if isinstance(c, MergedCell):
+                merged_blocked[0] += 1
+                return c
             if isinstance(c.value, str) and c.value.startswith("="):
                 blocked[0] += 1
                 return c
             c.value = value
         return c
 
+    def clear_cell(row, column):
+        """Explicitly blank a cell (unlike safe_cell, which treats
+        value=None as a no-op read since that's indistinguishable from
+        ws.cell(row=, column=) called with no value to write). Still
+        respects formula protection — a formula cell is left alone."""
+        c = orig_cell(row=row, column=column)
+        if isinstance(c, MergedCell):
+            merged_blocked[0] += 1
+            return c
+        if isinstance(c.value, str) and c.value.startswith("="):
+            blocked[0] += 1
+            return c
+        c.value = None
+        return c
+
     ws.cell = safe_cell
     ws._formula_blocks = blocked
+    ws._merged_blocks = merged_blocked
+    ws._clear_cell = clear_cell
     return blocked
 
 
 def _set_addr(ws, addr, value):
-    """Set ws[addr].value = value, skipping if a formula is already there."""
+    """Set ws[addr].value = value, skipping if a formula is already there
+    or the address resolves to a non-anchor cell of a merged range."""
     cell = ws[addr]
+    if isinstance(cell, MergedCell):
+        merged_blocked = getattr(ws, "_merged_blocks", None)
+        if merged_blocked is not None:
+            merged_blocked[0] += 1
+        return False
     if isinstance(cell.value, str) and cell.value.startswith("="):
         blocked = getattr(ws, "_formula_blocks", None)
         if blocked is not None:
@@ -6007,11 +6378,24 @@ def _structural_rows(ws, row_start, row_end, value_cols=(4, 5, 6)):
     every leaf row as structural and zero out the entire workbook.
     The real structural rows have formulas in D/E/F too (SUM aggregates),
     so D/E/F is the reliable signal.
+
+    Also flags a row as structural if any value column is a non-anchor
+    cell of a merged range (e.g. a section-divider row like D74:E74 with
+    a plain text label, no formula). Such a row is a template-formula-free
+    cell but is still not writable — openpyxl raises AttributeError on
+    `MergedCell.value = ...`. Formula-string detection alone missed this
+    (a merged label has no "=" value), which let a slot range swallow the
+    divider row and crash the whole write-back the moment enough line
+    items were emitted to reach it.
     """
     out = set()
     for r in range(row_start, row_end + 1):
         for c in value_cols:
-            v = ws.cell(row=r, column=c).value
+            cell = ws.cell(row=r, column=c)
+            if isinstance(cell, MergedCell):
+                out.add(r)
+                break
+            v = cell.value
             if isinstance(v, str) and v.startswith("="):
                 out.add(r)
                 break
@@ -6119,7 +6503,7 @@ def fill_sources_and_uses(wb, financials, property_info):
     Conditional writes (only when the analyst provides a form value):
       - C13 = contract price (else stays =GGC Underwriting!P4)
       - C14 = =C13*<closing_cost_pct> (default 2.25% per CorrectOutput)
-      - Capex breakdown rows 21-26: when capex_line_items is provided,
+      - Capex breakdown rows 22-26: when capex_line_items is provided,
         rewrite B/C with analyst-supplied {label, amount} pairs.
 
     The template sheet is "Sources and Uses" (no (PW) suffix).
@@ -6178,28 +6562,37 @@ def fill_sources_and_uses(wb, financials, property_info):
         except Exception:
             pass
 
-    # Capex breakdown rows 21-26. The template ships 3 stale Whaleshead
-    # rows (Private water/septic, Add New Homes, Working Capex). When the
-    # analyst provides explicit capex_line_items, clear those rows and
+    # Capex breakdown rows 22-26. Row 21 (B21 = "Water / Septic / Utilities
+    # (per deal)") sits OUTSIDE the SUM(C22:C26) window that feeds C27 —
+    # writing a capex amount there is silently excluded from the total, so
+    # never target row 21. The template ships 3 stale Whaleshead rows
+    # (Private water/septic, Add New Homes, Working Capex) in 22-26. When
+    # the analyst provides explicit capex_line_items, clear those rows and
     # rewrite with the new entries.
     capex_items = prop.get("capex_line_items") or []
     if isinstance(capex_items, list) and capex_items:
-        # Clear the template's existing labels/values in rows 21-26 so
-        # stale lines don't sum into C27. Row 27 holds =SUM(C21:C26) by
-        # default; leave that formula intact.
-        for r in range(21, 27):
+        # Clear the template's existing labels/values in rows 22-26 so
+        # stale lines don't sum into C27. Row 27 holds =SUM(C22:C26) by
+        # default; leave that formula intact. Leave row 21's label alone —
+        # it's outside the SUM window regardless.
+        for r in range(22, 27):
             try:
-                ws.cell(row=r, column=2, value=None)
-                ws.cell(row=r, column=3, value=None)
-                # Some Whaleshead rows ship with D/E multipliers
-                # (=D22*E22). Clear those too so they don't ghost-multiply.
-                ws.cell(row=r, column=4, value=None)
-                ws.cell(row=r, column=5, value=None)
+                # ws.cell(row=, column=, value=None) is a silent no-op —
+                # openpyxl treats value=None as "no value provided" (same
+                # as calling ws.cell(row=, column=) with no value kwarg at
+                # all), indistinguishable from a plain read. Direct
+                # attribute assignment is the only way to actually blank
+                # a cell. Some Whaleshead rows ship with D/E multipliers
+                # (=D22*E22) too, so clear those columns as well so they
+                # don't ghost-multiply against the new entries.
+                for col in (2, 3, 4, 5):
+                    ws.cell(row=r, column=col).value = None
             except Exception:
                 pass
-        # Write up to 6 line items (rows 21-26).
-        for i, item in enumerate(capex_items[:6]):
-            r = 21 + i
+        # Write up to 5 line items (rows 22-26) — matches the SUM(C22:C26)
+        # window in C27.
+        for i, item in enumerate(capex_items[:5]):
+            r = 22 + i
             if not isinstance(item, dict):
                 continue
             label = item.get("label") or item.get("name") or ""
@@ -6223,21 +6616,18 @@ def fill_loan_scenario(wb, financials, property_info):
       - C15 = spread (decimal)
       - C19 = purchase price (only when contract_price provided; else
               template's =Sources and Uses!C13 chain stays)
-      - C20 = amortization months (template ships =30*12; overwrite when
-              analyst supplies)
-      - C21 = term months (NOTE: template's C21 ships as Capital
-              Expenditure linked to S&U C17; on a contract-driven deal
-              the term-month override goes into C8 instead. See logic
-              below.)
+      - C10 = amortization months (template ships =30*12; overwrite when
+              analyst supplies amort_months)
+      - C8  = term months (overwrite when analyst supplies term_months)
       - C24 = max LTV (decimal)
       - C25 = min DSCR (decimal)
 
-    Per Parkwood OUTLINE: the template's existing Loan Scenario layout
-    differs from the per-task cell map. Task spec says C20=amort_months,
-    C21=term_months but the live template has C8=term, C10=amort. We
-    write to BOTH the task-spec cells AND the live-template cells so
-    the workbook ends up correct regardless of which layout fix_template
-    has applied.
+    NOTE: an earlier version of this writer also wrote amort/term to C20
+    and C21 per a stale task-spec cell map. The live template does NOT
+    use those cells for loan terms — C20 is "Closing Costs" and C21 is
+    "Capital Expenditure" (both literals feeding C22 = C19+C20+C21). Do
+    not write loan-term values there; it silently zeroes out the capex
+    budget baked into Total Cost Basis.
     """
     sheet_name = "Loan Scenario (acquisition)"
     if sheet_name not in wb.sheetnames:
@@ -6300,26 +6690,22 @@ def fill_loan_scenario(wb, financials, property_info):
         except Exception:
             pass
 
-    # C20 — amortization months (task spec). Template's actual amort cell
-    # is C10 (=30*12); write to both.
+    # Amortization months. Template's actual amort cell is C10 (=30*12).
+    # NOTE: C20 is NOT an amort cell in this template — it's "Closing
+    # Costs" (literal 0, feeds C22 = C19+C20+C21) — never write there.
     amort = _coerce_int(prop.get("amort_months"), None)
     if amort is not None:
-        try:
-            ws["C20"].value = amort
-        except Exception:
-            pass
         try:
             ws["C10"].value = amort
         except Exception:
             pass
 
-    # C21 — term months (task spec). Template's actual term cell is C8.
+    # Term months. Template's actual term cell is C8.
+    # NOTE: C21 is NOT a term cell in this template — it's "Capital
+    # Expenditure" (literal 250000, feeds C22 = C19+C20+C21) — never
+    # write there.
     term = _coerce_int(prop.get("term_months"), None)
     if term is not None:
-        try:
-            ws["C21"].value = term
-        except Exception:
-            pass
         try:
             ws["C8"].value = term
         except Exception:
@@ -6918,10 +7304,25 @@ def fill_template(financials, market, output_path):
     # formula outputs were summed into the line). Scan once at template
     # load and use the resulting slot lists to lay items out.
     ws = wb["Data Consolidation"]
-    income_structural  = _structural_rows(ws, 3, 36)
-    expense_structural = _structural_rows(ws, 43, 102)
-    income_slots  = [r for r in range(3, 37)  if r not in income_structural]
-    expense_slots = [r for r in range(43, 103) if r not in expense_structural]
+    # Row bounds verified directly against the CURRENT on-disk template
+    # (income leaf rows 3-68, SUM/check block at 70-72, blank spacer at
+    # 73-74, expense leaf rows 75-132, SUM/check/NOI block at 134-138).
+    # The old bounds (3-36 / 43-102) were sized for an earlier, smaller
+    # template revision and no longer match — confirmed by direct
+    # inspection: they don't even reach the real expense subtotal row
+    # (134), so rows 103-132 were NEVER touched by any write OR any
+    # cleanup pass. Those rows still carry literal leftover Parkwood data
+    # (categories in A, real dollar figures in J:U) from whatever process
+    # last built this template from a filled-in deal file — every run
+    # through the old bounds silently inherited that data into its T-12
+    # column (G, which is formula-driven off J:U) with no way to detect
+    # it short of opening the workbook and reading the "wrong" numbers.
+    # If the template is regenerated again, re-verify these bounds don't
+    # need updating — don't assume they're permanent constants.
+    income_structural  = _structural_rows(ws, 3, 69)
+    expense_structural = _structural_rows(ws, 75, 133)
+    income_slots  = [r for r in range(3, 70)  if r not in income_structural]
+    expense_slots = [r for r in range(75, 134) if r not in expense_structural]
     _protect_formulas(ws)
 
     # Strip noise rows before writing. The methodology occasionally emits:
@@ -6980,7 +7381,7 @@ def fill_template(financials, market, output_path):
         dropped = [it.get("sellerName") for it in income_items[len(income_slots):]]
         financials.setdefault("_extractionChecks", []).append({
             "item": "Data Consolidation income capacity",
-            "check": f"≤ {len(income_slots)} non-structural rows in $A$3:$A$36",
+            "check": f"≤ {len(income_slots)} non-structural rows in $A$3:$A$69",
             "status": "fail",
             "detail": (f"Methodology emitted {len(income_items)} income line "
                        f"items; only {len(income_slots)} non-structural rows "
@@ -6990,7 +7391,7 @@ def fill_template(financials, market, output_path):
         dropped = [it.get("sellerName") for it in expense_items[len(expense_slots):]]
         financials.setdefault("_extractionChecks", []).append({
             "item": "Data Consolidation expense capacity",
-            "check": f"≤ {len(expense_slots)} non-structural rows in $A$43:$A$102",
+            "check": f"≤ {len(expense_slots)} non-structural rows in $A$75:$A$133",
             "status": "fail",
             "detail": (f"Methodology emitted {len(expense_items)} expense line "
                        f"items; only {len(expense_slots)} non-structural rows "
@@ -7082,16 +7483,41 @@ def fill_template(financials, market, output_path):
     # workbook doesn't display placeholder rows the methodology never
     # populated. Skip structural rows (their formulas must remain) and
     # rows we just wrote.
-    for r in range(3, 37):
+    # IMPORTANT: this clears more than just the label columns. The
+    # template's leftover rows (see the bounds comment above) carry real
+    # literal dollar figures in D/E/F (fyPrior/fyCurrent/brokerProforma)
+    # AND in J:U (the monthly series that feeds column G's T-12 formula).
+    # Clearing only A/B (as this loop used to) leaves those numbers fully
+    # intact and still summed into the section subtotal (row 70/134 are
+    # plain =SUM() over the whole column, not SUMIFS — they don't care
+    # whether column A has a label). Column G itself is left alone: it
+    # holds a formula (protected by _protect_formulas) and recomputes to
+    # 0 on its own once the J:U cells under it are blanked.
+    #
+    # Columns H (8) and V (22) are a SEPARATE pair of literal-value columns
+    # this function never writes to — confirmed still carrying real
+    # leftover Parkwood dollar figures (e.g. Electricity ~$118K in H127).
+    # They feed GGC Underwriting's secondary "T12 (date)"/"T3 annualized"
+    # historical-reference columns (D/E there), NOT the primary "UW NOI"
+    # column (K, which pulls from Unit Mix Summary instead) — lower blast
+    # radius than the original G/J:U bug, but still real contamination on
+    # every deal. Clear them the same way.
+    for r in range(3, 70):
         if r in income_structural or r in written_income_rows:
             continue
-        ws.cell(row=r, column=1, value=None)
-        ws.cell(row=r, column=2, value=None)
-    for r in range(43, 103):
+        for col in (1, 2, 4, 5, 6, 8):
+            ws._clear_cell(r, col)
+        for col in range(10, 22):
+            ws._clear_cell(r, col)
+        ws._clear_cell(r, 22)
+    for r in range(75, 134):
         if r in expense_structural or r in written_expense_rows:
             continue
-        ws.cell(row=r, column=1, value=None)
-        ws.cell(row=r, column=2, value=None)
+        for col in (1, 2, 4, 5, 6, 8):
+            ws._clear_cell(r, col)
+        for col in range(10, 22):
+            ws._clear_cell(r, col)
+        ws._clear_cell(r, 22)
 
     # ── Rent Roll Input ────────────────────────────────────────────────────
     # Restructured column layout (matches Unit Mix Summary COUNTIFS/SUMIFS):
@@ -7128,12 +7554,27 @@ def fill_template(financials, market, output_path):
     #     change the unit type, just adds a diligence flag.
     #   - "Vacant" type field → keep the unit-type the source assigns; the
     #     status field on the row carries "Vacant" separately.
-    def _canonicalize_unit_type(raw):
+    def _canonicalize_unit_type(raw, home_rent=0):
+        """home_rent is an optional fallback signal, not a primary route:
+        some sellers code unit type as an opaque, non-descriptive value
+        (e.g. Blue Island's rent roll uses bare "Type 1"/"Type 2"/"Type 4"
+        instead of "TOH"/"POH"/"Storage") that matches none of the keyword
+        patterns below and would otherwise silently collapse into the TOH
+        catch-all — destroying the POH/TOH bifurcation the methodology's
+        lot-rent-vs-home-rent split depends on (CLAUDE.md §5.2/§5.3). A
+        genuine nonzero home-rent charge on the row is a seller-agnostic
+        signal (not specific to any one deal's coding convention) that the
+        unit is park-owned, so it's used ONLY when no keyword match fires.
+        """
+        try:
+            has_home_rent = float(home_rent or 0) > 0
+        except (TypeError, ValueError):
+            has_home_rent = False
         if not isinstance(raw, str):
-            return "TOH MH Site"
+            return "POH-Infilled units" if has_home_rent else "TOH MH Site"
         s = raw.strip().lower()
         if not s:
-            return "TOH MH Site"
+            return "POH-Infilled units" if has_home_rent else "TOH MH Site"
 
         # ── Regex-based routing for the new canonicals ───────────────────
         # LTO and Flourish are economically distinct from plain TOH (see
@@ -7175,11 +7616,21 @@ def fill_template(financials, market, output_path):
                                  "lot rent", "site rent", "pad")):
             return "TOH MH Site"
 
-        # RV variants
-        if any(p in s for p in ("rv ", "rv-", " rv", "annual rv",
-                                 "long term rv", "long-term rv",
-                                 "long term", "rv lot", "rv site",
-                                 "motorcoach", "motor coach")):
+        # RV variants. \brvs?\b is a WORD-BOUNDARY match so a bare "RV"
+        # label (no prefix/suffix — confirmed real on the Lakeland deal,
+        # whose rent roll uses exactly the 4 bare unit-type strings
+        # "Space" / "RV" / "Rental" / "Storage") still routes correctly.
+        # The old substring checks ("rv ", " rv", "rv-") all required an
+        # adjacent space/hyphen INSIDE the string, so a standalone
+        # 2-character "RV" value matched none of them and fell through to
+        # the TOH catch-all. The second alternative additionally covers
+        # "R.V." / "R.V" / "R.V.s" (periods break "rv" into separate
+        # tokens, so \brvs?\b alone can't see it) — (?=\W|$) replaces the
+        # trailing \b because \b never fires right after punctuation
+        # followed by a space or end-of-string (two non-word characters
+        # in a row never form a boundary).
+        if (_re.search(r"\brvs?\b|\br\.v\.?s?(?=\W|$)", s)
+                or any(p in s for p in ("long term", "motorcoach", "motor coach"))):
             return "Long term RV Site"
 
         # Retail / Commercial / Storage
@@ -7188,9 +7639,22 @@ def fill_template(financials, market, output_path):
                                  "office space")):
             return "Retail/Commercial"
 
-        # Catch-all: assume TOH MH Site. Most MHC sellers use TOH-shaped
-        # labels by default, so this is the safest fallback.
-        return "TOH MH Site"
+        # Bare "Rental" = a company/park-owned home rented to the tenant
+        # (confirmed on the Lakeland deal: rent roll column "RC SB" — Rent
+        # Charge, Stick-Built — is non-zero ONLY on rows typed "Rental",
+        # i.e. it's the home-rent charge for a park-owned home). Checked
+        # after RV/Retail so a hypothetical compound label containing
+        # "rental" alongside an RV/storage word still routes to its more
+        # specific bucket first.
+        if _re.search(r"\brental\b", s):
+            return "POH-Infilled units"
+
+        # Catch-all: no keyword matched (opaque/coded unit-type label, e.g.
+        # a bare "Type 1"/"Type 2"). Most MHC sellers use TOH-shaped labels
+        # by default, so that's the safest default UNLESS this specific row
+        # is actually charging home rent, in which case it's a POH lot
+        # regardless of what its opaque type code says.
+        return "POH-Infilled units" if has_home_rent else "TOH MH Site"
 
     # ── Build per-canonical-type market-rent lookup for vacant imputation ──
     # When a vacant row arrives with lotRent==0, substitute the average
@@ -7202,7 +7666,7 @@ def fill_template(financials, market, output_path):
     market_lot_rent_by_type = {}
     if isinstance(unit_groups, list):
         for grp in unit_groups:
-            ut = _canonicalize_unit_type(grp.get("unitType"))
+            ut = _canonicalize_unit_type(grp.get("unitType"), grp.get("pohRent"))
             lr = grp.get("lotRent") or 0
             if isinstance(lr, (int, float)) and lr > 0:
                 market_lot_rent_by_type.setdefault(ut, lr)
@@ -7213,7 +7677,7 @@ def fill_template(financials, market, output_path):
             continue
         if (row.get("status") or "Occupied").strip().lower() == "vacant":
             continue
-        ut = _canonicalize_unit_type(row.get("unitType", "") or "")
+        ut = _canonicalize_unit_type(row.get("unitType", "") or "", row.get("homeRent"))
         lr = row.get("lotRent") or 0
         if isinstance(lr, (int, float)) and lr > 0:
             occ_rents.setdefault(ut, []).append(float(lr))
@@ -7225,7 +7689,7 @@ def fill_template(financials, market, output_path):
     if per_row:
         for row in per_row:
             raw_type = row.get("unitType", "") or ""
-            canon = _canonicalize_unit_type(raw_type)
+            canon = _canonicalize_unit_type(raw_type, row.get("homeRent"))
             status = row.get("status", "Occupied") or "Occupied"
             raw_lot_rent = row.get("lotRent", 0) or 0
             try:
@@ -7260,9 +7724,9 @@ def fill_template(financials, market, output_path):
             })
     else:
         for grp in unit_groups:
-            ut = _canonicalize_unit_type(grp.get("unitType"))
-            lot_rent = grp.get("lotRent", 0) or 0
             home_rent = grp.get("pohRent", 0) or 0
+            ut = _canonicalize_unit_type(grp.get("unitType"), home_rent)
+            lot_rent = grp.get("lotRent", 0) or 0
             name_prefix = grp.get("tenantNamePattern", "Tenant")
             occ_count = grp.get("occupiedCount", 0) or 0
             vac_count = grp.get("vacantCount", 0) or 0
@@ -7278,14 +7742,22 @@ def fill_template(financials, market, output_path):
                     "tenantName": "", "lotRent": 0, "homeRent": 0,
                 })
 
-    # Template formulas (COUNTIFS / SUMIFS) scan rows 3:2002, so the rent
-    # roll capacity is 2000 rows. Surface a fail check when a deal exceeds
-    # that — silent truncation would understate Total Units (N7) and
-    # Occupancy (N8), which then poisons every downstream calc. To bump
-    # higher: change RENT_ROLL_CAPACITY in build_template.py, rerun it to
-    # regenerate the .xlsx with extended SUMIFS ranges, then update both
-    # the cap below and the warning text.
-    RENT_ROLL_CAPACITY = 2000
+    # Template formulas (COUNTIFS / SUMIFS) scan rows 3:1002 on the CURRENT
+    # on-disk template (verified directly — Unit Mix Summary's COUNTIFS,
+    # Rent Roll Input's own Count/Type formulas all stop at row 1002), so
+    # the real rent-roll capacity is 1000 rows, not 2000. The old value of
+    # 2000 here assumed a template revision that scanned rows 3:2002; that
+    # mismatch meant a deal with 1001-2000 units would write real data
+    # into rows 1003-2002 that Unit Mix Summary's Type-count formulas can
+    # never see — a silent, undetected truncation this check was supposed
+    # to catch but couldn't, because its own threshold was wrong. Surface
+    # a fail check when a deal exceeds the REAL capacity — silent
+    # truncation would understate Total Units (N7) and Occupancy (N8),
+    # which then poisons every downstream calc. To bump higher: change
+    # RENT_ROLL_CAPACITY in build_template.py, rerun it to regenerate the
+    # .xlsx with extended SUMIFS/COUNTIFS ranges, then update both the cap
+    # below and the warning text.
+    RENT_ROLL_CAPACITY = 1000
     if len(individual_units) > RENT_ROLL_CAPACITY:
         financials.setdefault("_extractionChecks", []).append({
             "item": "Rent Roll capacity",
@@ -7380,6 +7852,17 @@ def fill_template(financials, market, output_path):
         if lc_val:
             ws.cell(row=r, column=10, value=lc_val)                  # J — LTO PMT
         # A (Count) and K (Combined) are formulas seeded by fix_template.py
+
+    # Defensive cleanup: no leftover contamination has been found on this
+    # tab (unlike Data Consolidation's rows 103-132), but there's also no
+    # cleanup pass at all today — any row beyond what this deal actually
+    # has would silently keep whatever a future template regeneration
+    # ships there. _clear_cell already skips formula cells (A/D/K), so
+    # this only touches the literal columns this loop itself writes.
+    written_rows = len(individual_units[:RENT_ROLL_CAPACITY])
+    for r in range(3 + written_rows, 3 + RENT_ROLL_CAPACITY):
+        for col in (2, 3, 5, 6, 7, 8, 9, 10):
+            ws._clear_cell(r, col)
 
     # ── Add Miscellaneous tab ──────────────────────────────────────────────
     if "Miscellaneous" in wb.sheetnames:
@@ -7716,6 +8199,30 @@ def fill_template(financials, market, output_path):
                        "consolidation) made it through."),
         })
         print(f"[Template] Formula protection blocked {total_blocks} write(s).")
+
+    # Tally merged-cell collisions the same way. Unlike a formula block,
+    # this means a value the methodology produced was NOT written anywhere
+    # — surface it as a warn so the reviewer knows to cross-check that
+    # line against the source doc rather than trusting the model as-is.
+    total_merged_blocks = sum(
+        ws._merged_blocks[0]
+        for ws in (wb["Data Consolidation"], wb["Rent Roll Input"],
+                   wb["GGC Underwriting"])
+        if getattr(ws, "_merged_blocks", None) is not None
+    )
+    if total_merged_blocks:
+        financials.setdefault("_extractionChecks", []).append({
+            "item": "Template merged-cell collision",
+            "check": "Skip writes that would hit a non-anchor merged cell",
+            "status": "warn",
+            "detail": (f"{total_merged_blocks} cell write(s) targeted a "
+                       "merged cell and were dropped instead of written "
+                       "(openpyxl only allows writes to a merge's "
+                       "top-left anchor). Some methodology output may be "
+                       "missing from the model — cross-check the affected "
+                       "section against the source documents."),
+        })
+        print(f"[Template] Merged-cell protection blocked {total_merged_blocks} write(s).")
 
     # ── Add Extraction Check tab (source reconciliation) ───────────────────
     # This is the "do the numbers tie out?" tab Michael asked for in the
@@ -9240,7 +9747,7 @@ def run_analysis_job(job_id, api_key, file_blocks, property_info):
 
         deep_search = property_info.get("deepSearch", "off") == "on"
         skip_market = bool(property_info.get("_skipMarket"))
-        market_fn = (lambda *a, **k: call_market_research_merged(*a, **k, n_runs=3)) if deep_search else call_market_research
+        market_fn = (lambda *a, **k: call_market_research_merged(*a, **k, n_runs=3, job_id=job_id)) if deep_search else call_market_research
 
         # The financial side is now a 4-step sequence with two opt-in stages:
         #   0. CACHE LOOKUP                   — fingerprint hit returns instantly
@@ -9281,7 +9788,8 @@ def run_analysis_job(job_id, api_key, file_blocks, property_info):
 
             if n_extract_runs > 1:
                 extracted = call_extract_financials_merged(
-                    api_key, file_blocks, property_info, n_runs=n_extract_runs)
+                    api_key, file_blocks, property_info, n_runs=n_extract_runs,
+                    job_id=job_id)
             else:
                 extracted = call_extract_financials(
                     api_key, file_blocks, property_info)
@@ -9316,7 +9824,8 @@ def run_analysis_job(job_id, api_key, file_blocks, property_info):
                   f"{sum(1 for c in checks if c['status'] == 'fail')} fail, "
                   f"{sum(1 for c in checks if c['status'] == 'warn')} warn")
             financials = call_parse_financials_merged(
-                api_key, extracted, property_info, n_runs=n_methodology_runs)
+                api_key, extracted, property_info, n_runs=n_methodology_runs,
+                job_id=job_id)
             # Carry the user-provided county tax rate through into
             # financials.propertyInfo so fill_template can stamp it into
             # the Underwriting tab (P12) — the RE Taxes override formula
@@ -9380,11 +9889,12 @@ def run_analysis_job(job_id, api_key, file_blocks, property_info):
             "_skipped": "Market research skipped (cost-mode override).",
         }
         with ThreadPoolExecutor(max_workers=2) as executor:
-            future_financials = executor.submit(financial_pipeline)
+            future_financials = executor.submit(_run_tagged, job_id, financial_pipeline)
             if skip_market:
                 future_market = None
             else:
-                future_market = executor.submit(market_fn, api_key, property_info)
+                future_market = executor.submit(_run_tagged, job_id, market_fn,
+                                                 api_key, property_info)
 
             results = {}
             futures = [future_financials] + ([future_market] if future_market else [])
@@ -9470,6 +9980,7 @@ def config():
     return jsonify({
         "default_api_key_present": bool(DEFAULT_ANTHROPIC_KEY),
         "google_maps_enabled": bool(GOOGLE_MAPS_API_KEY),
+        "default_doc_ai_present": DOC_AI_ENABLED,
     })
 
 
@@ -9479,6 +9990,17 @@ def analyze():
     api_key = (request.form.get("api_key") or "").strip() or DEFAULT_ANTHROPIC_KEY
     if not api_key:
         return jsonify({"error": "API key required"}), 400
+
+    # Optional per-request Document AI override — a visitor's own GCP
+    # project/processor/service-account key. Blank fields fall back to the
+    # server's env-configured default inside _parse_via_docai. Never
+    # persisted — used only for the parse calls this request triggers.
+    gcp_config = {
+        "project_id":       (request.form.get("gcp_project_id") or "").strip(),
+        "location":         (request.form.get("gcp_location") or "").strip(),
+        "processor_id":     (request.form.get("gcp_processor_id") or "").strip(),
+        "credentials_json": (request.form.get("gcp_credentials_json") or "").strip(),
+    }
 
     # Cost-mode controls. "economy" overrides extraction+methodology to the
     # cheap model, n_runs lets the user dial self-consistency down to 1, and
@@ -9601,7 +10123,22 @@ def analyze():
             return jsonify({"error": f"Unsupported file type: {ext or '<none>'}. "
                                      f"Allowed: {sorted(ALLOWED_UPLOAD_EXTS)}"}), 400
 
-    file_blocks = [encode_file_for_claude(f) for f in files]
+    file_blocks = [encode_file_for_claude(f, gcp_config=gcp_config) for f in files]
+    if file_blocks:
+        # Mark a cache breakpoint at the end of the (often large, always
+        # static-per-job) document content. This exact same file_blocks
+        # list is resent verbatim as the user-turn prefix on every one of
+        # the N self-consistency extraction runs (_submit_staggered gives
+        # the first run a head start to write the cache) and on every
+        # MAX_PARSE_RETRIES retry within a single run — without this
+        # marker every one of those calls paid full input-token price on
+        # the whole document set a second, third, fourth+ time for zero
+        # accuracy benefit (the documents don't change between runs).
+        # Shallow-copy so the shared list/dict isn't mutated across the
+        # threads that will each read it.
+        file_blocks = file_blocks[:-1] + [
+            {**file_blocks[-1], "cache_control": {"type": "ephemeral"}}
+        ]
     job_id = _new_job_id()
     with JOBS_LOCK:
         JOBS[job_id] = {"status": "queued", "progress": "Queued", "result": None,

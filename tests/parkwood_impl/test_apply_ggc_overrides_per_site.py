@@ -308,3 +308,64 @@ def test_bad_debt_synthesized_at_negative_two_percent_of_uw_gpr():
     # And the per-site override layer should have flagged the synthesis.
     assert "Bad Debt" in (bd.get("sellerName") or "") or \
            "synthesized" in (bd.get("notes") or "").lower(), bd
+
+
+def test_bad_debt_not_replugged_when_tier_c_already_zeroed_it():
+    """Regression test: on Parkwood-shaped deals, realized credit losses
+    (negative KCA Ventures / LC Payment rows) get netted into the
+    consolidated GPR row upstream, and financials["_implicitCreditLoss"]
+    records that amount. Tier C (inside apply_ggc_overrides, ahead of
+    `_apply_per_site_overrides`) zeroes any existing Bad Debt line when
+    that implicit loss is >= $10K, to avoid double-counting.
+
+    Previously `_apply_per_site_overrides`'s bad-debt UW plug ran
+    unconditionally right after and re-plugged Bad Debt to -2% x UW GPR,
+    silently undoing Tier C's zeroing and double-counting the realized
+    losses. This pins that the plug is skipped whenever Tier C's implicit
+    -credit-loss signal is present, regardless of whether a Bad Debt row
+    already existed."""
+    gpr_annual = 500_000.0
+    financials = _make_financials(gpr_annual=gpr_annual)
+    # Seller-supplied Bad Debt row that Tier C should zero.
+    financials["income"].append({
+        "sellerName":      "Bad Debt / Write-offs",
+        "ggcCategory":     "Bad Debt",
+        "fyPrior":         -8_000.0, "fyCurrent": -8_000.0,
+        "brokerProforma":  -8_000.0, "t12Total": -8_000.0,
+        "monthly":         [-8_000.0 / 12] * 12,
+        "ggcUnderwritten": -8_000.0,
+        "confidence":      "medium",
+        "notes":           "",
+    })
+    # Simulate the pre-consolidation capture of realized LC credit losses
+    # (Parkwood: 40+ negative KCA Ventures rows) already netted into GPR.
+    financials["_implicitCreditLoss"] = 25_000.0
+    property_info = _property_info(units=100)
+
+    backend.apply_ggc_overrides(financials, property_info)
+
+    bd_rows = [it for it in financials["income"]
+               if (it.get("ggcCategory") or "").strip() == "Bad Debt"]
+    assert len(bd_rows) == 1, bd_rows
+    bd = bd_rows[0]
+    assert bd["ggcUnderwritten"] == 0, (
+        "Bad Debt should stay zeroed by Tier C — the per-site bad-debt "
+        f"plug must not re-plug it when _implicitCreditLoss >= $10K. Got: {bd}"
+    )
+    assert bd["t12Total"] == 0, bd
+
+
+def test_bad_debt_plug_still_fires_when_no_implicit_credit_loss():
+    """Sanity check for the guard above: when `_implicitCreditLoss` is
+    absent/zero (the normal, non-Parkwood-LC-contract case), the per-site
+    bad-debt UW plug must still fire exactly as before."""
+    gpr_annual = 500_000.0
+    financials = _make_financials(gpr_annual=gpr_annual)
+    property_info = _property_info(units=100)
+
+    backend.apply_ggc_overrides(financials, property_info)
+
+    bd_rows = [it for it in financials["income"]
+               if (it.get("ggcCategory") or "").strip() == "Bad Debt"]
+    assert len(bd_rows) == 1, bd_rows
+    assert bd_rows[0]["ggcUnderwritten"] == pytest.approx(-10_000.0), bd_rows[0]

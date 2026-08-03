@@ -6,8 +6,8 @@ They pin the parts that broke 17June:
 
   1. The category enum strings match the SUMIFS criteria in the blank
      template. (Drift here silently zeros UW lines.)
-  2. The Data Consolidation structural-row scanner finds rows 23/25 (income
-     band) and 60/62/64 (expense band). (Writing items onto these rows is
+  2. The Data Consolidation structural-row scanner finds rows 70/72 (income
+     band) and 134/136/138 (expense band). (Writing items onto these rows is
      what landed Advertising T-12 = $1.17M and R&M = $263k in 17June.)
   3. `_normalize_ggc_category` strips `Less:` prefixes and remaps known
      LLM variants ("General and Administrative" -> "G&A"). Belt-and-
@@ -69,28 +69,32 @@ def test_normalize_ggc_category(raw, expected):
 # 2. _structural_rows — pin the Data Consolidation structural-row inventory
 # ─────────────────────────────────────────────────────────────────────────────
 def test_structural_rows_income_band():
-    """The blank template puts the income SUM at row 23 and the
-    reconciliation IF-check at row 25. The structural-row scanner MUST find
-    them — if it doesn't, the write loop will overwrite their column A and
-    UW SUMIFS will pull formula outputs as line values (the 17June bug).
+    """The live template puts the income SUM at row 70 and the
+    reconciliation IF-check at row 72 (income leaf rows now run 3-68, per
+    the fix that widened income_structural/income_slots from range(3,37)
+    to range(3,70) — see backend.py fill_template comments around the
+    income_structural/expense_structural definitions). The structural-row
+    scanner MUST find them — if it doesn't, the write loop will overwrite
+    their column A and UW SUMIFS will pull formula outputs as line values
+    (the 17June bug).
     """
     wb = load_workbook(TEMPLATE_PATH, data_only=False)
     ws = wb["Data Consolidation"]
-    found = backend._structural_rows(ws, 3, 36)
-    assert 23 in found, "row 23 (=SUM(D3:D21) — income subtotal) must be structural"
-    assert 25 in found, "row 25 (=IF(D23=D24,\"OK\") — reconciliation) must be structural"
+    found = backend._structural_rows(ws, 3, 72)
+    assert 70 in found, "row 70 (=SUM(D3:D68) — income subtotal) must be structural"
+    assert 72 in found, "row 72 (=IF(D70=D71,\"OK\") — reconciliation) must be structural"
 
 
 def test_structural_rows_expense_band():
-    """Rows 60 (=SUM(D28:D58)), 62 (=IF check), and 64 (=D23-D60, the NOI
-    row) are the three landmines in the expense band. Writing a category
-    label onto any of them is exactly how 17June's Advertising T-12 became
-    $1.17M.
+    """Rows 134 (=SUM(D75:D132)), 136 (=IF check), and 138 (=D70-D134, the
+    NOI row) are the three landmines in the expense band (expense leaf rows
+    now run 75-132). Writing a category label onto any of them is exactly
+    how 17June's Advertising T-12 became $1.17M.
     """
     wb = load_workbook(TEMPLATE_PATH, data_only=False)
     ws = wb["Data Consolidation"]
-    found = backend._structural_rows(ws, 43, 102)
-    for r in (60, 62, 64):
+    found = backend._structural_rows(ws, 75, 138)
+    for r in (134, 136, 138):
         assert r in found, f"row {r} must be detected as structural (carries a SUM/IF/NOI formula)"
 
 
@@ -112,20 +116,45 @@ def test_enough_slots_after_skip():
 # 3. Enum vs template SUMIFS contract
 # ─────────────────────────────────────────────────────────────────────────────
 def _sumifs_criteria_in_uw():
-    """Pull every literal-string criterion out of GGC Underwriting SUMIFS.
+    """Pull every criterion out of GGC Underwriting SUMIFS — both literal
+    string criteria (`"Parking Income"`) and same-row cell-reference criteria
+    (`A12`, or fully-qualified `'GGC Underwriting'!A12`). The template uses
+    the cell-reference form throughout rows 12-14/17 and 22-43: the SUMIFS on
+    row N reads its own column-A label (e.g. A12 = "Utility Reimbursement")
+    rather than repeating the string as a literal. That's a legitimate,
+    working pattern — not a missing SUMIFS — so it must resolve to the same
+    criterion a literal-string SUMIFS would.
+
     Returns the set of strings the template is searching `Data Consolidation`
     column A for. Anything in the enum that ISN'T here is unreachable;
     anything here that ISN'T in the enum will silently zero the UW line.
     """
     wb = load_workbook(TEMPLATE_PATH, data_only=False)
     ws = wb["GGC Underwriting"]
-    pat = re.compile(r'SUMIFS\([^,]+,[^,]+,"([^"]+)"\)', re.IGNORECASE)
+    literal_pat = re.compile(r'SUMIFS\([^,]+,[^,]+,"([^"]+)"\)', re.IGNORECASE)
+    # Matches a bare `,A12)` or `,'GGC Underwriting'!A12)` trailing criterion
+    # arg — i.e. "use whichever row this formula itself lives on".
+    cellref_pat = re.compile(
+        r"SUMIFS\([^,]+,[^,]+,(?:'GGC Underwriting'!)?\$?([A-Z]+)\$?(\d+)\)",
+        re.IGNORECASE,
+    )
     criteria = set()
     for row in ws.iter_rows():
         for cell in row:
             v = cell.value
-            if isinstance(v, str) and "SUMIFS" in v.upper():
-                criteria.update(pat.findall(v))
+            if not (isinstance(v, str) and "SUMIFS" in v.upper()):
+                continue
+            criteria.update(literal_pat.findall(v))
+            for col_letter, row_num in cellref_pat.findall(v):
+                ref_row = int(row_num)
+                # Only same-row self-references are the "my own label" idiom
+                # this template uses; anything else would be a genuinely
+                # different (and currently unsupported) indirection pattern.
+                if ref_row != cell.row:
+                    continue
+                label = ws[f"{col_letter}{ref_row}"].value
+                if isinstance(label, str) and label.strip():
+                    criteria.add(label.strip())
     return criteria
 
 
@@ -155,7 +184,7 @@ def test_end_to_end_write_preserves_structural_rows():
     INCLUDES the failure modes 17June hit ("Less:" prefix, the empty
     `5700 Total Personnel` placeholder, the "General and Administrative"
     variant) and assert that:
-      - structural rows 60, 62, 64 keep their formulas in column G,
+      - structural rows 70, 72, 134, 136, 138 keep their formulas in column G,
       - their column A is empty (no label landed on them),
       - the placeholder Payroll subtotal is dropped,
       - the variant strings get normalized to the canonical enum values.
@@ -232,12 +261,15 @@ def test_end_to_end_write_preserves_structural_rows():
         ws = wb["Data Consolidation"]
 
         # Critical structural-row assertions: formulas preserved, column A clear.
-        for r in (23, 60, 62, 64):
+        # Live template's structural rows: 70/72 (income SUM/IF-check) and
+        # 134/136/138 (expense SUM/IF-check/NOI) — see test_structural_rows_*
+        # above for the row-bounds fix this mirrors.
+        for r in (70, 72, 134, 136, 138):
             assert ws.cell(row=r, column=1).value is None, (
                 f"row {r} column A must be empty (structural row); "
                 f"got {ws.cell(row=r, column=1).value!r}")
-        for r, col, must_be_formula in [(23, 7, True), (60, 7, True), (64, 7, True)]:
-            v = ws.cell(row=r, column=col).value
+        for r in (70, 72, 134, 136, 138):
+            v = ws.cell(row=r, column=7).value
             assert isinstance(v, str) and v.startswith("="), (
                 f"row {r} column G must still hold a formula; got {v!r}")
     finally:

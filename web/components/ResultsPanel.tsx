@@ -76,8 +76,27 @@ export default function ResultsPanel({ result }: { result: JobResult }) {
   const occupancy = ((rr.occupancyRate ?? 0) * 100).toFixed(1) + "%";
 
   // Per-deal API spend (absent on results that predate usage tracking).
-  const cost =
-    typeof result.usage?.totals?.cost_usd === "number" ? result.usage.totals.cost_usd : null;
+  const usageTotals = result.usage?.totals;
+  const cost = typeof usageTotals?.cost_usd === "number" ? usageTotals.cost_usd : null;
+  // Cache hit rate — the fraction of input tokens read from Anthropic's
+  // prompt cache (~10-20% of normal price) vs. paid at full price. A low
+  // rate on a multi-run (self-consistency) job usually means the cache
+  // isn't being reused across runs/retries as intended.
+  const cacheReadTok = usageTotals?.cache_read_input_tokens ?? 0;
+  const cacheWriteTok = usageTotals?.cache_creation_input_tokens ?? 0;
+  const plainInputTok = usageTotals?.input_tokens ?? 0;
+  const totalInputTok = cacheReadTok + cacheWriteTok + plainInputTok;
+  const cacheHitRate = totalInputTok > 0 ? cacheReadTok / totalInputTok : null;
+  const perModel = result.usage?.per_model
+    ? Object.entries(result.usage.per_model).sort((a, b) => b[1].cost_usd - a[1].cost_usd)
+    : [];
+  const costSubtitleParts = [`${result.usage?.calls ?? 0} Claude calls`];
+  if (cacheHitRate !== null) costSubtitleParts.push(`${Math.round(cacheHitRate * 100)}% cache hit`);
+  if (perModel.length > 1) {
+    costSubtitleParts.push(
+      perModel.map(([m, u]) => `${m.replace("claude-", "")} $${u.cost_usd.toFixed(2)}`).join(", "),
+    );
+  }
 
   const flags = (f.flags ?? []).slice(0, 5);
   const avgCompLotRent = rentComps.length
@@ -127,7 +146,7 @@ export default function ResultsPanel({ result }: { result: JobResult }) {
           <KpiCard
             label="API Cost"
             value={"$" + cost.toFixed(2)}
-            subtitle={`${result.usage?.calls ?? 0} Claude calls`}
+            subtitle={costSubtitleParts.join(" · ")}
           />
         )}
       </div>

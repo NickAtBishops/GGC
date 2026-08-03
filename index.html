@@ -660,11 +660,29 @@
     // in the walkthrough, especially for the 3× reconcile mode). Falls back
     // to an empty string when the result predates usage tracking.
     const usage = result.usage || {};
+    const usageTotals = usage.totals || {};
     const cost = usage.totals ? usage.totals.cost_usd : null;
+    // Cache hit rate + per-model split — the "why" behind the total, so a
+    // pricier-than-expected run is self-diagnosing instead of a mystery
+    // number (see backend.py get_usage_summary / _submit_staggered).
+    const cacheReadTok = usageTotals.cache_read_input_tokens || 0;
+    const cacheWriteTok = usageTotals.cache_creation_input_tokens || 0;
+    const plainInputTok = usageTotals.input_tokens || 0;
+    const totalInputTok = cacheReadTok + cacheWriteTok + plainInputTok;
+    const cacheHitRate = totalInputTok > 0 ? cacheReadTok / totalInputTok : null;
+    const perModelEntries = usage.per_model
+      ? Object.entries(usage.per_model).sort((a, b) => b[1].cost_usd - a[1].cost_usd)
+      : [];
+    const costSubtitleParts = [`${usage.calls} Claude calls`];
+    if (cacheHitRate !== null) costSubtitleParts.push(`${Math.round(cacheHitRate * 100)}% cache hit`);
+    if (perModelEntries.length > 1) {
+      costSubtitleParts.push(perModelEntries.map(([m, u]) =>
+        `${m.replace('claude-', '')} $${u.cost_usd.toFixed(2)}`).join(', '));
+    }
     const costCard = cost == null ? '' : kpiCard(
       'API Cost',
       '$' + cost.toFixed(2),
-      `${usage.calls} Claude calls`
+      costSubtitleParts.join(' · ')
     );
     const omittCard = omittTotal === 0 ? '' : kpiCard(
       'Omitt (excluded)',

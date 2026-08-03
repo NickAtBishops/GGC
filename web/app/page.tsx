@@ -5,19 +5,31 @@
 // page refresh resumes polling.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import ApiKeyCard from "@/components/ApiKeyCard";
 import DealForm from "@/components/DealForm";
+import DocAiKeyCard from "@/components/DocAiKeyCard";
 import JobProgress, { type ProgressSteps } from "@/components/JobProgress";
 import ResultsPanel from "@/components/ResultsPanel";
 import {
   cancelJob,
+  EMPTY_GCP_CONFIG,
+  getConfig,
   getJobStatus,
   startAnalysis,
   type DealFormFields,
+  type GcpDocAiConfig,
   type JobResult,
 } from "@/lib/engine";
 
 const ACTIVE_JOB_KEY = "ggc_active_job";
+const API_KEY_STORAGE_KEY = "anthropic_api_key";
+const GCP_CONFIG_STORAGE_KEY = "gcp_doc_ai_config";
 const POLL_INTERVAL_MS = 4000;
+// A single failed status check (e.g. a Cloud Run revision cutover, or a
+// momentary network blip) used to kill an otherwise-healthy job outright.
+// Tolerate a run of transient failures before giving up — the job itself
+// lives server-side and is almost always still fine seconds later.
+const MAX_CONSECUTIVE_POLL_FAILURES = 5;
 
 interface StoredJob {
   jobId: string;
@@ -64,7 +76,54 @@ export default function HomePage() {
   const [fillActive, setFillActive] = useState(false);
   const [result, setResult] = useState<JobResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [reconnecting, setReconnecting] = useState(false);
+  const [apiKey, setApiKey] = useState("");
+  const [defaultKeyPresent, setDefaultKeyPresent] = useState(false);
+  const [gcpConfig, setGcpConfig] = useState<GcpDocAiConfig>(EMPTY_GCP_CONFIG);
+  const [defaultDocAiPresent, setDefaultDocAiPresent] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const consecutiveFailuresRef = useRef(0);
+
+  // Restore the visitor's own key/GCP config (if saved) and check what the
+  // server has configured by default, so the form knows whether a key is
+  // required and the status badges reflect reality on first paint.
+  useEffect(() => {
+    try {
+      const savedKey = localStorage.getItem(API_KEY_STORAGE_KEY);
+      if (savedKey) setApiKey(savedKey);
+      const savedGcp = localStorage.getItem(GCP_CONFIG_STORAGE_KEY);
+      if (savedGcp) setGcpConfig({ ...EMPTY_GCP_CONFIG, ...JSON.parse(savedGcp) });
+    } catch {
+      // localStorage unavailable — keys still work for this session
+    }
+    getConfig()
+      .then((cfg) => {
+        setDefaultKeyPresent(Boolean(cfg.default_api_key_present));
+        setDefaultDocAiPresent(Boolean(cfg.default_doc_ai_present));
+      })
+      .catch(() => {});
+  }, []);
+
+  function handleApiKeyChange(key: string) {
+    setApiKey(key);
+    try {
+      if (key) localStorage.setItem(API_KEY_STORAGE_KEY, key);
+      else localStorage.removeItem(API_KEY_STORAGE_KEY);
+    } catch {
+      // localStorage unavailable — key still works for this session
+    }
+  }
+
+  function handleGcpConfigChange(config: GcpDocAiConfig) {
+    setGcpConfig(config);
+    try {
+      const isEmpty = Object.values(config).every((v) => !v);
+      if (isEmpty) localStorage.removeItem(GCP_CONFIG_STORAGE_KEY);
+      else localStorage.setItem(GCP_CONFIG_STORAGE_KEY, JSON.stringify(config));
+    } catch {
+      // localStorage unavailable — config still works for this session
+    }
+  }
 
   const stopPolling = useCallback(() => {
     if (pollRef.current !== null) {
@@ -76,10 +135,14 @@ export default function HomePage() {
   const beginPolling = useCallback(
     (id: string) => {
       stopPolling();
+      consecutiveFailuresRef.current = 0;
+      setReconnecting(false);
 
       const tick = async () => {
         try {
           const job = await getJobStatus(id);
+          consecutiveFailuresRef.current = 0;
+          setReconnecting(false);
           setProgress(job.progress ?? "");
 
           if (job.status === "complete") {
@@ -124,6 +187,14 @@ export default function HomePage() {
             setFillActive(true);
           }
         } catch (e) {
+          consecutiveFailuresRef.current += 1;
+          if (consecutiveFailuresRef.current < MAX_CONSECUTIVE_POLL_FAILURES) {
+            // Likely transient (a Cloud Run revision cutover, a momentary
+            // network blip) — the job is still running server-side. Keep
+            // polling instead of throwing away an otherwise-healthy job.
+            setReconnecting(true);
+            return;
+          }
           stopPolling();
           clearStoredJob();
           setError(e instanceof Error ? e.message : "Lost contact with the engine.");
@@ -162,7 +233,7 @@ export default function HomePage() {
 
       void (async () => {
         try {
-          const id = await startAnalysis(fields, files);
+          const id = await startAnalysis(fields, files, apiKey, gcpConfig);
           setJobId(id);
           saveStoredJob({ jobId: id, startedAt: startedAtMs });
           setPhase("polling");
@@ -173,7 +244,7 @@ export default function HomePage() {
         }
       })();
     },
-    [beginPolling],
+    [apiKey, gcpConfig, beginPolling],
   );
 
   const steps: ProgressSteps = useMemo(() => {
@@ -204,7 +275,17 @@ export default function HomePage() {
 
   return (
     <>
-      <DealForm busy={busy} onSubmit={handleSubmit} />
+      <ApiKeyCard apiKey={apiKey} defaultKeyPresent={defaultKeyPresent} onApiKeyChange={handleApiKeyChange} />
+      <DocAiKeyCard
+        gcpConfig={gcpConfig}
+        defaultDocAiPresent={defaultDocAiPresent}
+        onChange={handleGcpConfigChange}
+      />
+      <DealForm
+        busy={busy}
+        apiKeyReady={Boolean(apiKey) || defaultKeyPresent}
+        onSubmit={handleSubmit}
+      />
 
       {phase !== "idle" && (
         <JobProgress
@@ -212,6 +293,7 @@ export default function HomePage() {
           progress={progress}
           startedAt={startedAt}
           running={busy}
+          reconnecting={reconnecting}
           onCancel={
             jobId
               ? () => {

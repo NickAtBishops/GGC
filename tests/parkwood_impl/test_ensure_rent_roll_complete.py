@@ -223,3 +223,34 @@ def test_flag_and_extraction_check_emitted():
         c.get("item") == "Vacant-pad imputation" and c.get("status") == "warn"
         for c in checks
     ), f"Expected a WARN 'Vacant-pad imputation' check; got {checks}"
+
+
+def test_message_reports_rows_shortfall_not_groups_shortfall():
+    """Regression test: when unitGroups already tally to stated_units
+    (groups_shortfall=0) but rentRollRows is short (rows_shortfall>0), the
+    reviewer-facing flag/check/print text must report the actual number of
+    rows imputed, not 0. Previously these messages always interpolated
+    `shortfall` (== groups_shortfall), so the audit trail on the
+    Extraction Check tab could claim "assumed 0 additional vacant lots"
+    while 3 phantom rows were silently appended to rentRollRows."""
+    financials = _build_financials()
+    # Make unitGroups already tally to stated_units (groups_shortfall=0)
+    # while rentRollRows stays at 97 (rows_shortfall=3).
+    financials["rentRoll"]["unitGroups"][0]["vacantCount"] = SHORTFALL
+    property_info = {"units": STATED_UNITS}
+
+    backend._ensure_rent_roll_complete(financials, property_info)
+
+    # Rows still get imputed correctly regardless of the message bug.
+    rows = financials["rentRoll"]["rentRollRows"]
+    assert len(rows) == STATED_UNITS
+
+    flags = financials.get("flags") or []
+    flag = next(f for f in flags if f.get("item") == "Rent roll vs unit count")
+    assert f"{SHORTFALL} additional vacant lot" in flag["issue"], flag
+    assert "assumed 0" not in flag["issue"], flag
+
+    checks = financials.get("_extractionChecks") or []
+    check = next(c for c in checks if c.get("item") == "Vacant-pad imputation")
+    assert f"Imputed {SHORTFALL}" in check["detail"], check
+    assert "Imputed 0" not in check["detail"], check
