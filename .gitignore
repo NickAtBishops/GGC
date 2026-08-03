@@ -22,6 +22,10 @@ web/node_modules/
 web/.next/
 web/.env.local
 
+# Vercel CLI project link (local machine state, not shared config —
+# deploy from repo root now that the project's Root Directory is "web")
+.vercel/
+
 # Secrets — never commit these
 .env
 *.key
