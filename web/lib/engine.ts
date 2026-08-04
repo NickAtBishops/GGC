@@ -184,21 +184,6 @@ export interface EngineConfig {
   default_doc_ai_present?: boolean;
 }
 
-/** A visitor's own Google Document AI project, in place of the server's default. */
-export interface GcpDocAiConfig {
-  project_id: string;
-  location: string;
-  processor_id: string;
-  credentials_json: string;
-}
-
-export const EMPTY_GCP_CONFIG: GcpDocAiConfig = {
-  project_id: "",
-  location: "",
-  processor_id: "",
-  credentials_json: "",
-};
-
 /**
  * GET /api/config — whether the server has its own Anthropic key configured.
  * The key itself is never returned (see backend.py's `/api/config` docstring
@@ -216,21 +201,14 @@ export async function getConfig(): Promise<EngineConfig> {
  * POST /api/analyze — multipart upload. Resolves to the new job id.
  * `apiKey` is the caller's own Anthropic key (from browser localStorage);
  * pass an empty string to fall back to the server's default key, if any.
- * `gcpConfig` is the caller's own Document AI project, same fallback rule —
- * any blank field there falls back to the server's default.
  */
 export async function startAnalysis(
   fields: DealFormFields,
   files: File[],
   apiKey: string,
-  gcpConfig: GcpDocAiConfig = EMPTY_GCP_CONFIG,
 ): Promise<string> {
   const fd = new FormData();
   fd.append("api_key", apiKey);
-  fd.append("gcp_project_id", gcpConfig.project_id);
-  fd.append("gcp_location", gcpConfig.location);
-  fd.append("gcp_processor_id", gcpConfig.processor_id);
-  fd.append("gcp_credentials_json", gcpConfig.credentials_json);
   fd.append("property_name", fields.property_name);
   fd.append("address", fields.address);
   fd.append("city", fields.city);

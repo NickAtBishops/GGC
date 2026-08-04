@@ -7,23 +7,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ApiKeyCard from "@/components/ApiKeyCard";
 import DealForm from "@/components/DealForm";
-import DocAiKeyCard from "@/components/DocAiKeyCard";
 import JobProgress, { type ProgressSteps } from "@/components/JobProgress";
 import ResultsPanel from "@/components/ResultsPanel";
 import {
   cancelJob,
-  EMPTY_GCP_CONFIG,
   getConfig,
   getJobStatus,
   startAnalysis,
   type DealFormFields,
-  type GcpDocAiConfig,
   type JobResult,
 } from "@/lib/engine";
 
 const ACTIVE_JOB_KEY = "ggc_active_job";
 const API_KEY_STORAGE_KEY = "anthropic_api_key";
-const GCP_CONFIG_STORAGE_KEY = "gcp_doc_ai_config";
 const POLL_INTERVAL_MS = 4000;
 // A single failed status check (e.g. a Cloud Run revision cutover, or a
 // momentary network blip) used to kill an otherwise-healthy job outright.
@@ -79,28 +75,20 @@ export default function HomePage() {
   const [reconnecting, setReconnecting] = useState(false);
   const [apiKey, setApiKey] = useState("");
   const [defaultKeyPresent, setDefaultKeyPresent] = useState(false);
-  const [gcpConfig, setGcpConfig] = useState<GcpDocAiConfig>(EMPTY_GCP_CONFIG);
-  const [defaultDocAiPresent, setDefaultDocAiPresent] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const consecutiveFailuresRef = useRef(0);
 
-  // Restore the visitor's own key/GCP config (if saved) and check what the
-  // server has configured by default, so the form knows whether a key is
-  // required and the status badges reflect reality on first paint.
+  // Restore the visitor's own key (if saved) and check whether the server
+  // has a shared default so the form knows whether a key is required.
   useEffect(() => {
     try {
       const savedKey = localStorage.getItem(API_KEY_STORAGE_KEY);
       if (savedKey) setApiKey(savedKey);
-      const savedGcp = localStorage.getItem(GCP_CONFIG_STORAGE_KEY);
-      if (savedGcp) setGcpConfig({ ...EMPTY_GCP_CONFIG, ...JSON.parse(savedGcp) });
     } catch {
-      // localStorage unavailable — keys still work for this session
+      // localStorage unavailable — key still works for this session
     }
     getConfig()
-      .then((cfg) => {
-        setDefaultKeyPresent(Boolean(cfg.default_api_key_present));
-        setDefaultDocAiPresent(Boolean(cfg.default_doc_ai_present));
-      })
+      .then((cfg) => setDefaultKeyPresent(Boolean(cfg.default_api_key_present)))
       .catch(() => {});
   }, []);
 
@@ -111,17 +99,6 @@ export default function HomePage() {
       else localStorage.removeItem(API_KEY_STORAGE_KEY);
     } catch {
       // localStorage unavailable — key still works for this session
-    }
-  }
-
-  function handleGcpConfigChange(config: GcpDocAiConfig) {
-    setGcpConfig(config);
-    try {
-      const isEmpty = Object.values(config).every((v) => !v);
-      if (isEmpty) localStorage.removeItem(GCP_CONFIG_STORAGE_KEY);
-      else localStorage.setItem(GCP_CONFIG_STORAGE_KEY, JSON.stringify(config));
-    } catch {
-      // localStorage unavailable — config still works for this session
     }
   }
 
@@ -233,7 +210,7 @@ export default function HomePage() {
 
       void (async () => {
         try {
-          const id = await startAnalysis(fields, files, apiKey, gcpConfig);
+          const id = await startAnalysis(fields, files, apiKey);
           setJobId(id);
           saveStoredJob({ jobId: id, startedAt: startedAtMs });
           setPhase("polling");
@@ -244,7 +221,7 @@ export default function HomePage() {
         }
       })();
     },
-    [apiKey, gcpConfig, beginPolling],
+    [apiKey, beginPolling],
   );
 
   const steps: ProgressSteps = useMemo(() => {
@@ -276,11 +253,6 @@ export default function HomePage() {
   return (
     <>
       <ApiKeyCard apiKey={apiKey} defaultKeyPresent={defaultKeyPresent} onApiKeyChange={handleApiKeyChange} />
-      <DocAiKeyCard
-        gcpConfig={gcpConfig}
-        defaultDocAiPresent={defaultDocAiPresent}
-        onChange={handleGcpConfigChange}
-      />
       <DealForm
         busy={busy}
         apiKeyReady={Boolean(apiKey) || defaultKeyPresent}
